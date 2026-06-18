@@ -1,0 +1,10 @@
+/rc_serial_driver:
+  ros__parameters:
+    can_interface: "can0"        # CAN 接口名称
+    can_bitrate: 1000000         # CAN 波特率 (bit/s)
+    can_id_frame1: 18    # 0x12 的十进制
+    can_id_frame2: 19    # 0x13 的十进制
+    can_id_restart: 48   # 0x30 的十进制
+    restart_enabled: true
+    restart_script: "/home/orangepi/RC_LIDAR_NOW!!!/autostart/restart_lidar_stack.sh"
+    timestamp_offset: 0.0         # 时间戳偏移

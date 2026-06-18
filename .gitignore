@@ -1,0 +1,54 @@
+# ROS 2 / colcon generated files
+/build/
+/install/
+/log/
+/logs/
+/.nested_git_backup/
+
+# Local archives and extracted transfer packages
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+*.rar
+
+# Python cache and test output
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# CMake and compiler output
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+*.o
+*.so
+*.a
+*.d
+
+# Runtime logs and generated data
+*.log
+*.out
+*.pid
+*.status
+*.pcd
+*.bag
+*.db3
+*.mcap
+/autostart/backup/
+/autostart/tmp/
+/autostart/.marscode/
+
+# Editor and OS files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
