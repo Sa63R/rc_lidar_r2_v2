@@ -125,7 +125,7 @@ src/livox_ros_driver2/config/MID360_config.json
 其中默认：
 
 - 主机 IP：`192.168.1.5`
-- 雷达 IP：`192.168.1.155`
+- 雷达 IP：`192.168.1.124`
 
 当前机器实际活动网口是 `192.168.178.148/24`，不在 `192.168.1.0/24` 网段，所以启动 Livox 驱动时出现过：
 
@@ -136,16 +136,28 @@ Failed to init livox lidar sdk.
 
 这不是编译问题，是网口 IP 和配置文件不匹配。运行前需要把接雷达的网口配置到 `192.168.1.5/24`，或者把 `MID360_config.json` 里的 host IP 改成实际雷达网段内的本机 IP。
 
+当前 Orange Pi 上确认到 MID360 在 `eth0` 上，`arping -I eth0 192.168.1.124` 可以收到雷达回应。不要把同一个 `192.168.1.5/24` 同时配置到多个网口；否则 Linux 可能把去雷达的路由发到错误网口，导致 Livox 驱动启动但 `/livox/lidar` 和 `/livox/imu` 没有 publisher。
+
 临时配置示例：
 
 ```bash
 ip -brief addr
 sudo ip link set <雷达网口名> up
 sudo ip addr add 192.168.1.5/24 dev <雷达网口名>
-ping 192.168.1.155
+ping 192.168.1.124
 ```
 
 如果提示地址已存在或网段冲突，先用 `ip addr show <雷达网口名>` 检查，再清理旧地址。
+
+本机推荐配置：
+
+```bash
+sudo ip addr del 192.168.1.5/24 dev enx427ccccb233b 2>/dev/null || true
+sudo ip link set eth0 up
+sudo ip addr add 192.168.1.5/24 dev eth0 2>/dev/null || true
+ip route get 192.168.1.124
+arping -I eth0 -c 3 192.168.1.124
+```
 
 ### CAN 接口
 
@@ -255,7 +267,7 @@ cd "/home/orangepi/RC_LIDAR_NOW!!!"
 
 ```text
 TF_STATIC1       body -> base_link
-TF_STATIC2       lidar -> init
+TF_STATIC2       world -> init
 TF_STATIC3       body_highrate -> base_link_highrate
 LIVOX            Livox MID360 driver
 FASTLIO          FAST-LIO mapping, rviz 默认 true
@@ -294,6 +306,9 @@ ros2 topic echo /Odometry --once
 
 ```bash
 ros2 run tf2_ros tf2_echo camera_init body
+ros2 run tf2_ros tf2_echo world init
+ros2 run tf2_ros tf2_echo body base_link
+ros2 run tf2_ros tf2_echo body_highrate base_link_highrate
 ros2 run tf2_ros tf2_echo init base_link
 ros2 run tf2_ros tf2_echo init base_link_highrate
 ```
@@ -320,7 +335,22 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
 4. `src/my_static_tf/launch/lidar_to_base_highrate.launch.py`
    - 新增高频 base_link 静态 TF：`body_highrate -> base_link_highrate`，用于修复原脚本引用了不存在 launch 文件的问题。
 
-5. `src/rc_serial_driver/config/rc_serial_driver.yaml`
+5. `src/my_static_tf/launch/map_to_init.launch.py`
+   - 把静态 TF 从 `lidar -> init` 调整为正常运行树需要的 `world -> init`，使 `init` 能连接到 `camera_init/world/body_highrate` 主树。
+
+6. `src/my_static_tf/launch/*.launch.py`
+   - 按雷达安装位置更新机器人中心相对雷达坐标系的静态外参。
+   - 当前统一参数为：`x=-0.240, y=0.315, z=-0.760, roll=0, pitch=0, yaw=pi`。
+   - `world -> init`、`body -> base_link`、`body_highrate -> base_link_highrate` 三套 TF 使用同一组外参。
+
+7. `autostart/world_tf.sh`
+   - `world` 初始化保持为“先等待 10 秒，再对 FAST-LIO 的 `camera_init -> body` 采样平均 3 秒”，用于避开刚启动时的不稳定状态。
+
+8. `autostart/livox.sh`、`autostart/setup_livox_net.sh`
+   - 增加 Livox 网口路由检查和重复 `192.168.1.5/24` 地址提醒。
+   - 新增 `setup_livox_net.sh`，用于把接雷达的网口配置为 `192.168.1.5/24` 并用 ARP 探测雷达。
+
+9. `src/rc_serial_driver/config/rc_serial_driver.yaml`
    - 增加 `restart_script`，指向当前工作区的 `autostart/restart_lidar_stack.sh`。
 
 ## 注意事项
@@ -328,5 +358,9 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
 - `autostart/backup/` 是旧备份目录，未参与一键启动，里面仍可能保留旧路径。
 - Livox 驱动的 `bind failed` 通常是本机 IP 没配到 JSON 里的 host IP，不是 ROS 编译失败。
 - `rc_serial_driver` 在 `can0` down 时会反复尝试重连并打印 `Network is down`，先把 CAN 接口拉起来再启动即可。
-- 当前系统未安装 `robot_localization`，一键启动会自动降级为静态 `body -> body_highrate`。安装 `ros-humble-robot-localization` 后会自动使用 EKF。
-- 当前工作区不是顶层 git 仓库；如果后续要追踪修改，建议先初始化 git 或把修改后的压缩包单独保存。
+- 当前系统未安装 `robot_localization`，一键启动会自动降级为静态 `body -> body_highrate`。安装 `ros-humble-robot-localization` 后会自动使用 EKF：
+
+```bash
+sudo apt update
+sudo apt install -y ros-humble-robot-localization
+```
