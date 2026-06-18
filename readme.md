@@ -8,13 +8,14 @@
 - ROS：ROS 2 Humble
 - 工作区路径：`/home/orangepi/RC_LIDAR_NOW!!!`
 - 已存在关键工具：`colcon`、`ros2`、`rosdep`
+- 已安装 PlotJuggler：`ros-humble-plotjuggler`、`ros-humble-plotjuggler-ros`
 - 已存在 Livox-SDK2：
   - `/usr/local/include/livox_lidar_api.h`
   - `/usr/local/include/livox_lidar_def.h`
   - `/usr/local/lib/liblivox_lidar_sdk_shared.so`
   - `/usr/local/lib/liblivox_lidar_sdk_static.a`
 
-当前机器上 `rosdep` 还没有初始化，且当前用户没有免密 sudo，所以本次没有执行系统级安装。现有系统依赖已经足够完成编译。
+当前机器上 `rosdep` 还没有初始化，且当前用户没有免密 sudo，所以部分系统级安装需要手动输入 sudo 密码。PlotJuggler 自动确认弹窗需要 `xdotool`。
 
 ## 包结构
 
@@ -23,7 +24,7 @@
 - `livox_ros_driver2`：Livox 雷达驱动，发布 `/livox/lidar` 和 `/livox/imu`
 - `fast_lio`：FAST-LIO 建图定位节点
 - `my_static_tf`：静态 TF launch
-- `fastlio_world_init`：根据 FAST-LIO 初始 TF 生成 world 初始化 TF 的 Python 节点
+- `fastlio_world_init`：根据 FAST-LIO 初始 TF 生成 world 初始化 TF，并发布 TF 对比曲线 topic 的 Python 节点
 - `rc_serial_driver`：读取 TF 并通过 SocketCAN 发送位姿，同时监听 CAN 重启命令
 
 ## 新环境依赖安装
@@ -40,6 +41,7 @@ sudo apt install -y \
   ros-humble-rclcpp-components \
   ros-humble-tf2-ros ros-humble-tf2-geometry-msgs \
   ros-humble-robot-localization \
+  ros-humble-plotjuggler ros-humble-plotjuggler-ros xdotool \
   libpcl-dev libeigen3-dev libboost-all-dev libapr1-dev
 ```
 
@@ -109,6 +111,8 @@ done
 fast_lio fastlio_mapping
 livox_ros_driver2 livox_ros_driver2_node
 rc_serial_driver rc_serial_driver_node
+fastlio_world_init lidar_tf_offset
+fastlio_world_init robot_tf_offsets
 fastlio_world_init world_from_fastlio_init
 ```
 
@@ -250,7 +254,7 @@ cd "/home/orangepi/RC_LIDAR_NOW!!!"
 RC_AUTOSTART_DRY_RUN=1 ./autostart/start_all_terminals.sh
 ```
 
-确认输出里 9 个启动项都显示 `would launch` 后，再执行真正的一键启动：
+确认输出里启动项都显示 `would launch` 后，再执行真正的一键启动：
 
 ```bash
 cd "/home/orangepi/RC_LIDAR_NOW!!!"
@@ -273,14 +277,30 @@ LIVOX            Livox MID360 driver
 FASTLIO          FAST-LIO mapping, rviz 默认 true
 HIGHRATE_BODY    robot_localization EKF；未安装时降级为 body -> body_highrate 静态 TF
 world_tf         fastlio_world_init
+TF_ROBOT_OFFSET  发布 init -> base_link / base_link_highrate 的 XYZ 对比 topic
+TF_LIDAR_OFFSET  发布 world -> body 的 XYZ 对比 topic
 CAN_SERIAL       rc_serial_driver
 LIDAR_XYZR       点云调试打印
+PLOTJUGGLER      打开 TF Compare 布局并订阅 /tf_compare topic
 ```
 
 FAST-LIO 默认会同时打开 RViz。如果想关闭 RViz：
 
 ```bash
 FASTLIO_RVIZ=false ./autostart/start_all_terminals.sh
+```
+
+PlotJuggler 默认在手动启动和开机启动时打开，CAN 自动重启时默认不打开，避免反复弹 GUI。可以用下面的环境变量覆盖：
+
+```bash
+RC_AUTOSTART_PLOTJUGGLER=0 ./autostart/start_all_terminals.sh
+RC_AUTOSTART_PLOTJUGGLER=1 RUN_REASON=can_restart ./autostart/start_all_terminals.sh
+```
+
+PlotJuggler 的 ROS2 插件会弹出确认窗口，本工程用 `xdotool` 自动按确认。如果没有安装：
+
+```bash
+sudo apt install -y xdotool
 ```
 
 ## 运行验证
@@ -300,6 +320,9 @@ ros2 topic list
 ros2 topic hz /livox/lidar
 ros2 topic hz /livox/imu
 ros2 topic echo /Odometry --once
+ros2 topic echo /tf_compare/robot_init_to_base_link --once
+ros2 topic echo /tf_compare/robot_init_to_base_link_highrate --once
+ros2 topic echo /tf_compare/lidar_world_to_body --once
 ```
 
 检查 TF：
@@ -346,11 +369,27 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
 7. `autostart/world_tf.sh`
    - `world` 初始化保持为“先等待 10 秒，再对 FAST-LIO 的 `camera_init -> body` 采样平均 3 秒”，用于避开刚启动时的不稳定状态。
 
-8. `autostart/livox.sh`、`autostart/setup_livox_net.sh`
+8. `src/fastlio_world_init/fastlio_world_init/robot_tf_offsets.py`
+   - 新增 TF 对比 topic：`/tf_compare/robot_init_to_base_link` 和 `/tf_compare/robot_init_to_base_link_highrate`。
+   - 分别发布 `init -> base_link` 与 `init -> base_link_highrate` 的 XYZ 平移。
+
+9. `src/fastlio_world_init/fastlio_world_init/lidar_tf_offset.py`
+   - 新增 TF 对比 topic：`/tf_compare/lidar_world_to_body`。
+   - 发布 `world -> body` 的 XYZ 平移，保持雷达原始坐标轴。
+
+10. `src/fastlio_world_init/config/tf_compare_plotjuggler.xml`
+    - 新增 PlotJuggler 布局，自动预选三个 `/tf_compare/...` topic。
+    - 布局中按 X/Y/Z 三个窗口对比机器人低频、机器人高频、雷达三条曲线。
+
+11. `autostart/robot_tf_offsets.sh`、`autostart/lidar_tf_offset.sh`、`autostart/plotjuggler_tf_compare.sh`
+    - 一键启动时自动启动 TF 对比发布节点和 PlotJuggler。
+    - `plotjuggler_tf_compare.sh` 会等待 `/tf_compare/...` topic 出现，再打开 PlotJuggler。
+
+12. `autostart/livox.sh`、`autostart/setup_livox_net.sh`
    - 增加 Livox 网口路由检查和重复 `192.168.1.5/24` 地址提醒。
    - 新增 `setup_livox_net.sh`，用于把接雷达的网口配置为 `192.168.1.5/24` 并用 ARP 探测雷达。
 
-9. `src/rc_serial_driver/config/rc_serial_driver.yaml`
+13. `src/rc_serial_driver/config/rc_serial_driver.yaml`
    - 增加 `restart_script`，指向当前工作区的 `autostart/restart_lidar_stack.sh`。
 
 ## 注意事项
@@ -358,9 +397,10 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
 - `autostart/backup/` 是旧备份目录，未参与一键启动，里面仍可能保留旧路径。
 - Livox 驱动的 `bind failed` 通常是本机 IP 没配到 JSON 里的 host IP，不是 ROS 编译失败。
 - `rc_serial_driver` 在 `can0` down 时会反复尝试重连并打印 `Network is down`，先把 CAN 接口拉起来再启动即可。
-- 当前系统未安装 `robot_localization`，一键启动会自动降级为静态 `body -> body_highrate`。安装 `ros-humble-robot-localization` 后会自动使用 EKF：
+- 如果系统未安装 `robot_localization`，一键启动会自动降级为静态 `body -> body_highrate`。安装 `ros-humble-robot-localization` 后会自动使用 EKF：
 
 ```bash
 sudo apt update
 sudo apt install -y ros-humble-robot-localization
 ```
+- PlotJuggler 自动确认窗口依赖 `xdotool`。如果未安装，PlotJuggler 仍会启动，但需要手动点击 `Warning`、`Start Streaming?`、`Topic Selector` 等弹窗确认。

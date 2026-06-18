@@ -1,3 +1,6 @@
+import os
+from glob import glob
+
 from setuptools import find_packages, setup
 
 package_name = 'fastlio_world_init'
@@ -10,6 +13,7 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        (os.path.join('share', package_name, 'config'), glob('config/*.xml')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -25,6 +29,8 @@ setup(
     entry_points={
         'console_scripts': [
             'world_from_fastlio_init = fastlio_world_init.world_from_fastlio_init:main',
+            'robot_tf_offsets = fastlio_world_init.robot_tf_offsets:main',
+            'lidar_tf_offset = fastlio_world_init.lidar_tf_offset:main',
         ],
     },
 )

@@ -84,6 +84,9 @@ close_terminal_windows_by_title() {
     "TF_STATIC3"
     "HIGHRATE_BODY"
     "world_tf"
+    "TF_ROBOT_OFFSET"
+    "TF_LIDAR_OFFSET"
+    "PLOTJUGGLER"
   )
 
   if command -v wmctrl >/dev/null 2>&1; then
@@ -128,6 +131,9 @@ close_terminal_windows_by_title() {
     "$DIR/lidar_to_base_highrate_tf.sh"
     "$DIR/highrate_body.sh"
     "$DIR/world_tf.sh"
+    "$DIR/robot_tf_offsets.sh"
+    "$DIR/lidar_tf_offset.sh"
+    "$DIR/plotjuggler_tf_compare.sh"
     "ros2 launch rc_serial_driver serial_driver.launch.py"
     "$DIR/diagnose_logger.sh"
   )

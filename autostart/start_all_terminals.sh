@@ -163,8 +163,36 @@ start_one "LIVOX" "livox.sh"
 start_one "FASTLIO" "fastlio.sh"
 start_one "HIGHRATE_BODY" "highrate_body.sh"
 start_one "world_tf" "world_tf.sh"
+start_one "TF_ROBOT_OFFSET" "robot_tf_offsets.sh"
+start_one "TF_LIDAR_OFFSET" "lidar_tf_offset.sh"
 start_one "CAN_SERIAL" "serial_driver.sh"
 start_one "LIDAR_XYZR" "lidar_xyzr.sh"
+
+should_start_plotjuggler() {
+  case "${RC_AUTOSTART_PLOTJUGGLER:-auto}" in
+    1|true|TRUE|yes|YES|on|ON)
+      return 0
+      ;;
+    0|false|FALSE|no|NO|off|OFF)
+      return 1
+      ;;
+    auto)
+      [ "$RUN_REASON" != "can_restart" ]
+      return
+      ;;
+    *)
+      echo "[WARN] Unknown RC_AUTOSTART_PLOTJUGGLER=${RC_AUTOSTART_PLOTJUGGLER}; using auto." | tee -a "$LOG_DIR/start_summary.txt"
+      [ "$RUN_REASON" != "can_restart" ]
+      return
+      ;;
+  esac
+}
+
+if should_start_plotjuggler; then
+  start_one "PLOTJUGGLER" "plotjuggler_tf_compare.sh"
+else
+  echo "[$(date -Iseconds)] skipped PLOTJUGGLER for run_reason=$RUN_REASON" | tee -a "$LOG_DIR/start_summary.txt"
+fi
 
 if [ -n "$(jobs -p)" ]; then
   disown
