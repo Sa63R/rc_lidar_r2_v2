@@ -28,9 +28,22 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'world_from_fastlio_init = fastlio_world_init.world_from_fastlio_init:main',
-            'robot_tf_offsets = fastlio_world_init.robot_tf_offsets:main',
-            'lidar_tf_offset = fastlio_world_init.lidar_tf_offset:main',
+            (
+                'world_from_fastlio_init = '
+                'fastlio_world_init.world_from_fastlio_init:main'
+            ),
+            (
+                'robot_tf_offsets = '
+                'fastlio_world_init.robot_tf_offsets:main'
+            ),
+            (
+                'lidar_tf_offset = '
+                'fastlio_world_init.lidar_tf_offset:main'
+            ),
+            (
+                'rotation_extrinsic_calibrator = '
+                'fastlio_world_init.rotation_extrinsic_calibrator:main'
+            ),
         ],
     },
 )

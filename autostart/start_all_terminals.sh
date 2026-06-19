@@ -51,6 +51,17 @@ if [ -n "${RESTART_LOG:-}" ]; then
   } > "$LOG_DIR/restart_source.txt"
 fi
 
+if [ "${RC_AUTOSTART_DRY_RUN:-0}" = "1" ]; then
+  echo "prestop: skipped for dry-run" >> "$LOG_DIR/start_summary.txt"
+elif [ "${RC_AUTOSTART_SKIP_PRESTOP:-0}" = "1" ]; then
+  echo "prestop: skipped by RC_AUTOSTART_SKIP_PRESTOP=1" >> "$LOG_DIR/start_summary.txt"
+elif [ -x "$DIR/stop_all.sh" ]; then
+  echo "prestop: running $DIR/stop_all.sh --quiet" >> "$LOG_DIR/start_summary.txt"
+  "$DIR/stop_all.sh" --quiet > "$LOG_DIR/prestop.log" 2>&1 || true
+else
+  echo "prestop: stop_all.sh not found or not executable, skipped" >> "$LOG_DIR/start_summary.txt"
+fi
+
 if [ -x "$DIR/can_setup.sh" ]; then
   "$DIR/can_setup.sh" --check-only > "$LOG_DIR/can_preflight.txt" 2>&1 || true
 else

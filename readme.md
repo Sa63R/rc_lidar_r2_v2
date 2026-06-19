@@ -113,6 +113,7 @@ livox_ros_driver2 livox_ros_driver2_node
 rc_serial_driver rc_serial_driver_node
 fastlio_world_init lidar_tf_offset
 fastlio_world_init robot_tf_offsets
+fastlio_world_init rotation_extrinsic_calibrator
 fastlio_world_init world_from_fastlio_init
 ```
 
@@ -345,6 +346,25 @@ cd "/home/orangepi/RC_LIDAR_NOW!!!"
 /home/orangepi/RC_LIDAR_NOW!!!/logs/autostart/latest
 ```
 
+一键启动默认会先执行一次旧进程清理，避免重复运行脚本后出现两套 Livox / FAST-LIO / EKF / CAN 发送节点同时发布。清理日志在：
+
+```text
+logs/autostart/latest/prestop.log
+```
+
+如果只是想手动停止当前雷达定位栈：
+
+```bash
+cd "/home/orangepi/RC_LIDAR_NOW!!!"
+./autostart/stop_all.sh
+```
+
+一般不要只靠关闭终端窗口来停止程序；低负载、开机自启、CAN 重启等 headless 模式会把进程放到后台，关闭终端不会可靠停止它们。确实需要跳过启动前清理时，可以临时设置：
+
+```bash
+RC_AUTOSTART_SKIP_PRESTOP=1 ./autostart/start_all_terminals.sh
+```
+
 默认会打开这些终端：
 
 ```text
@@ -395,6 +415,74 @@ PlotJuggler 的 ROS2 插件会弹出确认窗口，本工程用 `xdotool` 自动
 ```bash
 sudo apt install -y xdotool
 ```
+
+## 自转外参校准
+
+如果机械给出的雷达相对底盘中心坐标存在微小偏差，机器人原地自转时，`init -> base_link_highrate` 的 XY 会出现本不该有的小圆波动。可以用自转校准工具记录这段数据并自动计算建议修正值。
+
+先正常启动低负载定位栈，等待 `world_tf` 初始化完成，然后运行：
+
+```bash
+cd "/home/orangepi/RC_LIDAR_NOW!!!"
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+
+ros2 run fastlio_world_init rotation_extrinsic_calibrator \
+  --duration 40 \
+  --rate 50
+```
+
+运行后让机器人尽量在原地慢速自转，建议至少转满一圈，最好转 1.5 到 2 圈。转速不需要恒定；脚本会按 yaw 角度分箱平均，避免某个角度停留太久导致拟合被过度加权。脚本到达 `--duration` 后会自动结束；也可以按 `Ctrl-C` 提前结束，脚本会写出已采集的部分数据。如果需要连同雷达定位栈一起停止，也可以运行：
+
+```bash
+./autostart/stop_all.sh
+```
+
+脚本默认记录：
+
+```text
+init -> body_highrate
+init -> base_link_highrate
+body_highrate -> base_link_highrate
+```
+
+输出目录默认是：
+
+```text
+logs/calibration/rotation_extrinsic_<时间>/
+```
+
+里面会生成：
+
+```text
+samples.csv
+summary.json
+report.md
+```
+
+其中 `summary.json` 和 `report.md` 会给出：
+
+```text
+sample_count
+fit_sample_count
+yaw_span_deg
+yaw_bin_deg
+xy_peak_to_peak
+fitted_error_xy
+current_static_xy
+suggested_static_xy
+residual_before_after
+```
+
+默认只输出建议值，不会自动修改 TF。确认报告可信后，把 `summary.json` 和 `samples.csv` 发出来，再同步修改三处静态 TF：
+
+```text
+src/my_static_tf/launch/map_to_init.launch.py
+src/my_static_tf/launch/lidar_to_base.launch.py
+src/my_static_tf/launch/lidar_to_base_highrate.launch.py
+```
+
+本校准只修正 XY；`z`、`roll`、`pitch`、`yaw=pi` 保持不变。
 
 ## 运行验证
 
@@ -478,32 +566,43 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
     - 一键启动时自动启动 TF 对比发布节点和 PlotJuggler。
     - `plotjuggler_tf_compare.sh` 会等待 `/tf_compare/...` topic 出现，再打开 PlotJuggler。
 
-12. `autostart/livox.sh`、`autostart/setup_livox_net.sh`
+12. `src/fastlio_world_init/fastlio_world_init/rotation_extrinsic_calibrator.py`
+    - 新增自转外参校准工具。
+    - 原地自转时记录 `init -> body_highrate`、`init -> base_link_highrate`、`body_highrate -> base_link_highrate`。
+    - 自动拟合 XY 小圆偏心，输出 `samples.csv`、`summary.json`、`report.md`，只给出建议值，不自动改 TF 文件。
+
+13. `autostart/livox.sh`、`autostart/setup_livox_net.sh`
    - `livox.sh` 会在启动 Livox 驱动前自动调用 `setup_livox_net.sh`。
    - `setup_livox_net.sh` 用于把接雷达的网口配置为 `192.168.1.5/24` 并用 ARP 探测雷达。
    - 可用 `RC_AUTOSTART_SETUP_LIVOX_NET=0` 跳过自动配置。
 
-13. `src/rc_serial_driver/config/rc_serial_driver.yaml`
+14. `src/rc_serial_driver/config/rc_serial_driver.yaml`
    - 增加 `restart_script`，指向当前工作区的 `autostart/restart_lidar_stack.sh`。
 
-14. `autostart/can_setup.sh`、`autostart/serial_driver.sh`、`autostart/start_all_terminals.sh`
+15. `autostart/can_setup.sh`、`autostart/serial_driver.sh`、`autostart/start_all_terminals.sh`
    - 新增 CAN 预检和恢复脚本：自动检测 `can*` / `slcan*`，存在时配置 `1000000` bit/s 和 `restart-ms 100`。
    - `start_all_terminals.sh` 会写入 `logs/autostart/latest/can_preflight.txt`。
    - 如果 USB-CAN 没有枚举出任何 CAN 接口，`CAN_SERIAL` 会停止启动并在日志里提示重插、换 USB 口或带供电 HUB。
 
-15. `autostart/install_one_click_network.sh`
+16. `autostart/install_one_click_network.sh`
    - 一次性配置免密码一键启动所需的网络环境。
    - 持久化 `eth0 -> 192.168.1.5/24`。
    - 安装 udev 规则，USB-CAN 枚举为 `can*` 时自动拉起 CAN 口。
 
-16. `autostart/boot_start.sh`、`autostart/rc_lidar_autostart.desktop`、`autostart/install_desktop_autostart.sh`
+17. `autostart/boot_start.sh`、`autostart/rc_lidar_autostart.desktop`、`autostart/install_desktop_autostart.sh`
    - 新增图形桌面开机自启入口。
    - 登录 `orangepi` 桌面后自动运行 `autostart/start_all_terminals.sh`。
    - 自启日志写到 `logs/autostart/xdg_autostart.log`。
 
+18. `autostart/stop_all.sh`、`autostart/start_all_terminals.sh`
+   - 新增统一停止脚本，用于清理本项目启动的 Livox、FAST-LIO、静态 TF、EKF、CAN 发送、RViz、PlotJuggler、自转校准等进程。
+   - `start_all_terminals.sh` 默认会在真正启动前调用 `stop_all.sh --quiet`，防止重复启动导致多个 `/odometry/filtered` publisher 或重复 TF。
+   - `RC_AUTOSTART_DRY_RUN=1` 时不会执行清理；需要临时跳过可设置 `RC_AUTOSTART_SKIP_PRESTOP=1`。
+
 ## 注意事项
 
 - `autostart/backup/` 是旧备份目录，未参与一键启动，里面仍可能保留旧路径。
+- 不建议只关闭终端窗口来停止雷达定位栈。需要确认停止时，用 `./autostart/stop_all.sh`；需要确认是否有残留进程时，用 `pgrep -af 'fastlio|livox|rc_serial|rviz2|plotjuggler|robot_tf_offsets|lidar_tf_offset|world_from_fastlio|ekf_node|ros2'`。
 - Livox 驱动的 `bind failed` 通常是本机 IP 没配到 JSON 里的 host IP，不是 ROS 编译失败。
 - `rc_serial_driver` 依赖系统里存在 SocketCAN 设备。如果没有任何 `can*` / `slcan*` 接口，优先检查 USB-CAN 的 `lsusb`、`dmesg` 和供电/线材/USB 口。
 - 如果系统未安装 `robot_localization`，一键启动会自动降级为静态 `body -> body_highrate`。安装 `ros-humble-robot-localization` 后会自动使用 EKF：
