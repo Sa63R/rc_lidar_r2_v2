@@ -4,15 +4,14 @@ set -euo pipefail
 # shellcheck disable=SC1091
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common_env.sh"
 
-CAN_INTERFACE="${CAN_INTERFACE:-can0}"
-CAN_BITRATE="${CAN_BITRATE:-1000000}"
-if ip link show "$CAN_INTERFACE" >/dev/null 2>&1 && ! ip -details link show "$CAN_INTERFACE" | grep -q "state UP"; then
-  if sudo -n true >/dev/null 2>&1; then
-    sudo ip link set "$CAN_INTERFACE" down || true
-    sudo ip link set "$CAN_INTERFACE" type can bitrate "$CAN_BITRATE" restart-ms 100
-    sudo ip link set "$CAN_INTERFACE" up
-  else
-    echo "[relocal] WARN: $CAN_INTERFACE is down and sudo is not available without a password."
+if [ -x "$RC_LIDAR_AUTOSTART/can_setup.sh" ]; then
+  export CAN_SETUP_ENV_FILE="${CAN_SETUP_ENV_FILE:-${LOG_DIR:-/tmp}/can_setup.env}"
+  set +e
+  "$RC_LIDAR_AUTOSTART/can_setup.sh"
+  CAN_SETUP_RC=$?
+  set -e
+  if [ "$CAN_SETUP_RC" -ne 0 ]; then
+    echo "[relocal] WARN: CAN setup failed with exit code $CAN_SETUP_RC; relocalization will continue."
   fi
 fi
 

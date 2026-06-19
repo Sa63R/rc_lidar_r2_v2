@@ -164,7 +164,7 @@ close_terminal_windows_by_title() {
   echo "[4/5] starting new stack..."
   cd "$DIR"
 
-  RUN_REASON="can_restart" RESTART_LOG="$LOG" nohup "$DIR/start_all_terminals.sh" >> "$LOG" 2>&1 &
+  RUN_REASON="can_restart" RC_AUTOSTART_HEADLESS="${RC_AUTOSTART_HEADLESS:-1}" RESTART_LOG="$LOG" nohup "$DIR/start_all_terminals.sh" >> "$LOG" 2>&1 &
 
   echo "[5/5] restart command launched."
   echo "========== done at $(date '+%F %T') =========="

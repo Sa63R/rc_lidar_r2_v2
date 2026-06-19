@@ -142,6 +142,34 @@ Failed to init livox lidar sdk.
 
 当前 Orange Pi 上确认到 MID360 在 `eth0` 上，`arping -I eth0 192.168.1.124` 可以收到雷达回应。不要把同一个 `192.168.1.5/24` 同时配置到多个网口；否则 Linux 可能把去雷达的路由发到错误网口，导致 Livox 驱动启动但 `/livox/lidar` 和 `/livox/imu` 没有 publisher。
 
+一键启动时 `autostart/livox.sh` 会先调用 `autostart/setup_livox_net.sh`，默认把 `eth0` 配置为 `192.168.1.5/24` 并用 ARP 探测 `192.168.1.124`，成功后才启动 Livox 驱动。如果已经在系统网络管理里做了永久配置，可以用下面的环境变量跳过自动配置：
+
+```bash
+RC_AUTOSTART_SETUP_LIVOX_NET=0 ./autostart/start_all_terminals.sh
+```
+
+为了保证开机后一键启动时不再要求输入 sudo 密码，先运行一次：
+
+```bash
+cd "/home/orangepi/RC_LIDAR_NOW!!!"
+./autostart/install_one_click_network.sh
+```
+
+这个脚本会把 `eth0` 的 `192.168.1.5/24` 写进 NetworkManager，并安装 udev 规则，让 USB-CAN 枚举成 `can*` 时自动配置 `1000000` bit/s 和 `restart-ms 100`。
+
+设置桌面开机自启：
+
+```bash
+cd "/home/orangepi/RC_LIDAR_NOW!!!"
+./autostart/install_desktop_autostart.sh
+```
+
+这会在 `/home/orangepi/.config/autostart/` 安装一个 `.desktop` 文件。它会在 `orangepi` 用户登录图形桌面后自动运行 `autostart/start_all_terminals.sh`，日志写到：
+
+```text
+logs/autostart/xdg_autostart.log
+```
+
 临时配置示例：
 
 ```bash
@@ -172,16 +200,55 @@ can_interface: can0
 can_bitrate: 1000000
 ```
 
-当前机器检测到 `can0` 和 `can1` 都存在，但状态是 `DOWN/STOPPED`。运行串口/CAN 节点前需要先拉起 `can0`：
+一键启动会先运行 `autostart/can_setup.sh`。如果没有指定 `CAN_INTERFACE`，它会自动寻找系统里第一个 `can*` 或 `slcan*` SocketCAN 接口；找到后会在免密 `sudo` 可用时自动配置：
 
 ```bash
 sudo ip link set can0 down
 sudo ip link set can0 type can bitrate 1000000 restart-ms 100
 sudo ip link set can0 up
-ip -details link show can0
+ip -details -statistics link show can0
 ```
 
-如果实际使用 `can1`，修改：
+也可以手动运行：
+
+```bash
+./autostart/can_setup.sh --check-only
+./autostart/can_setup.sh
+```
+
+如果日志里出现下面几类信息，说明不是 ROS 节点没有发，而是系统没有可用的 SocketCAN 设备：
+
+```text
+no SocketCAN interface was detected
+requested CAN interface can0 does not exist
+Failed to get interface index for 'can0'
+CAN socket not ready
+```
+
+这时先重新插拔 USB-CAN，优先换稳定 USB 口或带供电 HUB，然后确认：
+
+```bash
+lsusb
+ip -details link show type can
+ip -brief link
+```
+
+期望能看到 `XCAN-USB` 或对应 USB-CAN 设备，以及 `can0`、`can1` 或 `slcan0` 这类接口。CAN 设备经常显示 `state UNKNOWN`，关键是 flags 里要有 `UP`，并且 `ip -details -statistics link show <CAN接口名>` 的 `TX packets` 在发送时持续增加。
+
+每次运行 `./autostart/start_all_terminals.sh` 都会保存一份预检日志：
+
+```text
+logs/autostart/latest/can_preflight.txt
+```
+
+如果你想固定使用某个接口，例如 `can1`，可以临时指定：
+
+```bash
+CAN_INTERFACE=can1 ./autostart/can_setup.sh
+CAN_INTERFACE=can1 ./autostart/start_all_terminals.sh
+```
+
+或者修改：
 
 ```text
 src/rc_serial_driver/config/rc_serial_driver.yaml
@@ -386,17 +453,33 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
     - `plotjuggler_tf_compare.sh` 会等待 `/tf_compare/...` topic 出现，再打开 PlotJuggler。
 
 12. `autostart/livox.sh`、`autostart/setup_livox_net.sh`
-   - 增加 Livox 网口路由检查和重复 `192.168.1.5/24` 地址提醒。
-   - 新增 `setup_livox_net.sh`，用于把接雷达的网口配置为 `192.168.1.5/24` 并用 ARP 探测雷达。
+   - `livox.sh` 会在启动 Livox 驱动前自动调用 `setup_livox_net.sh`。
+   - `setup_livox_net.sh` 用于把接雷达的网口配置为 `192.168.1.5/24` 并用 ARP 探测雷达。
+   - 可用 `RC_AUTOSTART_SETUP_LIVOX_NET=0` 跳过自动配置。
 
 13. `src/rc_serial_driver/config/rc_serial_driver.yaml`
    - 增加 `restart_script`，指向当前工作区的 `autostart/restart_lidar_stack.sh`。
+
+14. `autostart/can_setup.sh`、`autostart/serial_driver.sh`、`autostart/start_all_terminals.sh`
+   - 新增 CAN 预检和恢复脚本：自动检测 `can*` / `slcan*`，存在时配置 `1000000` bit/s 和 `restart-ms 100`。
+   - `start_all_terminals.sh` 会写入 `logs/autostart/latest/can_preflight.txt`。
+   - 如果 USB-CAN 没有枚举出任何 CAN 接口，`CAN_SERIAL` 会停止启动并在日志里提示重插、换 USB 口或带供电 HUB。
+
+15. `autostart/install_one_click_network.sh`
+   - 一次性配置免密码一键启动所需的网络环境。
+   - 持久化 `eth0 -> 192.168.1.5/24`。
+   - 安装 udev 规则，USB-CAN 枚举为 `can*` 时自动拉起 CAN 口。
+
+16. `autostart/boot_start.sh`、`autostart/rc_lidar_autostart.desktop`、`autostart/install_desktop_autostart.sh`
+   - 新增图形桌面开机自启入口。
+   - 登录 `orangepi` 桌面后自动运行 `autostart/start_all_terminals.sh`。
+   - 自启日志写到 `logs/autostart/xdg_autostart.log`。
 
 ## 注意事项
 
 - `autostart/backup/` 是旧备份目录，未参与一键启动，里面仍可能保留旧路径。
 - Livox 驱动的 `bind failed` 通常是本机 IP 没配到 JSON 里的 host IP，不是 ROS 编译失败。
-- `rc_serial_driver` 在 `can0` down 时会反复尝试重连并打印 `Network is down`，先把 CAN 接口拉起来再启动即可。
+- `rc_serial_driver` 依赖系统里存在 SocketCAN 设备。如果没有任何 `can*` / `slcan*` 接口，优先检查 USB-CAN 的 `lsusb`、`dmesg` 和供电/线材/USB 口。
 - 如果系统未安装 `robot_localization`，一键启动会自动降级为静态 `body -> body_highrate`。安装 `ros-humble-robot-localization` 后会自动使用 EKF：
 
 ```bash

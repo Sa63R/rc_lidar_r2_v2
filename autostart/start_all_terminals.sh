@@ -51,14 +51,51 @@ if [ -n "${RESTART_LOG:-}" ]; then
   } > "$LOG_DIR/restart_source.txt"
 fi
 
-if ! command -v gnome-terminal >/dev/null 2>&1; then
-  echo "[ERROR] gnome-terminal not found. Install it or run scripts manually." | tee -a "$LOG_DIR/start_summary.txt"
-  exit 1
+if [ -x "$DIR/can_setup.sh" ]; then
+  "$DIR/can_setup.sh" --check-only > "$LOG_DIR/can_preflight.txt" 2>&1 || true
+else
+  echo "can_setup.sh not found or not executable, skipped." > "$LOG_DIR/can_preflight.txt"
 fi
 
-if [ -z "${DISPLAY:-}" ]; then
-  echo "[ERROR] DISPLAY is empty. start_all_terminals.sh needs a graphical session." | tee -a "$LOG_DIR/start_summary.txt"
-  exit 1
+resolve_headless_mode() {
+  case "${RC_AUTOSTART_HEADLESS:-auto}" in
+    1|true|TRUE|yes|YES|on|ON)
+      echo 1
+      ;;
+    0|false|FALSE|no|NO|off|OFF)
+      echo 0
+      ;;
+    auto)
+      if [ "$RUN_REASON" = "can_restart" ]; then
+        echo 1
+      else
+        echo 0
+      fi
+      ;;
+    *)
+      echo "[WARN] Unknown RC_AUTOSTART_HEADLESS=${RC_AUTOSTART_HEADLESS}; using auto." | tee -a "$LOG_DIR/start_summary.txt" >&2
+      if [ "$RUN_REASON" = "can_restart" ]; then
+        echo 1
+      else
+        echo 0
+      fi
+      ;;
+  esac
+}
+
+RUN_HEADLESS="$(resolve_headless_mode)"
+echo "headless: $RUN_HEADLESS" >> "$LOG_DIR/start_summary.txt"
+
+if [ "$RUN_HEADLESS" != "1" ]; then
+  if ! command -v gnome-terminal >/dev/null 2>&1; then
+    echo "[ERROR] gnome-terminal not found. Install it or run scripts manually." | tee -a "$LOG_DIR/start_summary.txt"
+    exit 1
+  fi
+
+  if [ -z "${DISPLAY:-}" ]; then
+    echo "[ERROR] DISPLAY is empty. start_all_terminals.sh needs a graphical session." | tee -a "$LOG_DIR/start_summary.txt"
+    exit 1
+  fi
 fi
 
 # 开机启动时桌面可能还没完全起来，手动启动多等几秒也没坏处
@@ -92,6 +129,59 @@ start_one() {
 
   if [ "${RC_AUTOSTART_DRY_RUN:-0}" = "1" ]; then
     echo "[dry-run] would launch $title using $DIR/$script" | tee -a "$LOG_DIR/start_summary.txt"
+    return 0
+  fi
+
+  if [ "$RUN_HEADLESS" = "1" ]; then
+    setsid bash -lc "
+      echo \$\$ > '$pidfile'
+
+      export RUN_ID='$RUN_ID'
+      export LOG_DIR='$LOG_DIR'
+      export RUN_REASON='$RUN_REASON'
+      export ROS_LOG_DIR='$ROS_LOG_DIR'
+      export RCUTILS_LOGGING_USE_STDOUT=1
+      export RCUTILS_LOGGING_BUFFERED_STREAM=0
+
+      {
+        echo '========== BACKGROUND START =========='
+        echo 'time: '\"\$(date -Iseconds)\"
+        echo 'title: $title'
+        echo 'script: $DIR/$script'
+        echo 'pidfile: $pidfile'
+        echo 'logfile: $logfile'
+        echo 'log_dir: $LOG_DIR'
+        echo '======================================'
+        echo
+
+        if [ ! -f '$DIR/$script' ]; then
+          echo '[ERROR] script not found: $DIR/$script'
+          echo 127 > '$statusfile'
+          exit 127
+        fi
+
+        if [ ! -x '$DIR/$script' ]; then
+          echo '[ERROR] script not executable: $DIR/$script'
+          echo 'Run: chmod +x $DIR/$script'
+          echo 126 > '$statusfile'
+          exit 126
+        fi
+
+        '$DIR/$script'
+        rc=\$?
+
+        echo
+        echo '========== BACKGROUND EXIT =========='
+        echo 'time: '\"\$(date -Iseconds)\"
+        echo 'title: $title'
+        echo 'exit_code:' \$rc
+        echo 'logfile: $logfile'
+        echo '====================================='
+        echo \$rc > '$statusfile'
+
+        exit \$rc
+      } >> '$logfile' 2>&1
+    " >> "$LOG_DIR/headless_launch.log" 2>&1 &
     return 0
   fi
 

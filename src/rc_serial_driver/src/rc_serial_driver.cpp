@@ -60,6 +60,20 @@ bool isRestartFrame(const struct can_frame & frame)
     std::memcmp(frame.data, RESTART_PAYLOAD, sizeof(RESTART_PAYLOAD)) == 0;
 }
 
+bool isCanTxQueueFullError(int error_number)
+{
+  switch (error_number) {
+    case EAGAIN:
+    case ENOBUFS:
+#if EWOULDBLOCK != EAGAIN
+    case EWOULDBLOCK:
+#endif
+      return true;
+    default:
+      return false;
+  }
+}
+
 void requestRadarRestart(const rclcpp::Logger & logger)
 {
   const auto now = std::chrono::steady_clock::now();
@@ -286,7 +300,7 @@ void RCSerialDriver::sendMapBodyPose()
 
     ssize_t bytes_written = write(can_socket_, &frame1, sizeof(struct can_frame));
     if (bytes_written < 0) {
-      if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      if (isCanTxQueueFullError(errno)) {
         RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000, "CAN buffer full, dropping frame1");
       } else {
         RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 5000, "Failed to send frame1: %s", strerror(errno));
@@ -304,7 +318,7 @@ void RCSerialDriver::sendMapBodyPose()
 
     bytes_written = write(can_socket_, &frame2, sizeof(struct can_frame));
     if (bytes_written < 0) {
-      if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      if (isCanTxQueueFullError(errno)) {
         RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000, "CAN buffer full, dropping frame2");
       } else {
         RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 5000, "Failed to send frame2: %s", strerror(errno));
