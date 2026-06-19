@@ -263,7 +263,7 @@ void RCSerialDriver::sendMapBodyPose()
     geometry_msgs::msg::TransformStamped tf_high =
       tf_buffer_->lookupTransform("init", "base_link_highrate", tf2::TimePointZero);
 
-    // === 原始 TF 坐标: x=前, y=左, z=上 ===
+    // === 机器人业务 TF 坐标: x=右, y=前, z=上 ===
     float x_tf = static_cast<float>(tf_high.transform.translation.x);
     float y_tf = static_cast<float>(tf_high.transform.translation.y);
 
@@ -283,16 +283,16 @@ void RCSerialDriver::sendMapBodyPose()
 
     float yaw_tf = static_cast<float>(yaw_high);
 
-    // === CAN 输出坐标: x=右, y=前, z=上; yaw 保持左转为正 ===
-    float x_can = -y_tf;
-    float y_can = x_tf;
+    // TF tree already exposes the robot business frame, so CAN sends it directly.
+    float x_can = x_tf;
+    float y_can = y_tf;
     float z_can = z_tf;
     float yaw_can = yaw_tf;
 
     RCLCPP_DEBUG_STREAM(
       get_logger(),
-      "Sending pose: raw_tf[x_forward=" << x_tf
-      << " y_left=" << y_tf
+      "Sending pose: robot_tf[x_right=" << x_tf
+      << " y_forward=" << y_tf
       << " z_up=" << z_tf
       << " yaw_left_positive=" << yaw_tf
       << "] can_output[x_right=" << x_can

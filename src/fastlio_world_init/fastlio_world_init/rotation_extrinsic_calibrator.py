@@ -25,9 +25,9 @@ from tf2_ros.transform_listener import TransformListener
 
 
 DEFAULT_STATIC_X = -0.240
-DEFAULT_STATIC_Y = 0.315
+DEFAULT_STATIC_Y = 0.287302
 DEFAULT_STATIC_Z = -0.760
-DEFAULT_STATIC_YAW = math.pi
+DEFAULT_STATIC_YAW = math.pi / 2.0
 
 FIT_YAW_SOURCES = (
     'init_body_highrate',
@@ -295,7 +295,9 @@ def parse_static_extrinsic(path):
         return float(match.group(1))
 
     yaw = DEFAULT_STATIC_YAW
-    yaw_match = re.search(r'YAW_180_DEG_RAD\s*=\s*"([^"]+)"', text)
+    yaw_match = re.search(r'ROBOT_AXES_YAW_RAD\s*=\s*"([^"]+)"', text)
+    if not yaw_match:
+        yaw_match = re.search(r'YAW_180_DEG_RAD\s*=\s*"([^"]+)"', text)
     if yaw_match:
         yaw = float(yaw_match.group(1))
     else:

@@ -1,7 +1,7 @@
 from launch import LaunchDescription
 from launch_ros.actions import Node
 
-YAW_180_DEG_RAD = "3.141592653589793"
+ROBOT_AXES_YAW_RAD = "1.5707963267948966"
 
 
 def generate_launch_description():
@@ -15,7 +15,7 @@ def generate_launch_description():
                 "--z", "-0.760",
                 "--roll", "0",
                 "--pitch", "0",
-                "--yaw", YAW_180_DEG_RAD,
+                "--yaw", ROBOT_AXES_YAW_RAD,
                 "--frame-id", "body",
                 "--child-frame-id", "base_link",
             ],

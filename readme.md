@@ -212,16 +212,18 @@ can_interface: can0
 can_bitrate: 1000000
 ```
 
-CAN 发给电控的坐标系和内部 TF 坐标系不同。内部 ROS/TF 仍保持：
+机器人业务 TF 坐标系和 CAN 输出坐标系统一为：
 
 ```text
-x_tf = 前方
-y_tf = 左方
+x_tf = 右方
+y_tf = 前方
 z_tf = 上方
 yaw_tf = 左转为正，0 表示初始化朝向
 ```
 
-发到 CAN 的坐标改为电控需要的右手系：
+FAST-LIO / Livox 的原始 `camera_init`、`body`、`body_highrate` 帧仍保持雷达和算法原始坐标；通过静态 TF 生成机器人业务帧 `init`、`base_link`、`base_link_highrate`。
+
+发到 CAN 的坐标直接使用机器人业务 TF：
 
 ```text
 x_can = 右方
@@ -230,11 +232,11 @@ z_can = 上方
 yaw_can = 左转为正，0 表示初始化朝向
 ```
 
-`rc_serial_driver` 在打包 CAN 帧前做一次转换，TF 树、外参、PlotJuggler 和自转校准逻辑不变：
+因为 TF 树本身已经是 `X右/Y前/Z上`，`rc_serial_driver` 不再额外旋转 XY：
 
 ```text
-x_can = -y_tf
-y_can =  x_tf
+x_can = x_tf
+y_can = y_tf
 z_can =  z_tf
 yaw_can = yaw_tf
 ```
@@ -528,10 +530,10 @@ x=-0.240, y=0.315, z=-0.760, yaw=pi
 调整为：
 
 ```text
-x=-0.240, y=0.287302, z=-0.760, yaw=pi
+x=-0.240, y=0.287302, z=-0.760, yaw=pi/2
 ```
 
-其中 `x` 的拟合修正量约 `0.01 mm`，低于实际安装和定位噪声，因此保持 `-0.240` 不变；`y` 按建议值从 `0.315` 修正为 `0.287302`。这组三处静态 TF 必须保持一致：
+其中 `x` 的拟合修正量约 `0.01 mm`，低于实际安装和定位噪声，因此保持 `-0.240` 不变；`y` 按建议值从 `0.315` 修正为 `0.287302`。之后为了满足电控坐标约定，机器人业务帧 yaw 从 `pi` 调整为 `pi/2`，使 `X=右方`、`Y=前方`。这组三处静态 TF 必须保持一致：
 
 ```text
 world -> init
@@ -547,7 +549,7 @@ src/my_static_tf/launch/lidar_to_base.launch.py
 src/my_static_tf/launch/lidar_to_base_highrate.launch.py
 ```
 
-本校准只修正 XY；`z`、`roll`、`pitch`、`yaw=pi` 保持不变。
+本校准只修正 XY；`z`、`roll`、`pitch`、`yaw=pi/2` 保持不变。
 
 ## 运行验证
 
@@ -610,7 +612,8 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
 6. `src/my_static_tf/launch/*.launch.py`
    - 按雷达安装位置更新机器人中心相对雷达坐标系的静态外参。
    - 根据 `logs/calibration/rotation_extrinsic_20260619_175422/` 的自转校准结果修正 Y 方向外参。
-   - 当前统一参数为：`x=-0.240, y=0.287302, z=-0.760, roll=0, pitch=0, yaw=pi`。
+   - 将机器人业务帧改为 `X右/Y前/Z上`。
+   - 当前统一参数为：`x=-0.240, y=0.287302, z=-0.760, roll=0, pitch=0, yaw=pi/2`。
    - `world -> init`、`body -> base_link`、`body_highrate -> base_link_highrate` 三套 TF 使用同一组外参。
 
 7. `autostart/world_tf.sh`
@@ -650,7 +653,7 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
    - 新增 CAN 预检和恢复脚本：自动检测 `can*` / `slcan*`，存在时配置 `1000000` bit/s 和 `restart-ms 100`。
    - `start_all_terminals.sh` 会写入 `logs/autostart/latest/can_preflight.txt`。
    - 如果 USB-CAN 没有枚举出任何 CAN 接口，`CAN_SERIAL` 会停止启动并在日志里提示重插、换 USB 口或带供电 HUB。
-   - `rc_serial_driver` 发给电控的 CAN 坐标改为 `X右/Y前/Z上`：`x_can=-y_tf`、`y_can=x_tf`、`z_can=z_tf`、`yaw_can=yaw_tf`；内部 TF 和校准逻辑保持原坐标语义。
+   - `rc_serial_driver` 发给电控的 CAN 坐标为 `X右/Y前/Z上`：`x_can=x_tf`、`y_can=y_tf`、`z_can=z_tf`、`yaw_can=yaw_tf`；TF 树本身已经完成坐标轴调整。
 
 16. `autostart/install_one_click_network.sh`
    - 一次性配置免密码一键启动所需的网络环境。
