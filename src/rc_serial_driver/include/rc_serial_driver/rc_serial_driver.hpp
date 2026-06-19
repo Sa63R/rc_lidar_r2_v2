@@ -7,6 +7,7 @@
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 
+#include <chrono>
 
 
 namespace rc_serial_driver
@@ -35,6 +36,7 @@ private:
   int can_id_frame1_;  // 用于 x, y
   int can_id_frame2_;  // 用于 z, yaw
   int can_bitrate_;
+  std::chrono::steady_clock::time_point last_can_reopen_attempt_{};
 
   // Timer
   rclcpp::TimerBase::SharedPtr send_timer_;  // ← 必须声明

@@ -248,8 +248,19 @@ void RCSerialDriver::initCAN()
 void RCSerialDriver::sendMapBodyPose()
 {
   if (can_socket_ < 0) {
-    RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "CAN socket not ready, skipping send.");
-    return;
+    const auto now = std::chrono::steady_clock::now();
+    if (last_can_reopen_attempt_.time_since_epoch().count() == 0 ||
+      now - last_can_reopen_attempt_ >= std::chrono::seconds(2))
+    {
+      last_can_reopen_attempt_ = now;
+      RCLCPP_WARN(get_logger(), "CAN socket not ready, trying to reopen.");
+      reopenPort();
+    }
+
+    if (can_socket_ < 0) {
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "CAN socket not ready, skipping send.");
+      return;
+    }
   }
 
   try {
