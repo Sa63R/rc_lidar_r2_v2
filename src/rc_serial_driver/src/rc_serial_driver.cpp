@@ -263,12 +263,12 @@ void RCSerialDriver::sendMapBodyPose()
     geometry_msgs::msg::TransformStamped tf_high =
       tf_buffer_->lookupTransform("init", "base_link_highrate", tf2::TimePointZero);
 
-    // === x, y 来自高频 base_link_highrate ===
-    float x = static_cast<float>(tf_high.transform.translation.x);
-    float y = static_cast<float>(tf_high.transform.translation.y);
+    // === 原始 TF 坐标: x=前, y=左, z=上 ===
+    float x_tf = static_cast<float>(tf_high.transform.translation.x);
+    float y_tf = static_cast<float>(tf_high.transform.translation.y);
 
     // === z 来自低频 base_link ===
-    float z = static_cast<float>(tf_low.transform.translation.z);
+    float z_tf = static_cast<float>(tf_low.transform.translation.z);
 
     // === yaw 来自高频 base_link_highrate ===
     tf2::Quaternion q_high(
@@ -281,22 +281,32 @@ void RCSerialDriver::sendMapBodyPose()
     double roll_high, pitch_high, yaw_high;
     m_high.getRPY(roll_high, pitch_high, yaw_high);
 
-    float yaw_f = static_cast<float>(yaw_high);
+    float yaw_tf = static_cast<float>(yaw_high);
+
+    // === CAN 输出坐标: x=右, y=前, z=上; yaw 保持左转为正 ===
+    float x_can = -y_tf;
+    float y_can = x_tf;
+    float z_can = z_tf;
+    float yaw_can = yaw_tf;
 
     RCLCPP_DEBUG_STREAM(
       get_logger(),
-      "Sending mixed pose: "
-      << "x_high=" << x
-      << " y_high=" << y
-      << " z_low=" << z
-      << " yaw_high=" << yaw_f);
+      "Sending pose: raw_tf[x_forward=" << x_tf
+      << " y_left=" << y_tf
+      << " z_up=" << z_tf
+      << " yaw_left_positive=" << yaw_tf
+      << "] can_output[x_right=" << x_can
+      << " y_forward=" << y_can
+      << " z_up=" << z_can
+      << " yaw_left_positive=" << yaw_can
+      << "]");
 
-    // === 帧1: x_high, y_high (ID = 0x12) ===
+    // === 帧1: x_can, y_can (ID = 0x12) ===
     struct can_frame frame1;
     frame1.can_id = can_id_frame1_;
     frame1.can_dlc = 8;
-    std::memcpy(frame1.data + 0, &x, sizeof(float));
-    std::memcpy(frame1.data + 4, &y, sizeof(float));
+    std::memcpy(frame1.data + 0, &x_can, sizeof(float));
+    std::memcpy(frame1.data + 4, &y_can, sizeof(float));
 
     ssize_t bytes_written = write(can_socket_, &frame1, sizeof(struct can_frame));
     if (bytes_written < 0) {
@@ -309,12 +319,12 @@ void RCSerialDriver::sendMapBodyPose()
       }
     }
 
-    // === 帧2: z_low, yaw_high (ID = 0x13) ===
+    // === 帧2: z_can, yaw_can (ID = 0x13) ===
     struct can_frame frame2;
     frame2.can_id = can_id_frame2_;
     frame2.can_dlc = 8;
-    std::memcpy(frame2.data + 0, &z, sizeof(float));
-    std::memcpy(frame2.data + 4, &yaw_f, sizeof(float));
+    std::memcpy(frame2.data + 0, &z_can, sizeof(float));
+    std::memcpy(frame2.data + 4, &yaw_can, sizeof(float));
 
     bytes_written = write(can_socket_, &frame2, sizeof(struct can_frame));
     if (bytes_written < 0) {

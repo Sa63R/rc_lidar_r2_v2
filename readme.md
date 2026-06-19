@@ -212,6 +212,40 @@ can_interface: can0
 can_bitrate: 1000000
 ```
 
+CAN 发给电控的坐标系和内部 TF 坐标系不同。内部 ROS/TF 仍保持：
+
+```text
+x_tf = 前方
+y_tf = 左方
+z_tf = 上方
+yaw_tf = 左转为正，0 表示初始化朝向
+```
+
+发到 CAN 的坐标改为电控需要的右手系：
+
+```text
+x_can = 右方
+y_can = 前方
+z_can = 上方
+yaw_can = 左转为正，0 表示初始化朝向
+```
+
+`rc_serial_driver` 在打包 CAN 帧前做一次转换，TF 树、外参、PlotJuggler 和自转校准逻辑不变：
+
+```text
+x_can = -y_tf
+y_can =  x_tf
+z_can =  z_tf
+yaw_can = yaw_tf
+```
+
+CAN 帧格式保持不变：
+
+```text
+0x12: float x_can, float y_can
+0x13: float z_can, float yaw_can
+```
+
 一键启动会先运行 `autostart/can_setup.sh`。如果没有指定 `CAN_INTERFACE`，它会自动寻找系统里第一个 `can*` 或 `slcan*` SocketCAN 接口；找到后会在免密 `sudo` 可用时自动配置：
 
 ```bash
@@ -616,6 +650,7 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
    - 新增 CAN 预检和恢复脚本：自动检测 `can*` / `slcan*`，存在时配置 `1000000` bit/s 和 `restart-ms 100`。
    - `start_all_terminals.sh` 会写入 `logs/autostart/latest/can_preflight.txt`。
    - 如果 USB-CAN 没有枚举出任何 CAN 接口，`CAN_SERIAL` 会停止启动并在日志里提示重插、换 USB 口或带供电 HUB。
+   - `rc_serial_driver` 发给电控的 CAN 坐标改为 `X右/Y前/Z上`：`x_can=-y_tf`、`y_can=x_tf`、`z_can=z_tf`、`yaw_can=yaw_tf`；内部 TF 和校准逻辑保持原坐标语义。
 
 16. `autostart/install_one_click_network.sh`
    - 一次性配置免密码一键启动所需的网络环境。
