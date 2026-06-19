@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastlio_world_init.rotation_extrinsic_calibrator import (  # noqa: E402
     fit_rotation_error,
+    summarize_yaw_values,
 )
 
 
@@ -39,6 +40,21 @@ def test_fit_rotation_error_recovers_known_delta():
     assert fit['delta_x'] == pytest_approx(delta[0], abs_tol=0.0003)
     assert fit['delta_y'] == pytest_approx(delta[1], abs_tol=0.0003)
     assert fit['after_rms'] < fit['before_rms'] * 0.2
+
+
+def test_summarize_yaw_values_keeps_multiple_turns():
+    """Yaw diagnostics should preserve wrap jumps across multiple turns."""
+
+    values = [
+        math.radians(value)
+        for value in [170, 178, -175, -120, -30, 45, 120, 179, -170]
+    ]
+
+    summary = summarize_yaw_values(values)
+
+    assert summary['wrap_jump_count'] == 2
+    assert summary['span_deg'] > 340.0
+    assert summary['abs_travel_deg'] > 340.0
 
 
 def pytest_approx(value, abs_tol):

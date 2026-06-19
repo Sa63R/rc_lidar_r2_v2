@@ -466,12 +466,43 @@ report.md
 sample_count
 fit_sample_count
 yaw_span_deg
+yaw_sources
 yaw_bin_deg
 xy_peak_to_peak
 fitted_error_xy
 current_static_xy
 suggested_static_xy
 residual_before_after
+```
+
+当前已经应用过一次自转校准结果：
+
+```text
+数据目录：logs/calibration/rotation_extrinsic_20260619_175422/
+记录时长：37.0 s
+yaw 覆盖：约 625 deg
+拟合前 RMS：0.035770 m
+拟合后 RMS：0.022923 m
+```
+
+根据该记录，外参从：
+
+```text
+x=-0.240, y=0.315, z=-0.760, yaw=pi
+```
+
+调整为：
+
+```text
+x=-0.240, y=0.287302, z=-0.760, yaw=pi
+```
+
+其中 `x` 的拟合修正量约 `0.01 mm`，低于实际安装和定位噪声，因此保持 `-0.240` 不变；`y` 按建议值从 `0.315` 修正为 `0.287302`。这组三处静态 TF 必须保持一致：
+
+```text
+world -> init
+body -> base_link
+body_highrate -> base_link_highrate
 ```
 
 默认只输出建议值，不会自动修改 TF。确认报告可信后，把 `summary.json` 和 `samples.csv` 发出来，再同步修改三处静态 TF：
@@ -544,7 +575,8 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
 
 6. `src/my_static_tf/launch/*.launch.py`
    - 按雷达安装位置更新机器人中心相对雷达坐标系的静态外参。
-   - 当前统一参数为：`x=-0.240, y=0.315, z=-0.760, roll=0, pitch=0, yaw=pi`。
+   - 根据 `logs/calibration/rotation_extrinsic_20260619_175422/` 的自转校准结果修正 Y 方向外参。
+   - 当前统一参数为：`x=-0.240, y=0.287302, z=-0.760, roll=0, pitch=0, yaw=pi`。
    - `world -> init`、`body -> base_link`、`body_highrate -> base_link_highrate` 三套 TF 使用同一组外参。
 
 7. `autostart/world_tf.sh`
@@ -569,6 +601,7 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
 12. `src/fastlio_world_init/fastlio_world_init/rotation_extrinsic_calibrator.py`
     - 新增自转外参校准工具。
     - 原地自转时记录 `init -> body_highrate`、`init -> base_link_highrate`、`body_highrate -> base_link_highrate`。
+    - 额外记录 `camera_init -> body`、`world -> body` 和 `/Odometry` 的 yaw 诊断，避免只看单一路径时误判旋转圈数。
     - 自动拟合 XY 小圆偏心，输出 `samples.csv`、`summary.json`、`report.md`，只给出建议值，不自动改 TF 文件。
 
 13. `autostart/livox.sh`、`autostart/setup_livox_net.sh`

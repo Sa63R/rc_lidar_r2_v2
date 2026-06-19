@@ -16,6 +16,7 @@ from pathlib import Path
 
 import numpy as np
 import rclpy
+from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.time import Time
 from tf2_ros import TransformException
@@ -27,6 +28,14 @@ DEFAULT_STATIC_X = -0.240
 DEFAULT_STATIC_Y = 0.315
 DEFAULT_STATIC_Z = -0.760
 DEFAULT_STATIC_YAW = math.pi
+
+FIT_YAW_SOURCES = (
+    'init_body_highrate',
+    'init_base_link_highrate',
+    'camera_init_body',
+    'world_body',
+    'odom',
+)
 
 
 @dataclass
@@ -46,14 +55,26 @@ class CalibrationSample:
 
     elapsed_sec: float
     stamp_sec: float
+    fit_yaw: float
     body_x: float
     body_y: float
     body_yaw: float
     base_x: float
     base_y: float
+    base_yaw: float
     static_x: float
     static_y: float
     static_yaw: float
+    camera_init_body_x: float
+    camera_init_body_y: float
+    camera_init_body_yaw: float
+    world_body_x: float
+    world_body_y: float
+    world_body_yaw: float
+    odom_x: float
+    odom_y: float
+    odom_yaw: float
+    odom_age_sec: float
 
 
 def quaternion_to_yaw(q):
@@ -67,7 +88,7 @@ def quaternion_to_yaw(q):
 def unwrap_angles(angles):
     """Unwrap a sequence of radians without depending on numpy unwrap."""
 
-    if not angles:
+    if len(angles) == 0:
         return []
 
     result = [float(angles[0])]
@@ -86,6 +107,76 @@ def unwrap_angles(angles):
         previous = angle
 
     return result
+
+
+def is_finite(value):
+    """Return True when value is a finite number."""
+
+    return value is not None and math.isfinite(float(value))
+
+
+def summarize_yaw_values(values):
+    """Summarize raw and unwrapped yaw values in degrees."""
+
+    finite_values = [float(value) for value in values if is_finite(value)]
+    if not finite_values:
+        return {
+            'sample_count': 0,
+            'raw_min_deg': None,
+            'raw_max_deg': None,
+            'unwrapped_start_deg': None,
+            'unwrapped_end_deg': None,
+            'unwrapped_min_deg': None,
+            'unwrapped_max_deg': None,
+            'span_deg': None,
+            'net_deg': None,
+            'abs_travel_deg': None,
+            'wrap_jump_count': 0,
+            'max_step_deg': None,
+        }
+
+    unwrapped = unwrap_angles(finite_values)
+    steps = [
+        unwrapped[index] - unwrapped[index - 1]
+        for index in range(1, len(unwrapped))
+    ]
+    raw_steps = [
+        finite_values[index] - finite_values[index - 1]
+        for index in range(1, len(finite_values))
+    ]
+    wrap_jump_count = sum(abs(step) > math.pi for step in raw_steps)
+
+    return {
+        'sample_count': len(finite_values),
+        'raw_min_deg': math.degrees(min(finite_values)),
+        'raw_max_deg': math.degrees(max(finite_values)),
+        'unwrapped_start_deg': math.degrees(unwrapped[0]),
+        'unwrapped_end_deg': math.degrees(unwrapped[-1]),
+        'unwrapped_min_deg': math.degrees(min(unwrapped)),
+        'unwrapped_max_deg': math.degrees(max(unwrapped)),
+        'span_deg': math.degrees(max(unwrapped) - min(unwrapped)),
+        'net_deg': math.degrees(unwrapped[-1] - unwrapped[0]),
+        'abs_travel_deg': math.degrees(sum(abs(step) for step in steps)),
+        'wrap_jump_count': int(wrap_jump_count),
+        'max_step_deg': (
+            math.degrees(max(abs(step) for step in steps))
+            if steps else 0.0
+        ),
+    }
+
+
+def yaw_source_map(samples):
+    """Return yaw sequences used to diagnose where rotation is lost."""
+
+    return {
+        'init_body_highrate': [sample.body_yaw for sample in samples],
+        'init_base_link_highrate': [sample.base_yaw for sample in samples],
+        'camera_init_body': [
+            sample.camera_init_body_yaw for sample in samples
+        ],
+        'world_body': [sample.world_body_yaw for sample in samples],
+        'odom': [sample.odom_yaw for sample in samples],
+    }
 
 
 def fit_rotation_error(yaws, observed_xy):
@@ -250,15 +341,86 @@ def summarize_samples(
     min_samples,
     min_yaw_span_deg,
     yaw_bin_deg,
+    fit_yaw_source,
 ):
     """Build a JSON-serializable calibration summary."""
 
-    raw_yaws = [sample.body_yaw for sample in samples]
+    yaw_sources = {
+        name: summarize_yaw_values(values)
+        for name, values in yaw_source_map(samples).items()
+    }
+
+    selected_rows = []
+    for sample in samples:
+        if is_finite(sample.fit_yaw):
+            selected_rows.append(sample)
+
+    raw_yaws = [sample.fit_yaw for sample in selected_rows]
     unwrapped_yaws = unwrap_angles(raw_yaws)
     observed_xy = np.asarray(
-        [[sample.base_x, sample.base_y] for sample in samples],
+        [[sample.base_x, sample.base_y] for sample in selected_rows],
         dtype=float,
     )
+
+    warnings = []
+    if len(samples) < min_samples:
+        warnings.append(
+            f'sample_count {len(samples)} is below minimum {min_samples}'
+        )
+    if len(selected_rows) < min_samples:
+        warnings.append(
+            f'fit_yaw_sample_count {len(selected_rows)} is below '
+            f'minimum {min_samples}'
+        )
+
+    if len(selected_rows) < 4:
+        warnings.append(
+            f'not enough finite yaw samples from fit_yaw_source='
+            f'{fit_yaw_source}'
+        )
+        return {
+            'sample_count': len(samples),
+            'fit_yaw_source': fit_yaw_source,
+            'fit_yaw_sample_count': len(selected_rows),
+            'fit_sample_count': 0,
+            'yaw_bin_deg': float(yaw_bin_deg),
+            'duration_sec': (
+                samples[-1].elapsed_sec - samples[0].elapsed_sec
+                if len(samples) >= 2 else 0.0
+            ),
+            'yaw_span_deg': None,
+            'yaw_sources': yaw_sources,
+            'xy_peak_to_peak': {
+                'x': None,
+                'y': None,
+                'norm': None,
+            },
+            'fitted_error_xy': {
+                'x': None,
+                'y': None,
+            },
+            'current_static_xy': {
+                'x': static_extrinsic.x,
+                'y': static_extrinsic.y,
+            },
+            'suggested_static_xy': {
+                'x': None,
+                'y': None,
+            },
+            'current_static_full': asdict(static_extrinsic),
+            'residual_before_after': {
+                'before_rms': None,
+                'after_rms': None,
+                'model_rms': None,
+            },
+            'fit': None,
+            'quality': {
+                'ok': False,
+                'warnings': warnings,
+                'min_samples': int(min_samples),
+                'min_yaw_span_deg': float(min_yaw_span_deg),
+            },
+        }
 
     fit_yaws, fit_observed_xy = bin_samples_by_yaw(
         unwrapped_yaws,
@@ -273,11 +435,6 @@ def summarize_samples(
     xy_max = np.max(observed_xy, axis=0)
     xy_peak_to_peak = xy_max - xy_min
 
-    warnings = []
-    if len(samples) < min_samples:
-        warnings.append(
-            f'sample_count {len(samples)} is below minimum {min_samples}'
-        )
     if len(fit_yaws) < 12:
         warnings.append(
             f'fit_sample_count {len(fit_yaws)} is low; rotate more slowly '
@@ -288,6 +445,16 @@ def summarize_samples(
             f'yaw_span_deg {yaw_span_deg:.1f} is below '
             f'minimum {min_yaw_span_deg:.1f}'
         )
+        for source, stats in yaw_sources.items():
+            if source == fit_yaw_source:
+                continue
+            source_span = stats.get('span_deg')
+            if source_span is not None and source_span >= min_yaw_span_deg:
+                warnings.append(
+                    f'fit_yaw_source={fit_yaw_source} has low span, but '
+                    f'{source} span is {source_span:.1f} deg; compare yaw '
+                    'sources before applying calibration'
+                )
     if fit['rank'] < 4:
         warnings.append('least-squares matrix rank is below 4')
 
@@ -296,6 +463,8 @@ def summarize_samples(
 
     return {
         'sample_count': len(samples),
+        'fit_yaw_source': fit_yaw_source,
+        'fit_yaw_sample_count': len(selected_rows),
         'fit_sample_count': int(len(fit_yaws)),
         'yaw_bin_deg': float(yaw_bin_deg),
         'duration_sec': (
@@ -303,6 +472,7 @@ def summarize_samples(
             if len(samples) >= 2 else 0.0
         ),
         'yaw_span_deg': yaw_span_deg,
+        'yaw_sources': yaw_sources,
         'xy_peak_to_peak': {
             'x': float(xy_peak_to_peak[0]),
             'y': float(xy_peak_to_peak[1]),
@@ -342,14 +512,26 @@ def write_samples_csv(path, samples):
     fieldnames = [
         'elapsed_sec',
         'stamp_sec',
+        'fit_yaw',
         'body_x',
         'body_y',
         'body_yaw',
         'base_x',
         'base_y',
+        'base_yaw',
         'static_x',
         'static_y',
         'static_yaw',
+        'camera_init_body_x',
+        'camera_init_body_y',
+        'camera_init_body_yaw',
+        'world_body_x',
+        'world_body_y',
+        'world_body_yaw',
+        'odom_x',
+        'odom_y',
+        'odom_yaw',
+        'odom_age_sec',
     ]
     with Path(path).open('w', newline='', encoding='utf-8') as csv_file:
         writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
@@ -380,9 +562,30 @@ def write_report(path, summary):
         '',
         f"- quality_ok: `{quality['ok']}`",
         f"- sample_count: `{summary['sample_count']}`",
+        f"- fit_yaw_source: `{summary.get('fit_yaw_source', 'n/a')}`",
+        f"- fit_yaw_sample_count: "
+        f"`{summary.get('fit_yaw_sample_count', 0)}`",
         f"- fit_sample_count: `{summary.get('fit_sample_count', 0)}`",
         f"- yaw_bin_deg: `{fmt_deg(summary.get('yaw_bin_deg'))}`",
         f"- yaw_span_deg: `{fmt_deg(summary.get('yaw_span_deg'))}`",
+        '',
+        '## Yaw Diagnostics',
+        '',
+        '| source | samples | span_deg | net_deg | abs_travel_deg | wraps |',
+        '| --- | ---: | ---: | ---: | ---: | ---: |',
+    ]
+
+    for source, stats in summary.get('yaw_sources', {}).items():
+        lines.append(
+            f"| `{source}` | "
+            f"{stats.get('sample_count', 0)} | "
+            f"{fmt_deg(stats.get('span_deg'))} | "
+            f"{fmt_deg(stats.get('net_deg'))} | "
+            f"{fmt_deg(stats.get('abs_travel_deg'))} | "
+            f"{stats.get('wrap_jump_count', 0)} |"
+        )
+
+    lines.extend([
         '',
         '## Suggested Static XY',
         '',
@@ -408,7 +611,7 @@ def write_report(path, summary):
         f"- y: `{fmt(summary['xy_peak_to_peak']['y'])}`",
         f"- norm: `{fmt(summary['xy_peak_to_peak']['norm'])}`",
         '',
-    ]
+    ])
 
     if quality['warnings']:
         lines.extend(['## Warnings', ''])
@@ -444,9 +647,17 @@ class RotationExtrinsicCalibrator(Node):
         self.done = False
         self.start_monotonic = time.monotonic()
         self.last_warn = 0.0
+        self.latest_odom = None
+        self.latest_odom_monotonic = None
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
+        self.odom_sub = self.create_subscription(
+            Odometry,
+            args.odometry_topic,
+            self._odom_callback,
+            50,
+        )
 
         self.timer = self.create_timer(1.0 / args.rate, self._tick)
 
@@ -459,6 +670,14 @@ class RotationExtrinsicCalibrator(Node):
             f'Current static x/y: {static_extrinsic.x:.6f}, '
             f'{static_extrinsic.y:.6f}'
         )
+        self.get_logger().info(
+            f'Fit yaw source: {args.fit_yaw_source}; diagnostics include '
+            f'{", ".join(FIT_YAW_SOURCES)}'
+        )
+
+    def _odom_callback(self, msg):
+        self.latest_odom = msg
+        self.latest_odom_monotonic = time.monotonic()
 
     def _warn_throttled(self, message):
         now = time.monotonic()
@@ -472,6 +691,53 @@ class RotationExtrinsicCalibrator(Node):
             source_frame,
             Time(),
         )
+
+    def _lookup_optional(self, target_frame, source_frame):
+        try:
+            return self._lookup(target_frame, source_frame)
+        except TransformException:
+            return None
+
+    @staticmethod
+    def _xy_yaw_from_tf(tf_msg):
+        if tf_msg is None:
+            return float('nan'), float('nan'), float('nan')
+
+        t = tf_msg.transform.translation
+        return (
+            float(t.x),
+            float(t.y),
+            quaternion_to_yaw(tf_msg.transform.rotation),
+        )
+
+    def _latest_odom_xy_yaw(self):
+        if self.latest_odom is None:
+            return (
+                float('nan'),
+                float('nan'),
+                float('nan'),
+                float('nan'),
+            )
+
+        p = self.latest_odom.pose.pose.position
+        q = self.latest_odom.pose.pose.orientation
+        age = (
+            time.monotonic() - self.latest_odom_monotonic
+            if self.latest_odom_monotonic is not None else float('nan')
+        )
+        return (
+            float(p.x),
+            float(p.y),
+            quaternion_to_yaw(q),
+            float(age),
+        )
+
+    @staticmethod
+    def _choose_fit_yaw(args, values):
+        source = args.fit_yaw_source
+        if source not in values:
+            raise ValueError(f'Unknown fit yaw source: {source}')
+        return values[source]
 
     def _tick(self):
         elapsed = time.monotonic() - self.start_monotonic
@@ -500,18 +766,60 @@ class RotationExtrinsicCalibrator(Node):
         body_t = body_tf.transform.translation
         base_t = base_tf.transform.translation
         static_t = static_tf.transform.translation
+        camera_init_body_tf = self._lookup_optional(
+            self.args.fastlio_parent_frame,
+            self.args.fastlio_body_frame,
+        )
+        world_body_tf = self._lookup_optional(
+            self.args.world_frame,
+            self.args.fastlio_body_frame,
+        )
+        (
+            camera_init_body_x,
+            camera_init_body_y,
+            camera_init_body_yaw,
+        ) = self._xy_yaw_from_tf(camera_init_body_tf)
+        (
+            world_body_x,
+            world_body_y,
+            world_body_yaw,
+        ) = self._xy_yaw_from_tf(world_body_tf)
+        odom_x, odom_y, odom_yaw, odom_age_sec = self._latest_odom_xy_yaw()
+        yaw_values = {
+            'init_body_highrate': quaternion_to_yaw(
+                body_tf.transform.rotation
+            ),
+            'init_base_link_highrate': quaternion_to_yaw(
+                base_tf.transform.rotation
+            ),
+            'camera_init_body': camera_init_body_yaw,
+            'world_body': world_body_yaw,
+            'odom': odom_yaw,
+        }
 
         sample = CalibrationSample(
             elapsed_sec=float(elapsed),
             stamp_sec=float(now.nanoseconds) / 1e9,
+            fit_yaw=self._choose_fit_yaw(self.args, yaw_values),
             body_x=float(body_t.x),
             body_y=float(body_t.y),
-            body_yaw=quaternion_to_yaw(body_tf.transform.rotation),
+            body_yaw=yaw_values['init_body_highrate'],
             base_x=float(base_t.x),
             base_y=float(base_t.y),
+            base_yaw=yaw_values['init_base_link_highrate'],
             static_x=float(static_t.x),
             static_y=float(static_t.y),
             static_yaw=quaternion_to_yaw(static_tf.transform.rotation),
+            camera_init_body_x=camera_init_body_x,
+            camera_init_body_y=camera_init_body_y,
+            camera_init_body_yaw=camera_init_body_yaw,
+            world_body_x=world_body_x,
+            world_body_y=world_body_y,
+            world_body_yaw=world_body_yaw,
+            odom_x=odom_x,
+            odom_y=odom_y,
+            odom_yaw=odom_yaw,
+            odom_age_sec=odom_age_sec,
         )
         self.samples.append(sample)
 
@@ -532,14 +840,22 @@ class RotationExtrinsicCalibrator(Node):
                 self.args.min_samples,
                 self.args.min_yaw_span_deg,
                 self.args.yaw_bin_deg,
+                self.args.fit_yaw_source,
             )
         else:
+            yaw_sources = {
+                name: summarize_yaw_values(values)
+                for name, values in yaw_source_map(self.samples).items()
+            }
             summary = {
                 'sample_count': len(self.samples),
+                'fit_yaw_source': self.args.fit_yaw_source,
+                'fit_yaw_sample_count': 0,
                 'fit_sample_count': 0,
                 'yaw_bin_deg': float(self.args.yaw_bin_deg),
                 'duration_sec': 0.0,
                 'yaw_span_deg': None,
+                'yaw_sources': yaw_sources,
                 'xy_peak_to_peak': {
                     'x': None,
                     'y': None,
@@ -576,7 +892,11 @@ class RotationExtrinsicCalibrator(Node):
             'target_frame': self.args.target_frame,
             'body_frame': self.args.body_frame,
             'base_frame': self.args.base_frame,
+            'fastlio_parent_frame': self.args.fastlio_parent_frame,
+            'fastlio_body_frame': self.args.fastlio_body_frame,
+            'world_frame': self.args.world_frame,
         }
+        summary['odometry_topic'] = self.args.odometry_topic
         summary['output_dir'] = str(self.output_dir)
         summary['files'] = {
             'samples_csv': str(samples_csv),
@@ -622,6 +942,19 @@ def parse_args(argv=None):
     parser.add_argument('--target-frame', default='init')
     parser.add_argument('--body-frame', default='body_highrate')
     parser.add_argument('--base-frame', default='base_link_highrate')
+    parser.add_argument('--fastlio-parent-frame', default='camera_init')
+    parser.add_argument('--fastlio-body-frame', default='body')
+    parser.add_argument('--world-frame', default='world')
+    parser.add_argument('--odometry-topic', default='/Odometry')
+    parser.add_argument(
+        '--fit-yaw-source',
+        default='init_body_highrate',
+        choices=FIT_YAW_SOURCES,
+        help=(
+            'Yaw source used for fitting. All sources are still recorded '
+            'for diagnostics.'
+        ),
+    )
     parser.add_argument('--min-samples', type=int, default=200)
     parser.add_argument('--min-yaw-span-deg', type=float, default=270.0)
     parser.add_argument('--yaw-bin-deg', type=float, default=2.0)

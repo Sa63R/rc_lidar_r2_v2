@@ -97,16 +97,45 @@ resolve_headless_mode() {
 RUN_HEADLESS="$(resolve_headless_mode)"
 echo "headless: $RUN_HEADLESS" >> "$LOG_DIR/start_summary.txt"
 
-if [ "$RUN_HEADLESS" != "1" ]; then
-  if ! command -v gnome-terminal >/dev/null 2>&1; then
-    echo "[ERROR] gnome-terminal not found. Install it or run scripts manually." | tee -a "$LOG_DIR/start_summary.txt"
-    exit 1
-  fi
+resolve_gui_terminal() {
+  case "${RC_AUTOSTART_TERMINAL:-auto}" in
+    auto)
+      if command -v xfce4-terminal >/dev/null 2>&1; then
+        echo "xfce4-terminal"
+      elif command -v gnome-terminal >/dev/null 2>&1; then
+        echo "gnome-terminal"
+      else
+        echo ""
+      fi
+      ;;
+    xfce4-terminal|gnome-terminal)
+      if command -v "${RC_AUTOSTART_TERMINAL}" >/dev/null 2>&1; then
+        echo "${RC_AUTOSTART_TERMINAL}"
+      else
+        echo ""
+      fi
+      ;;
+    *)
+      echo "[WARN] Unknown RC_AUTOSTART_TERMINAL=${RC_AUTOSTART_TERMINAL}; using auto." | tee -a "$LOG_DIR/start_summary.txt" >&2
+      RC_AUTOSTART_TERMINAL=auto resolve_gui_terminal
+      ;;
+  esac
+}
 
+GUI_TERMINAL=""
+if [ "$RUN_HEADLESS" != "1" ]; then
   if [ -z "${DISPLAY:-}" ]; then
     echo "[ERROR] DISPLAY is empty. start_all_terminals.sh needs a graphical session." | tee -a "$LOG_DIR/start_summary.txt"
     exit 1
   fi
+
+  GUI_TERMINAL="$(resolve_gui_terminal)"
+  if [ -z "$GUI_TERMINAL" ]; then
+    echo "[ERROR] No supported terminal found. Install xfce4-terminal or gnome-terminal, or run with RC_AUTOSTART_HEADLESS=1." | tee -a "$LOG_DIR/start_summary.txt"
+    exit 1
+  fi
+
+  echo "gui_terminal: $GUI_TERMINAL" >> "$LOG_DIR/start_summary.txt"
 fi
 
 # 开机启动时桌面可能还没完全起来，手动启动多等几秒也没坏处
@@ -196,65 +225,76 @@ start_one() {
     return 0
   fi
 
-  gnome-terminal --title="$title" -- bash -lc "
-    echo \$\$ > '$pidfile'
+  local runner="$LOG_DIR/${title}.terminal_runner.sh"
+  cat > "$runner" <<EOF
+#!/usr/bin/env bash
+echo \$\$ > '$pidfile'
 
-    export RUN_ID='$RUN_ID'
-    export LOG_DIR='$LOG_DIR'
-    export RUN_REASON='$RUN_REASON'
-    export ROS_LOG_DIR='$ROS_LOG_DIR'
-    export RCUTILS_LOGGING_USE_STDOUT=1
-    export RCUTILS_LOGGING_BUFFERED_STREAM=0
+export RUN_ID='$RUN_ID'
+export LOG_DIR='$LOG_DIR'
+export RUN_REASON='$RUN_REASON'
+export ROS_LOG_DIR='$ROS_LOG_DIR'
+export RCUTILS_LOGGING_USE_STDOUT=1
+export RCUTILS_LOGGING_BUFFERED_STREAM=0
 
-    {
-      echo '========== TERMINAL START =========='
-      echo 'time: '\"\$(date -Iseconds)\"
-      echo 'title: $title'
-      echo 'script: $DIR/$script'
-      echo 'pidfile: $pidfile'
-      echo 'logfile: $logfile'
-      echo 'log_dir: $LOG_DIR'
-      echo '===================================='
-      echo
+{
+  echo '========== TERMINAL START =========='
+  echo 'time: '"\$(date -Iseconds)"
+  echo 'title: $title'
+  echo 'script: $DIR/$script'
+  echo 'pidfile: $pidfile'
+  echo 'logfile: $logfile'
+  echo 'log_dir: $LOG_DIR'
+  echo '===================================='
+  echo
 
-      if [ ! -f '$DIR/$script' ]; then
-        echo '[ERROR] script not found: $DIR/$script'
-        echo 127 > '$statusfile'
-        echo
-        echo 'Press Enter to close this terminal...'
-        read -r
-        exit 127
-      fi
+  if [ ! -f '$DIR/$script' ]; then
+    echo '[ERROR] script not found: $DIR/$script'
+    echo 127 > '$statusfile'
+    echo
+    echo 'Press Enter to close this terminal...'
+    read -r
+    exit 127
+  fi
 
-      if [ ! -x '$DIR/$script' ]; then
-        echo '[ERROR] script not executable: $DIR/$script'
-        echo 'Run: chmod +x $DIR/$script'
-        echo 126 > '$statusfile'
-        echo
-        echo 'Press Enter to close this terminal...'
-        read -r
-        exit 126
-      fi
+  if [ ! -x '$DIR/$script' ]; then
+    echo '[ERROR] script not executable: $DIR/$script'
+    echo 'Run: chmod +x $DIR/$script'
+    echo 126 > '$statusfile'
+    echo
+    echo 'Press Enter to close this terminal...'
+    read -r
+    exit 126
+  fi
 
-      '$DIR/$script'
-      rc=\$?
+  '$DIR/$script'
+  rc=\$?
 
-      echo
-      echo '========== TERMINAL EXIT =========='
-      echo 'time: '\"\$(date -Iseconds)\"
-      echo 'title: $title'
-      echo 'exit_code:' \$rc
-      echo 'logfile: $logfile'
-      echo '==================================='
-      echo \$rc > '$statusfile'
+  echo
+  echo '========== TERMINAL EXIT =========='
+  echo 'time: '"\$(date -Iseconds)"
+  echo 'title: $title'
+  echo 'exit_code:' \$rc
+  echo 'logfile: $logfile'
+  echo '==================================='
+  echo \$rc > '$statusfile'
 
-      echo
-      echo 'Press Enter to close this terminal...'
-      read -r
+  echo
+  echo 'Press Enter to close this terminal...'
+  read -r
 
-      exit \$rc
-    } 2>&1 | tee -a '$logfile'
-  " >> "$LOG_DIR/gnome_terminal_launch.log" 2>&1 &
+  exit \$rc
+} 2>&1 | tee -a '$logfile'
+EOF
+  chmod +x "$runner"
+
+  if [ "$GUI_TERMINAL" = "xfce4-terminal" ]; then
+    xfce4-terminal --disable-server --title="$title" --command "$runner" >> "$LOG_DIR/terminal_launch.log" 2>&1 &
+  else
+    gnome-terminal --title="$title" -- "$runner" >> "$LOG_DIR/terminal_launch.log" 2>&1 &
+  fi
+
+  sleep "${RC_AUTOSTART_TERMINAL_LAUNCH_DELAY:-0.4}"
 }
 
 should_start_plotjuggler() {
