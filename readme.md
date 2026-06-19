@@ -170,6 +170,17 @@ cd "/home/orangepi/RC_LIDAR_NOW!!!"
 logs/autostart/xdg_autostart.log
 ```
 
+开机自启默认使用低负载模式：
+
+```text
+RC_AUTOSTART_HEADLESS=1
+RC_AUTOSTART_PLOTJUGGLER=0
+RC_AUTOSTART_TF_COMPARE=auto
+RC_AUTOSTART_LIDAR_XYZR=auto
+```
+
+也就是说，开机后会启动定位、TF、Livox、CAN 等核心链路，但不会弹 RViz/PlotJuggler 界面；TF 对比发布节点和点云调试打印也会随 PlotJuggler/headless 策略默认跳过，避免香橙派 CPU 被调试工具抢走。需要临时开图形调试时，手动运行一键脚本并覆盖这些环境变量即可。
+
 临时配置示例：
 
 ```bash
@@ -351,17 +362,32 @@ LIDAR_XYZR       点云调试打印
 PLOTJUGGLER      打开 TF Compare 布局并订阅 /tf_compare topic
 ```
 
-FAST-LIO 默认会同时打开 RViz。如果想关闭 RViz：
+手动启动时 FAST-LIO 默认会同时打开 RViz。如果想关闭 RViz：
 
 ```bash
 FASTLIO_RVIZ=false ./autostart/start_all_terminals.sh
 ```
 
-PlotJuggler 默认在手动启动和开机启动时打开，CAN 自动重启时默认不打开，避免反复弹 GUI。可以用下面的环境变量覆盖：
+如果使用 headless 模式，FAST-LIO 默认不打开 RViz：
+
+```bash
+RC_AUTOSTART_HEADLESS=1 RC_AUTOSTART_PLOTJUGGLER=0 ./autostart/start_all_terminals.sh
+```
+
+PlotJuggler 默认在手动启动时打开，开机自启和 CAN 自动重启时默认不打开，避免反复弹 GUI 或占用香橙派 CPU。可以用下面的环境变量覆盖：
 
 ```bash
 RC_AUTOSTART_PLOTJUGGLER=0 ./autostart/start_all_terminals.sh
+RC_AUTOSTART_PLOTJUGGLER=1 RUN_REASON=boot ./autostart/start_all_terminals.sh
 RC_AUTOSTART_PLOTJUGGLER=1 RUN_REASON=can_restart ./autostart/start_all_terminals.sh
+```
+
+TF 对比发布节点默认只在 PlotJuggler 会启动时自动启动；`LIDAR_XYZR` 点云调试打印默认只在非 headless 模式启动。性能测试或实车调车时建议保持默认低负载策略。需要单独打开调试节点时：
+
+```bash
+RC_AUTOSTART_TF_COMPARE=1 RC_AUTOSTART_LIDAR_XYZR=1 \
+  RC_AUTOSTART_HEADLESS=1 RC_AUTOSTART_PLOTJUGGLER=0 \
+  ./autostart/start_all_terminals.sh
 ```
 
 PlotJuggler 的 ROS2 插件会弹出确认窗口，本工程用 `xdotool` 自动按确认。如果没有安装：

@@ -246,18 +246,6 @@ start_one() {
   " >> "$LOG_DIR/gnome_terminal_launch.log" 2>&1 &
 }
 
-start_one "TF_STATIC1" "lidar_to_base_tf.sh"
-start_one "TF_STATIC2" "map_to_init_tf.sh"
-start_one "TF_STATIC3" "lidar_to_base_highrate_tf.sh"
-start_one "LIVOX" "livox.sh"
-start_one "FASTLIO" "fastlio.sh"
-start_one "HIGHRATE_BODY" "highrate_body.sh"
-start_one "world_tf" "world_tf.sh"
-start_one "TF_ROBOT_OFFSET" "robot_tf_offsets.sh"
-start_one "TF_LIDAR_OFFSET" "lidar_tf_offset.sh"
-start_one "CAN_SERIAL" "serial_driver.sh"
-start_one "LIDAR_XYZR" "lidar_xyzr.sh"
-
 should_start_plotjuggler() {
   case "${RC_AUTOSTART_PLOTJUGGLER:-auto}" in
     1|true|TRUE|yes|YES|on|ON)
@@ -267,18 +255,84 @@ should_start_plotjuggler() {
       return 1
       ;;
     auto)
-      [ "$RUN_REASON" != "can_restart" ]
+      [ "$RUN_REASON" != "can_restart" ] && [ "$RUN_HEADLESS" != "1" ]
       return
       ;;
     *)
       echo "[WARN] Unknown RC_AUTOSTART_PLOTJUGGLER=${RC_AUTOSTART_PLOTJUGGLER}; using auto." | tee -a "$LOG_DIR/start_summary.txt"
-      [ "$RUN_REASON" != "can_restart" ]
+      [ "$RUN_REASON" != "can_restart" ] && [ "$RUN_HEADLESS" != "1" ]
       return
       ;;
   esac
 }
 
 if should_start_plotjuggler; then
+  START_PLOTJUGGLER=1
+else
+  START_PLOTJUGGLER=0
+fi
+
+should_start_tf_compare() {
+  case "${RC_AUTOSTART_TF_COMPARE:-auto}" in
+    1|true|TRUE|yes|YES|on|ON)
+      return 0
+      ;;
+    0|false|FALSE|no|NO|off|OFF)
+      return 1
+      ;;
+    auto)
+      [ "$START_PLOTJUGGLER" = "1" ]
+      return
+      ;;
+    *)
+      echo "[WARN] Unknown RC_AUTOSTART_TF_COMPARE=${RC_AUTOSTART_TF_COMPARE}; using auto." | tee -a "$LOG_DIR/start_summary.txt"
+      [ "$START_PLOTJUGGLER" = "1" ]
+      return
+      ;;
+  esac
+}
+
+should_start_lidar_xyzr() {
+  case "${RC_AUTOSTART_LIDAR_XYZR:-auto}" in
+    1|true|TRUE|yes|YES|on|ON)
+      return 0
+      ;;
+    0|false|FALSE|no|NO|off|OFF)
+      return 1
+      ;;
+    auto)
+      [ "$RUN_HEADLESS" != "1" ]
+      return
+      ;;
+    *)
+      echo "[WARN] Unknown RC_AUTOSTART_LIDAR_XYZR=${RC_AUTOSTART_LIDAR_XYZR}; using auto." | tee -a "$LOG_DIR/start_summary.txt"
+      [ "$RUN_HEADLESS" != "1" ]
+      return
+      ;;
+  esac
+}
+
+start_one "TF_STATIC1" "lidar_to_base_tf.sh"
+start_one "TF_STATIC2" "map_to_init_tf.sh"
+start_one "TF_STATIC3" "lidar_to_base_highrate_tf.sh"
+start_one "LIVOX" "livox.sh"
+start_one "FASTLIO" "fastlio.sh"
+start_one "HIGHRATE_BODY" "highrate_body.sh"
+start_one "world_tf" "world_tf.sh"
+if should_start_tf_compare; then
+  start_one "TF_ROBOT_OFFSET" "robot_tf_offsets.sh"
+  start_one "TF_LIDAR_OFFSET" "lidar_tf_offset.sh"
+else
+  echo "[$(date -Iseconds)] skipped TF compare publishers" | tee -a "$LOG_DIR/start_summary.txt"
+fi
+start_one "CAN_SERIAL" "serial_driver.sh"
+if should_start_lidar_xyzr; then
+  start_one "LIDAR_XYZR" "lidar_xyzr.sh"
+else
+  echo "[$(date -Iseconds)] skipped LIDAR_XYZR debug printer" | tee -a "$LOG_DIR/start_summary.txt"
+fi
+
+if [ "$START_PLOTJUGGLER" = "1" ]; then
   start_one "PLOTJUGGLER" "plotjuggler_tf_compare.sh"
 else
   echo "[$(date -Iseconds)] skipped PLOTJUGGLER for run_reason=$RUN_REASON" | tee -a "$LOG_DIR/start_summary.txt"
