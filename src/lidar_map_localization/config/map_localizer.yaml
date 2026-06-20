@@ -11,7 +11,17 @@ map_localizer:
     odom_frame: camera_init
     body_frame: body
     publish_tf: true
-    auto_initialize_identity: true
+    # This localizer is not a global relocalizer. If the robot is not started
+    # close to the original map origin, provide an initial map->camera_init
+    # guess with RC_RELOCALIZATION_INITIAL_GUESS=1 or /initialpose.
+    auto_initialize_identity: false
+    initial_guess_enabled: false
+    initial_guess_x: 0.0
+    initial_guess_y: 0.0
+    initial_guess_z: 0.0
+    initial_guess_roll: 0.0
+    initial_guess_pitch: 0.0
+    initial_guess_yaw: 0.0
     registration_method: ndt
     localize_period_sec: 0.1
     map_leaf_size: 0.10

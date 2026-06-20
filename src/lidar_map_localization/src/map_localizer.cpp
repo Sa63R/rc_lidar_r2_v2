@@ -43,6 +43,13 @@ class MapLocalizer : public rclcpp::Node {
     body_frame_ = declare_parameter<std::string>("body_frame", "body");
     publish_tf_ = declare_parameter<bool>("publish_tf", true);
     auto_initialize_identity_ = declare_parameter<bool>("auto_initialize_identity", true);
+    initial_guess_enabled_ = declare_parameter<bool>("initial_guess_enabled", false);
+    initial_guess_x_ = declare_parameter<double>("initial_guess_x", 0.0);
+    initial_guess_y_ = declare_parameter<double>("initial_guess_y", 0.0);
+    initial_guess_z_ = declare_parameter<double>("initial_guess_z", 0.0);
+    initial_guess_roll_ = declare_parameter<double>("initial_guess_roll", 0.0);
+    initial_guess_pitch_ = declare_parameter<double>("initial_guess_pitch", 0.0);
+    initial_guess_yaw_ = declare_parameter<double>("initial_guess_yaw", 0.0);
     registration_method_ = declare_parameter<std::string>("registration_method", "ndt");
     localize_period_sec_ = declare_parameter<double>("localize_period_sec", 0.5);
     map_leaf_size_ = declare_parameter<double>("map_leaf_size", 0.25);
@@ -59,7 +66,29 @@ class MapLocalizer : public rclcpp::Node {
     icp_max_iterations_ = declare_parameter<int>("icp_max_iterations", 40);
 
     map_T_odom_.setIdentity();
-    has_map_to_odom_ = auto_initialize_identity_;
+    if (initial_guess_enabled_) {
+      map_T_odom_ = xyzRpyToMatrix(
+          initial_guess_x_, initial_guess_y_, initial_guess_z_,
+          initial_guess_roll_, initial_guess_pitch_, initial_guess_yaw_);
+      has_map_to_odom_ = true;
+      RCLCPP_INFO(
+          get_logger(),
+          "using initial map->%s guess: xyz=(%.3f, %.3f, %.3f) rpy=(%.3f, %.3f, %.3f)",
+          odom_frame_.c_str(), initial_guess_x_, initial_guess_y_, initial_guess_z_,
+          initial_guess_roll_, initial_guess_pitch_, initial_guess_yaw_);
+    } else {
+      has_map_to_odom_ = auto_initialize_identity_;
+      if (auto_initialize_identity_) {
+        RCLCPP_WARN(
+            get_logger(),
+            "auto_initialize_identity is true; assuming current FAST-LIO origin is near the saved map origin");
+      } else {
+        RCLCPP_WARN(
+            get_logger(),
+            "no initial map->%s guess; waiting for /initialpose or RC_RELOCALIZATION_INITIAL_GUESS=1",
+            odom_frame_.c_str());
+      }
+    }
 
     loadMap();
 
@@ -321,6 +350,22 @@ class MapLocalizer : public rclcpp::Node {
     return matrix;
   }
 
+  static Eigen::Matrix4f xyzRpyToMatrix(
+      double x, double y, double z, double roll, double pitch, double yaw) {
+    Eigen::AngleAxisf roll_angle(static_cast<float>(roll), Eigen::Vector3f::UnitX());
+    Eigen::AngleAxisf pitch_angle(static_cast<float>(pitch), Eigen::Vector3f::UnitY());
+    Eigen::AngleAxisf yaw_angle(static_cast<float>(yaw), Eigen::Vector3f::UnitZ());
+    Eigen::Quaternionf q = yaw_angle * pitch_angle * roll_angle;
+    q.normalize();
+
+    Eigen::Matrix4f matrix = Eigen::Matrix4f::Identity();
+    matrix.block<3, 3>(0, 0) = q.toRotationMatrix();
+    matrix(0, 3) = static_cast<float>(x);
+    matrix(1, 3) = static_cast<float>(y);
+    matrix(2, 3) = static_cast<float>(z);
+    return matrix;
+  }
+
   static geometry_msgs::msg::Pose matrixToPose(const Eigen::Matrix4f& matrix) {
     geometry_msgs::msg::Pose pose;
     Eigen::Matrix3f rotation = matrix.block<3, 3>(0, 0);
@@ -367,8 +412,15 @@ class MapLocalizer : public rclcpp::Node {
   std::string registration_method_;
   bool publish_tf_{true};
   bool auto_initialize_identity_{true};
+  bool initial_guess_enabled_{false};
   bool has_map_to_odom_{true};
   bool map_loaded_{false};
+  double initial_guess_x_{0.0};
+  double initial_guess_y_{0.0};
+  double initial_guess_z_{0.0};
+  double initial_guess_roll_{0.0};
+  double initial_guess_pitch_{0.0};
+  double initial_guess_yaw_{0.0};
   double localize_period_sec_{0.5};
   double map_leaf_size_{0.25};
   double scan_leaf_size_{0.25};

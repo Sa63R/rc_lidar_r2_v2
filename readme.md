@@ -196,16 +196,18 @@ cd "/home/orangepi/RC_LIDAR_NOW"
 logs/autostart/xdg_autostart.log
 ```
 
-开机自启默认使用低负载模式：
+开机自启默认使用低负载重定位模式，并假设机器人从建图原点附近启动：
 
 ```text
+RC_LIDAR_MODE=relocalization
+RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1
 RC_AUTOSTART_HEADLESS=1
 RC_AUTOSTART_PLOTJUGGLER=0
 RC_AUTOSTART_TF_COMPARE=auto
 RC_AUTOSTART_LIDAR_XYZR=auto
 ```
 
-也就是说，开机后会启动定位、TF、Livox、CAN 等核心链路，但不会弹 RViz/PlotJuggler 界面；TF 对比发布节点和点云调试打印也会随 PlotJuggler/headless 策略默认跳过，避免香橙派 CPU 被调试工具抢走。需要临时开图形调试时，手动运行一键脚本并覆盖这些环境变量即可。
+也就是说，开机后会自动用 `maps/mid360_map.pcd` 做重定位，启动 TF、Livox、FAST-LIO、地图匹配、位姿接口和 CAN 等核心链路，但不会弹 RViz/PlotJuggler 界面；TF 对比发布节点和点云调试打印也会随 PlotJuggler/headless 策略默认跳过，避免香橙派 CPU 被调试工具抢走。需要临时开图形调试时，手动运行一键脚本并覆盖这些环境变量即可。
 
 临时配置示例：
 
@@ -573,6 +575,34 @@ logs/autostart/latest/fastlio_map_save_path.txt
 ```bash
 ls -lh maps/mid360_map.pcd
 ```
+
+重要：当前 `lidar_map_localization` 是局部地图匹配，不是全局重定位。也就是说，它不能在完全不知道初始位置的情况下，从整张地图里自动找出机器人在哪里。之前出现过“机器人不是在建图原点启动，但输出仍接近 0”的现象，本质是把 `map -> camera_init` 初值默认假设成 identity，NDT 又持续匹配失败，容易造成误判。
+
+现在默认不再假设当前启动点就是地图原点；重定位启动后，如果没有初始位姿，`MAP_LOCALIZER.log` 会提示等待 `/initialpose` 或 `RC_RELOCALIZATION_INITIAL_GUESS=1`，并且不会发布看起来像 0 的假定位结果。
+
+如果机器人确实放在建图开始时的原点附近，可以显式允许地图原点初值：
+
+```bash
+cd "/home/orangepi/RC_LIDAR_NOW"
+RC_LIDAR_MODE=relocalization \
+RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
+./autostart/start_all_terminals.sh
+```
+
+如果机器人不是从地图原点启动，需要给一个粗略初始位姿。下面的初值是 `map -> camera_init`，也就是 FAST-LIO 原始地图坐标系里的雷达/body 初始位姿，不是 `X右/Y前` 的业务坐标：
+
+```bash
+cd "/home/orangepi/RC_LIDAR_NOW"
+RC_LIDAR_MODE=relocalization \
+RC_RELOCALIZATION_INITIAL_GUESS=1 \
+RC_RELOCALIZATION_INITIAL_X=0.0 \
+RC_RELOCALIZATION_INITIAL_Y=0.0 \
+RC_RELOCALIZATION_INITIAL_Z=0.0 \
+RC_RELOCALIZATION_INITIAL_YAW=0.0 \
+./autostart/start_all_terminals.sh
+```
+
+也可以运行后通过 RViz 或命令发布 `/initialpose` 来更新初始猜测。初值越接近真实位置，NDT/ICP 越容易收敛；如果 `MAP_LOCALIZER.log` 里持续出现 `map registration rejected` 且 `fitness` 远大于阈值，就表示重定位没有成功，不应该使用此时的 `/lidar/pose` 或 CAN 坐标。
 
 低负载重定位启动：
 
