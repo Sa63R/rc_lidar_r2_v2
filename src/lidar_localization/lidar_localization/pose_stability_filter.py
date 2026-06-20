@@ -33,15 +33,24 @@ class PoseStabilityFilter(Node):
         self.status_topic = self.declare_parameter(
             "status_topic", "/lidar/pose_filter/status"
         ).value
-        self.static_alpha = float(self.declare_parameter("static_alpha", 0.20).value)
-        self.moving_alpha = float(self.declare_parameter("moving_alpha", 0.65).value)
+        self.static_alpha = float(self.declare_parameter("static_alpha", 0.12).value)
+        self.moving_alpha = float(self.declare_parameter("moving_alpha", 0.92).value)
         self.static_speed_threshold = float(
-            self.declare_parameter("static_speed_threshold", 0.05).value
+            self.declare_parameter("static_speed_threshold", 0.03).value
         )
-        self.max_xy_jump = float(self.declare_parameter("max_xy_jump", 0.15).value)
-        self.max_xy_speed = float(self.declare_parameter("max_xy_speed", 2.0).value)
+        self.full_speed_threshold = float(
+            self.declare_parameter("full_speed_threshold", 0.20).value
+        )
+        self.static_yaw_rate_rad = math.radians(
+            float(self.declare_parameter("static_yaw_rate_deg", 8.0).value)
+        )
+        self.full_yaw_rate_rad = math.radians(
+            float(self.declare_parameter("full_yaw_rate_deg", 45.0).value)
+        )
+        self.max_xy_jump = float(self.declare_parameter("max_xy_jump", 0.50).value)
+        self.max_xy_speed = float(self.declare_parameter("max_xy_speed", 5.0).value)
         self.max_yaw_jump_rad = math.radians(
-            float(self.declare_parameter("max_yaw_jump_deg", 20.0).value)
+            float(self.declare_parameter("max_yaw_jump_deg", 90.0).value)
         )
         self.recovery_reject_count = int(
             self.declare_parameter("recovery_reject_count", 10).value
@@ -83,6 +92,9 @@ class PoseStabilityFilter(Node):
             f"static_alpha={self.static_alpha:.3f} "
             f"moving_alpha={self.moving_alpha:.3f} "
             f"static_speed={self.static_speed_threshold:.3f} "
+            f"full_speed={self.full_speed_threshold:.3f} "
+            f"static_yaw_rate_deg={math.degrees(self.static_yaw_rate_rad):.1f} "
+            f"full_yaw_rate_deg={math.degrees(self.full_yaw_rate_rad):.1f} "
             f"max_xy_jump={self.max_xy_jump:.3f} "
             f"max_xy_speed={self.max_xy_speed:.3f} "
             f"max_yaw_jump_deg={math.degrees(self.max_yaw_jump_rad):.1f} "
@@ -108,7 +120,18 @@ class PoseStabilityFilter(Node):
             self.last_receive_time = receive_time
             self.accept_count += 1
             self.publish_filtered_pose(self.filtered_pose)
-            self.publish_status(True, msg, self.filtered_pose, 0.0, 0.0, 1.0, yaw, yaw)
+            self.publish_status(
+                True,
+                msg,
+                self.filtered_pose,
+                0.0,
+                0.0,
+                1.0,
+                yaw,
+                yaw,
+                0.0,
+                0.0,
+            )
             return
 
         prev_raw = self.last_raw_pose
@@ -127,6 +150,9 @@ class PoseStabilityFilter(Node):
 
         _, _, prev_yaw = rpy_from_quat(prev_raw.pose.orientation)
         yaw_step = abs(wrap_angle(yaw - prev_yaw))
+        yaw_rate = yaw_step / dt
+        motion_factor = self.motion_factor(speed_xy, yaw_rate)
+        alpha = self.alpha_for_motion(motion_factor)
 
         rejected = (
             (xy_step > self.max_xy_jump and speed_xy > self.max_xy_speed)
@@ -160,6 +186,8 @@ class PoseStabilityFilter(Node):
                     1.0,
                     yaw,
                     yaw,
+                    motion_factor,
+                    yaw_rate,
                     recovered=True,
                 )
                 self.log_recover(xy_step, speed_xy, yaw_step, reject_duration)
@@ -179,6 +207,8 @@ class PoseStabilityFilter(Node):
                 0.0,
                 yaw,
                 filtered_yaw,
+                motion_factor,
+                yaw_rate,
             )
             self.log_reject(xy_step, speed_xy, yaw_step, reject_duration)
             return
@@ -186,8 +216,6 @@ class PoseStabilityFilter(Node):
         self.accept_count += 1
         self.consecutive_rejects = 0
         self.first_reject_time = None
-        alpha = self.static_alpha if speed_xy < self.static_speed_threshold else self.moving_alpha
-        alpha = min(max(alpha, 0.0), 1.0)
 
         output = self.copy_pose(msg)
         prev_filtered = self.filtered_pose
@@ -214,8 +242,34 @@ class PoseStabilityFilter(Node):
         self.last_raw_stamp = stamp
         self.last_receive_time = receive_time
         self.publish_filtered_pose(output)
-        self.publish_status(True, msg, output, xy_step, speed_xy, alpha, yaw, filtered_yaw)
-        self.log_accept(xy_step, speed_xy, alpha)
+        self.publish_status(
+            True,
+            msg,
+            output,
+            xy_step,
+            speed_xy,
+            alpha,
+            yaw,
+            filtered_yaw,
+            motion_factor,
+            yaw_rate,
+        )
+        self.log_accept(xy_step, speed_xy, alpha, motion_factor, yaw_rate)
+
+    def motion_factor(self, speed_xy: float, yaw_rate: float) -> float:
+        speed_factor = self.ramp(
+            speed_xy, self.static_speed_threshold, self.full_speed_threshold
+        )
+        yaw_factor = self.ramp(
+            yaw_rate, self.static_yaw_rate_rad, self.full_yaw_rate_rad
+        )
+        return max(speed_factor, yaw_factor)
+
+    def alpha_for_motion(self, motion_factor: float) -> float:
+        static_alpha = min(max(self.static_alpha, 0.0), 1.0)
+        moving_alpha = min(max(self.moving_alpha, 0.0), 1.0)
+        factor = min(max(motion_factor, 0.0), 1.0)
+        return static_alpha + factor * (moving_alpha - static_alpha)
 
     def should_recover_from_rejects(self, reject_duration: float) -> bool:
         count_reached = (
@@ -231,6 +285,12 @@ class PoseStabilityFilter(Node):
     @staticmethod
     def ema(previous: float, current: float, alpha: float) -> float:
         return previous + alpha * (current - previous)
+
+    @staticmethod
+    def ramp(value: float, low: float, high: float) -> float:
+        if high <= low:
+            return 1.0 if value >= high else 0.0
+        return min(max((value - low) / (high - low), 0.0), 1.0)
 
     def publish_filtered_pose(self, msg: PoseStamped) -> None:
         self.pose_pub.publish(msg)
@@ -260,6 +320,8 @@ class PoseStabilityFilter(Node):
         alpha: float,
         raw_yaw: float,
         filtered_yaw: float,
+        motion_factor: float,
+        yaw_rate: float,
         recovered: bool = False,
     ) -> None:
         status = Float32MultiArray()
@@ -278,10 +340,19 @@ class PoseStabilityFilter(Node):
             float(self.accept_count),
             float(self.consecutive_rejects),
             1.0 if recovered else 0.0,
+            float(motion_factor),
+            float(math.degrees(yaw_rate)),
         ]
         self.status_pub.publish(status)
 
-    def log_accept(self, xy_step: float, speed_xy: float, alpha: float) -> None:
+    def log_accept(
+        self,
+        xy_step: float,
+        speed_xy: float,
+        alpha: float,
+        motion_factor: float,
+        yaw_rate: float,
+    ) -> None:
         now = self.get_clock().now()
         if (now - self.last_log_time).nanoseconds / 1e9 < self.log_period_sec:
             return
@@ -289,6 +360,7 @@ class PoseStabilityFilter(Node):
         self.get_logger().info(
             f"pose filter accepted: step={xy_step:.4f}m "
             f"speed={speed_xy:.3f}m/s alpha={alpha:.2f} "
+            f"motion={motion_factor:.2f} yaw_rate={math.degrees(yaw_rate):.1f}deg/s "
             f"rejects={self.reject_count}"
         )
 

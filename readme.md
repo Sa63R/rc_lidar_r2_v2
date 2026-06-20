@@ -682,7 +682,7 @@ RC_CAN_POSE_SOURCE=pose_topic RC_CAN_POSE_TOPIC=/robot/pose ./autostart/start_al
 RC_CAN_POSE_SOURCE=pose_topic RC_CAN_POSE_TOPIC=/robot/pose_filtered ./autostart/start_all_terminals.sh
 ```
 
-`/robot/pose_filtered` 是低延迟稳态滤波后的机器人中心点位姿，主要用于观察是否能降低地图重定位输出的毫米到厘米级抖动，以及拒绝少数单帧突跳。它不会让原始点云匹配本身变得更准；判断原始定位质量仍要看 `/robot/pose`、`/map_lidar/quality` 和现场地图质量。
+`/robot/pose_filtered` 是低延迟自适应滤波后的机器人中心点位姿，主要用于观察是否能降低地图重定位输出的毫米到厘米级抖动，以及拒绝少数硬离群点。它不会让原始点云匹配本身变得更准；判断原始定位质量仍要看 `/robot/pose`、`/map_lidar/quality` 和现场地图质量。
 
 普通模式和重定位模式默认都是：
 
@@ -709,6 +709,28 @@ PlotJuggler 里看机器人中心点滤波前后抖动，优先选这些曲线�
 /robot/pose_filtered/pose/position/z
 ```
 
+滤波观察要区分几件事：
+
+- `/robot/pose` 是滤波前的地图重定位观察值，来源仍然是 `/map_lidar/odom -> pose_from_odom`。Rc 2.4 没有修改 `/robot/pose` 的生成算法、地图匹配参数或坐标转换逻辑。如果重启后看到 `/robot/pose` 比之前稳定，通常不是代码直接调稳了它，而是这次运行的状态更干净、地图匹配收敛更好、现场动态干扰更少，或者 PlotJuggler 里选到的曲线和之前不同。
+- `/robot/pose_filtered` 是滤波后的观察值。滤波目标是静止时压住小抖动，运动时尽量保留连续轨迹；绕点转圈时，连续的正弦/余弦曲线通常比台阶或锯齿更符合真实运动。
+- 当前滤波用 `xy_speed` 和 `yaw_rate` 计算运动因子：静止时使用较强平滑，明显运动时快速跟随原始曲线，中间状态平滑过渡。
+- 硬离群点仍会被短暂拒绝并保持旧输出；但如果连续拒绝超过默认 10 次，或持续超过默认 1 秒，会认为这已经不是单帧异常，而是位姿发生了真实变化，于是重新捕获当前位姿，避免输出永久停成水平线。
+- CAN 默认链路和滤波观察链路已经分开。CAN 默认继续使用 TF 的 `init -> base_link_highrate/base_link`，不会因为 `/robot/pose` 或 `/robot/pose_filtered` 的表现而直接影响电控。
+
+滤波默认参数可以通过环境变量覆盖：
+
+```bash
+RC_POSE_FILTER_STATIC_ALPHA=0.12
+RC_POSE_FILTER_MOVING_ALPHA=0.92
+RC_POSE_FILTER_STATIC_SPEED=0.03
+RC_POSE_FILTER_FULL_SPEED=0.20
+RC_POSE_FILTER_STATIC_YAW_RATE_DEG=8.0
+RC_POSE_FILTER_FULL_YAW_RATE_DEG=45.0
+RC_POSE_FILTER_MAX_XY_JUMP=0.50
+RC_POSE_FILTER_MAX_XY_SPEED=5.0
+RC_POSE_FILTER_MAX_YAW_JUMP_DEG=90.0
+```
+
 `/lidar/pose_filter/status` 使用 `std_msgs/Float32MultiArray`，字段含义：
 
 ```text
@@ -726,6 +748,8 @@ data[10] reject_count
 data[11] accept_count
 data[12] consecutive_rejects
 data[13] recovered，1 表示连续拒绝后重新捕获当前位姿，避免滤波输出永久卡死
+data[14] motion_factor，0 表示按静止强滤波，1 表示按运动快速跟随
+data[15] yaw_rate_deg，当前原始 yaw 变化速率，单位 deg/s
 ```
 
 `/map_lidar/quality` 使用 `std_msgs/Float32MultiArray`，字段含义：
@@ -1021,7 +1045,7 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
    - 新增 `pose_from_odom` 位姿接口。
    - 建图模式下可把 `/Odometry` 转成相对启动点的 `/robot/pose`，同时保留旧兼容名 `/lidar/pose`。
    - 重定位模式下把 `/map_lidar/odom` 转成业务坐标 `init -> base_link` 的 `/robot/pose`，坐标语义为 `X右/Y前/Z上`。
-   - 新增 `pose_stability_filter`，将 `/robot/pose` 平滑为 `/robot/pose_filtered`，同时保留旧兼容名 `/lidar/pose_filtered`；`RC_POSE_FILTER=0` 可关闭。滤波器带连续拒绝后的恢复机制，避免机器人移动后滤波输出永久停在旧值。
+   - 新增 `pose_stability_filter`，将 `/robot/pose` 平滑为 `/robot/pose_filtered`，同时保留旧兼容名 `/lidar/pose_filtered`；`RC_POSE_FILTER=0` 可关闭。滤波器按 `xy_speed` 和 `yaw_rate` 自适应调整强度，静止时压抖动，运动时快速跟随，并带连续拒绝后的恢复机制，避免机器人移动后滤波输出永久停在旧值。
 
 21. `autostart/start_mapping_terminals.sh`、`autostart/save_fast_lio_map.sh`、`autostart/map_localizer.sh`、`autostart/pose_interface_mapping.sh`、`autostart/pose_interface_relocalization.sh`、`autostart/pose_stability_filter.sh`
    - 新增建图保存和地图重定位的一键脚本。
