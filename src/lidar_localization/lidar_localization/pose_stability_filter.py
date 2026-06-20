@@ -16,7 +16,7 @@ def wrap_angle(angle: float) -> float:
 
 
 class PoseStabilityFilter(Node):
-    """Low-latency pose smoother for the CAN output path."""
+    """Low-latency pose smoother for observing relocalization pose stability."""
 
     def __init__(self) -> None:
         super().__init__("pose_stability_filter")
@@ -43,6 +43,12 @@ class PoseStabilityFilter(Node):
         self.max_yaw_jump_rad = math.radians(
             float(self.declare_parameter("max_yaw_jump_deg", 20.0).value)
         )
+        self.recovery_reject_count = int(
+            self.declare_parameter("recovery_reject_count", 10).value
+        )
+        self.recovery_time_sec = float(
+            self.declare_parameter("recovery_time_sec", 1.0).value
+        )
         self.log_period_sec = float(
             self.declare_parameter("log_period_sec", 1.0).value
         )
@@ -51,6 +57,8 @@ class PoseStabilityFilter(Node):
         self.last_raw_pose: Optional[PoseStamped] = None
         self.last_raw_stamp: Optional[Time] = None
         self.last_receive_time: Optional[Time] = None
+        self.first_reject_time: Optional[Time] = None
+        self.consecutive_rejects = 0
         self.reject_count = 0
         self.accept_count = 0
         self.last_log_time = self.get_clock().now()
@@ -77,7 +85,9 @@ class PoseStabilityFilter(Node):
             f"static_speed={self.static_speed_threshold:.3f} "
             f"max_xy_jump={self.max_xy_jump:.3f} "
             f"max_xy_speed={self.max_xy_speed:.3f} "
-            f"max_yaw_jump_deg={math.degrees(self.max_yaw_jump_rad):.1f}"
+            f"max_yaw_jump_deg={math.degrees(self.max_yaw_jump_rad):.1f} "
+            f"recovery_reject_count={self.recovery_reject_count} "
+            f"recovery_time={self.recovery_time_sec:.2f}s"
         )
 
     def pose_stamp(self, msg: PoseStamped) -> Time:
@@ -125,18 +135,57 @@ class PoseStabilityFilter(Node):
 
         if rejected:
             self.reject_count += 1
+            self.consecutive_rejects += 1
+            if self.first_reject_time is None:
+                self.first_reject_time = receive_time
+            reject_duration = (
+                receive_time - self.first_reject_time
+            ).nanoseconds / 1e9
+
+            if self.should_recover_from_rejects(reject_duration):
+                self.accept_count += 1
+                self.consecutive_rejects = 0
+                self.first_reject_time = None
+                self.filtered_pose = self.copy_pose(msg)
+                self.last_raw_pose = self.copy_pose(msg)
+                self.last_raw_stamp = stamp
+                self.last_receive_time = receive_time
+                self.publish_filtered_pose(self.filtered_pose)
+                self.publish_status(
+                    True,
+                    msg,
+                    self.filtered_pose,
+                    xy_step,
+                    speed_xy,
+                    1.0,
+                    yaw,
+                    yaw,
+                    recovered=True,
+                )
+                self.log_recover(xy_step, speed_xy, yaw_step, reject_duration)
+                return
+
             self.last_receive_time = receive_time
             output = self.copy_pose(self.filtered_pose)
             output.header = msg.header
             self.publish_filtered_pose(output)
             _, _, filtered_yaw = rpy_from_quat(output.pose.orientation)
             self.publish_status(
-                False, msg, output, xy_step, speed_xy, 0.0, yaw, filtered_yaw
+                False,
+                msg,
+                output,
+                xy_step,
+                speed_xy,
+                0.0,
+                yaw,
+                filtered_yaw,
             )
-            self.log_reject(xy_step, speed_xy, yaw_step)
+            self.log_reject(xy_step, speed_xy, yaw_step, reject_duration)
             return
 
         self.accept_count += 1
+        self.consecutive_rejects = 0
+        self.first_reject_time = None
         alpha = self.static_alpha if speed_xy < self.static_speed_threshold else self.moving_alpha
         alpha = min(max(alpha, 0.0), 1.0)
 
@@ -167,6 +216,17 @@ class PoseStabilityFilter(Node):
         self.publish_filtered_pose(output)
         self.publish_status(True, msg, output, xy_step, speed_xy, alpha, yaw, filtered_yaw)
         self.log_accept(xy_step, speed_xy, alpha)
+
+    def should_recover_from_rejects(self, reject_duration: float) -> bool:
+        count_reached = (
+            self.recovery_reject_count > 0
+            and self.consecutive_rejects >= self.recovery_reject_count
+        )
+        time_reached = (
+            self.recovery_time_sec > 0.0
+            and reject_duration >= self.recovery_time_sec
+        )
+        return count_reached or time_reached
 
     @staticmethod
     def ema(previous: float, current: float, alpha: float) -> float:
@@ -200,6 +260,7 @@ class PoseStabilityFilter(Node):
         alpha: float,
         raw_yaw: float,
         filtered_yaw: float,
+        recovered: bool = False,
     ) -> None:
         status = Float32MultiArray()
         status.data = [
@@ -215,6 +276,8 @@ class PoseStabilityFilter(Node):
             float(filtered_yaw),
             float(self.reject_count),
             float(self.accept_count),
+            float(self.consecutive_rejects),
+            1.0 if recovered else 0.0,
         ]
         self.status_pub.publish(status)
 
@@ -229,11 +292,24 @@ class PoseStabilityFilter(Node):
             f"rejects={self.reject_count}"
         )
 
-    def log_reject(self, xy_step: float, speed_xy: float, yaw_step: float) -> None:
+    def log_reject(
+        self, xy_step: float, speed_xy: float, yaw_step: float, reject_duration: float
+    ) -> None:
         self.get_logger().warn(
             f"pose filter rejected jump: xy_step={xy_step:.3f}m "
             f"speed={speed_xy:.3f}m/s yaw_step={math.degrees(yaw_step):.1f}deg "
-            f"rejects={self.reject_count}"
+            f"rejects={self.reject_count} consecutive={self.consecutive_rejects} "
+            f"duration={reject_duration:.2f}s"
+        )
+
+    def log_recover(
+        self, xy_step: float, speed_xy: float, yaw_step: float, reject_duration: float
+    ) -> None:
+        self.get_logger().warn(
+            "pose filter recovered by rebasing after persistent jump: "
+            f"xy_step={xy_step:.3f}m speed={speed_xy:.3f}m/s "
+            f"yaw_step={math.degrees(yaw_step):.1f}deg "
+            f"duration={reject_duration:.2f}s"
         )
 
 

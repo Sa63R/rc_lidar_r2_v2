@@ -47,16 +47,12 @@ setup_can_if_possible
 sleep 3
 
 if [ -z "${RC_CAN_POSE_SOURCE:-}" ]; then
-  if [ "${RC_LIDAR_MODE:-tracking}" = "relocalization" ]; then
-    RC_CAN_POSE_SOURCE="pose_topic"
-  else
-    RC_CAN_POSE_SOURCE="tf"
-  fi
+  RC_CAN_POSE_SOURCE="tf"
 fi
 if [ -z "${RC_CAN_POSE_TOPIC:-}" ]; then
-  if [ "${RC_LIDAR_MODE:-tracking}" = "relocalization" ] && [ "${RC_POSE_FILTER:-1}" != "0" ]; then
+  if [ "$RC_CAN_POSE_SOURCE" != "tf" ] && [ "${RC_LIDAR_MODE:-tracking}" = "relocalization" ] && [ "${RC_POSE_FILTER:-1}" != "0" ]; then
     RC_CAN_POSE_TOPIC="${RC_POSE_FILTER_CAN_TOPIC:-/robot/pose_filtered}"
-  elif [ "${RC_LIDAR_MODE:-tracking}" = "relocalization" ]; then
+  elif [ "$RC_CAN_POSE_SOURCE" != "tf" ] && [ "${RC_LIDAR_MODE:-tracking}" = "relocalization" ]; then
     RC_CAN_POSE_TOPIC="${RC_CAN_RAW_POSE_TOPIC:-/robot/pose}"
   else
     RC_CAN_POSE_TOPIC="/lidar/pose"

@@ -30,4 +30,6 @@ exec ros2 run lidar_localization pose_stability_filter \
   -p static_speed_threshold:="${RC_POSE_FILTER_STATIC_SPEED:-0.05}" \
   -p max_xy_jump:="${RC_POSE_FILTER_MAX_XY_JUMP:-0.15}" \
   -p max_xy_speed:="${RC_POSE_FILTER_MAX_XY_SPEED:-2.0}" \
-  -p max_yaw_jump_deg:="${RC_POSE_FILTER_MAX_YAW_JUMP_DEG:-20.0}"
+  -p max_yaw_jump_deg:="${RC_POSE_FILTER_MAX_YAW_JUMP_DEG:-20.0}" \
+  -p recovery_reject_count:="${RC_POSE_FILTER_RECOVERY_REJECT_COUNT:-10}" \
+  -p recovery_time_sec:="${RC_POSE_FILTER_RECOVERY_TIME:-1.0}"
