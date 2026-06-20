@@ -90,6 +90,7 @@ close_terminal_windows_by_title() {
     "MAP_LOCALIZER"
     "POSE_INTERFACE"
     "POSE_FILTER"
+    "HEALTH_MONITOR"
     "THERMAL_MONITOR"
   )
 
@@ -179,7 +180,16 @@ close_terminal_windows_by_title() {
   echo "[4/5] starting new stack..."
   cd "$DIR"
 
-  RUN_REASON="can_restart" RC_AUTOSTART_HEADLESS="${RC_AUTOSTART_HEADLESS:-1}" RESTART_LOG="$LOG" nohup "$DIR/start_all_terminals.sh" >> "$LOG" 2>&1 &
+  RUN_REASON="can_restart" \
+    RC_LIDAR_MODE="${RC_LIDAR_MODE:-relocalization}" \
+    RC_RELOCALIZATION_ASSUME_MAP_ORIGIN="${RC_RELOCALIZATION_ASSUME_MAP_ORIGIN:-1}" \
+    RC_AUTOSTART_HEADLESS="${RC_AUTOSTART_HEADLESS:-1}" \
+    RC_AUTOSTART_PLOTJUGGLER="${RC_AUTOSTART_PLOTJUGGLER:-0}" \
+    RC_CAN_POSE_SOURCE="${RC_CAN_POSE_SOURCE:-pose_topic}" \
+    RC_CAN_POSE_TOPIC="${RC_CAN_POSE_TOPIC:-/robot/pose_filtered}" \
+    RC_HEALTH_MONITOR="${RC_HEALTH_MONITOR:-1}" \
+    RESTART_LOG="$LOG" \
+    nohup "$DIR/start_all_terminals.sh" >> "$LOG" 2>&1 &
 
   echo "[5/5] restart command launched."
   echo "========== done at $(date '+%F %T') =========="

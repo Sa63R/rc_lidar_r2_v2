@@ -19,6 +19,7 @@ case "$RC_LIDAR_MODE" in
     ;;
 esac
 RC_LIDAR_MAP_PATH="${RC_LIDAR_MAP_PATH:-$WORKSPACE_DIR/maps/mid360_map.pcd}"
+RC_HEALTH_MONITOR="${RC_HEALTH_MONITOR:-${RC_THERMAL_POSE_MONITOR:-1}}"
 
 RUN_ID="$(date +%Y%m%d_%H%M%S)_${RUN_REASON}"
 LOG_DIR="$LOG_ROOT/run_$RUN_ID"
@@ -31,6 +32,7 @@ export LOG_DIR
 export RUN_REASON
 export RC_LIDAR_MODE
 export RC_LIDAR_MAP_PATH
+export RC_HEALTH_MONITOR
 
 # ROS2 自己的日志目录
 export ROS_LOG_DIR="$LOG_DIR/ros2"
@@ -46,6 +48,7 @@ mkdir -p "$ROS_LOG_DIR"
   echo "run_reason: $RUN_REASON"
   echo "runtime_mode: $RC_LIDAR_MODE"
   echo "map_path: $RC_LIDAR_MAP_PATH"
+  echo "health_monitor: $RC_HEALTH_MONITOR"
   echo "log_dir: $LOG_DIR"
   echo "dir: $DIR"
   echo "user: $(whoami)"
@@ -393,7 +396,7 @@ should_start_lidar_xyzr() {
 }
 
 should_start_thermal_pose_monitor() {
-  case "${RC_THERMAL_POSE_MONITOR:-0}" in
+  case "${RC_HEALTH_MONITOR:-1}" in
     1|true|TRUE|yes|YES|on|ON)
       return 0
       ;;
@@ -401,7 +404,7 @@ should_start_thermal_pose_monitor() {
       return 1
       ;;
     *)
-      echo "[WARN] Unknown RC_THERMAL_POSE_MONITOR=${RC_THERMAL_POSE_MONITOR}; disabled." | tee -a "$LOG_DIR/start_summary.txt"
+      echo "[WARN] Unknown RC_HEALTH_MONITOR=${RC_HEALTH_MONITOR}; disabled." | tee -a "$LOG_DIR/start_summary.txt"
       return 1
       ;;
   esac
@@ -428,9 +431,9 @@ else
   echo "[$(date -Iseconds)] tracking mode: skipped MAP_LOCALIZER and POSE_INTERFACE" | tee -a "$LOG_DIR/start_summary.txt"
 fi
 if should_start_thermal_pose_monitor; then
-  start_one "THERMAL_MONITOR" "thermal_pose_monitor.sh"
+  start_one "HEALTH_MONITOR" "thermal_pose_monitor.sh"
 else
-  echo "[$(date -Iseconds)] skipped THERMAL_MONITOR because RC_THERMAL_POSE_MONITOR is not enabled" | tee -a "$LOG_DIR/start_summary.txt"
+  echo "[$(date -Iseconds)] skipped HEALTH_MONITOR because RC_HEALTH_MONITOR is not enabled" | tee -a "$LOG_DIR/start_summary.txt"
 fi
 if should_start_tf_compare; then
   start_one "TF_ROBOT_OFFSET" "robot_tf_offsets.sh"

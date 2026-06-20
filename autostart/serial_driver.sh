@@ -47,13 +47,15 @@ setup_can_if_possible
 sleep 3
 
 if [ -z "${RC_CAN_POSE_SOURCE:-}" ]; then
-  RC_CAN_POSE_SOURCE="tf"
+  if [ "${RC_LIDAR_MODE:-tracking}" = "relocalization" ]; then
+    RC_CAN_POSE_SOURCE="pose_topic"
+  else
+    RC_CAN_POSE_SOURCE="tf"
+  fi
 fi
 if [ -z "${RC_CAN_POSE_TOPIC:-}" ]; then
-  if [ "$RC_CAN_POSE_SOURCE" != "tf" ] && [ "${RC_LIDAR_MODE:-tracking}" = "relocalization" ] && [ "${RC_POSE_FILTER:-1}" != "0" ]; then
+  if [ "$RC_CAN_POSE_SOURCE" != "tf" ] && [ "${RC_LIDAR_MODE:-tracking}" = "relocalization" ]; then
     RC_CAN_POSE_TOPIC="${RC_POSE_FILTER_CAN_TOPIC:-/robot/pose_filtered}"
-  elif [ "$RC_CAN_POSE_SOURCE" != "tf" ] && [ "${RC_LIDAR_MODE:-tracking}" = "relocalization" ]; then
-    RC_CAN_POSE_TOPIC="${RC_CAN_RAW_POSE_TOPIC:-/robot/pose}"
   else
     RC_CAN_POSE_TOPIC="/lidar/pose"
   fi
@@ -63,4 +65,7 @@ export RC_CAN_POSE_TOPIC
 
 echo "[serial] Launching rc_serial_driver with CAN_INTERFACE=${CAN_INTERFACE:-unset}, CAN_BITRATE=$CAN_BITRATE"
 echo "[serial] pose_source=$RC_CAN_POSE_SOURCE pose_topic=$RC_CAN_POSE_TOPIC"
+if [ "$RC_CAN_POSE_SOURCE" = "pose_topic" ]; then
+  echo "[serial] strict pose-topic mode: no TF fallback will be used if $RC_CAN_POSE_TOPIC is stale or missing."
+fi
 exec ros2 launch rc_serial_driver serial_driver.launch.py

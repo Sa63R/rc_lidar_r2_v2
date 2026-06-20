@@ -137,6 +137,7 @@ close_terminal_windows_by_title() {
     "MAP_LOCALIZER"
     "POSE_INTERFACE"
     "POSE_FILTER"
+    "HEALTH_MONITOR"
     "THERMAL_MONITOR"
   )
 

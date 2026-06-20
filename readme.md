@@ -205,9 +205,12 @@ RC_AUTOSTART_HEADLESS=1
 RC_AUTOSTART_PLOTJUGGLER=0
 RC_AUTOSTART_TF_COMPARE=auto
 RC_AUTOSTART_LIDAR_XYZR=auto
+RC_CAN_POSE_SOURCE=pose_topic
+RC_CAN_POSE_TOPIC=/robot/pose_filtered
+RC_HEALTH_MONITOR=1
 ```
 
-也就是说，开机后会自动用 `maps/mid360_map.pcd` 做重定位，启动 TF、Livox、FAST-LIO、地图匹配、位姿接口和 CAN 等核心链路，但不会弹 RViz/PlotJuggler 界面；TF 对比发布节点和点云调试打印也会随 PlotJuggler/headless 策略默认跳过，避免香橙派 CPU 被调试工具抢走。需要临时开图形调试时，手动运行一键脚本并覆盖这些环境变量即可。
+也就是说，开机后会自动用 `maps/mid360_map.pcd` 做重定位，启动 TF、Livox、FAST-LIO、地图匹配、位姿接口、位姿滤波、CAN 和健康日志等核心链路；CAN 发 `/robot/pose_filtered`，但不会弹 RViz/PlotJuggler 界面。TF 对比发布节点和点云调试打印也会随 PlotJuggler/headless 策略默认跳过，避免香橙派 CPU 被调试工具抢走。需要临时开图形调试时，手动运行一键脚本并覆盖这些环境变量即可。
 
 临时配置示例：
 
@@ -250,7 +253,7 @@ yaw_tf = 左转为正，0 表示初始化朝向
 
 FAST-LIO / Livox 的原始 `camera_init`、`body`、`body_highrate` 帧仍保持雷达和算法原始坐标；通过静态 TF 生成机器人业务帧 `init`、`base_link`、`base_link_highrate`。
 
-发到 CAN 的坐标直接使用机器人业务 TF：
+发到 CAN 的业务坐标语义是：
 
 ```text
 x_can = 右方
@@ -259,7 +262,7 @@ z_can = 上方
 yaw_can = 左转为正，0 表示初始化朝向
 ```
 
-因为 TF 树本身已经是 `X右/Y前/Z上`，`rc_serial_driver` 不再额外旋转 XY：
+普通 `tracking` 模式下，CAN 仍可直接使用机器人业务 TF：
 
 ```text
 x_can = x_tf
@@ -268,6 +271,15 @@ z_can = z_tf
 yaw_can = yaw_tf
 ```
 
+重定位 `relocalization` 模式下，CAN 默认严格使用滤波后的地图重定位机器人坐标：
+
+```text
+RC_CAN_POSE_SOURCE=pose_topic
+RC_CAN_POSE_TOPIC=/robot/pose_filtered
+```
+
+也就是说，电控收到的是“机器人当前中心点相对于地图/启动原点的滤波后坐标”。如果 `/robot/pose_filtered` 没有刷新，CAN 会暂停发送，不会悄悄退回旧 TF 链路，避免坐标来源混乱。
+
 CAN 帧格式保持不变：
 
 ```text
@@ -275,7 +287,7 @@ CAN 帧格式保持不变：
 0x13: float z_can, float yaw_can
 ```
 
-普通 `tracking` 模式和重定位 `relocalization` 模式下，CAN 默认都来自现有 TF：`init -> base_link_highrate`。`/robot/pose`、`/robot/pose_filtered`、`/lidar/pose` 和 `/lidar/pose_filtered` 只作为重定位/滤波观察 topic，或在手动设置 `RC_CAN_POSE_SOURCE=pose_topic` 时才用于 CAN。CAN 帧 ID 和 float 打包格式不变。
+CAN 帧 ID 和 float 打包格式不变。需要临时回到旧 TF 链路时，可以手动设置 `RC_CAN_POSE_SOURCE=tf`。
 
 一键启动会先运行 `autostart/can_setup.sh`。如果没有指定 `CAN_INTERFACE`，它会自动寻找系统里第一个 `can*` 或 `slcan*` SocketCAN 接口；找到后会在免密 `sudo` 可用时自动配置：
 
@@ -445,9 +457,14 @@ TF_LIDAR_OFFSET  发布 world -> body 的 XYZ 对比 topic
 CAN_SERIAL       rc_serial_driver
 LIDAR_XYZR       点云调试打印
 PLOTJUGGLER      打开 TF Compare 布局并订阅 /tf_compare topic
+HEALTH_MONITOR   低频记录温度、CPU 负载、CPU 频率、地图质量和位姿稳定性
 ```
 
-`THERMAL_MONITOR` 默认不启动。只有显式设置 `RC_THERMAL_POSE_MONITOR=1` 时才会启动，用于记录温度、CPU 负载、CPU 频率和定位抖动之间的关系。
+`HEALTH_MONITOR` 默认启动，开销很小，主要用于事后判断定位抖动是否和温度、CPU 负载、CPU 频率或地图匹配质量有关。需要关闭时设置：
+
+```bash
+RC_HEALTH_MONITOR=0 ./autostart/start_all_terminals.sh
+```
 
 默认运行模式是：
 
@@ -520,43 +537,15 @@ PLOTJUGGLER_TF_LAYOUT="$PWD/src/fastlio_world_init/config/tf_compare_plotjuggler
   ./autostart/start_all_terminals.sh
 ```
 
-### 温度/负载与定位误差诊断
+### 健康日志：温度、负载与定位稳定性
 
-如果要验证“香橙派温度或 CPU 负载升高后，定位误差是否变大”，可以按需打开温度-位姿监测：
+每次一键启动都会默认启动轻量健康日志节点。它不订阅点云，只低频记录机器人位姿 topic、地图匹配质量和系统状态，目的是事后判断“抖动变大”是否和温度、CPU 负载、CPU 频率下降或地图匹配质量有关。
 
-```bash
-cd "/home/orangepi/RC_LIDAR_NOW"
-./autostart/stop_all.sh
-
-RC_THERMAL_POSE_MONITOR=1 \
-RC_LIDAR_MODE=relocalization \
-RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
-./autostart/start_all_terminals.sh
-```
-
-这个命令是“复现问题”的高负载测试方式，会保留正常图形调试负载。不要额外加 `RC_AUTOSTART_HEADLESS=1`、`RC_AUTOSTART_PLOTJUGGLER=0` 等低负载参数，否则温度可能升不上去，实验条件就不成立。
-
-如果要做低负载对照实验，再使用：
-
-```bash
-cd "/home/orangepi/RC_LIDAR_NOW"
-./autostart/stop_all.sh
-
-RC_THERMAL_POSE_MONITOR=1 \
-RC_LIDAR_MODE=relocalization \
-RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
-RC_AUTOSTART_HEADLESS=1 \
-RC_AUTOSTART_PLOTJUGGLER=0 \
-RC_AUTOSTART_TF_COMPARE=0 \
-RC_AUTOSTART_LIDAR_XYZR=0 \
-./autostart/start_all_terminals.sh
-```
-
-监测日志会写入最近一次启动目录：
+最近一次启动的日志路径是：
 
 ```text
-logs/autostart/latest/thermal_pose_monitor.csv
-logs/autostart/latest/thermal_pose_monitor_summary.json
+logs/autostart/latest/health_monitor.csv
+logs/autostart/latest/health_monitor_summary.json
 ```
 
 CSV 默认每 1 秒记录一次，包含：
@@ -565,34 +554,59 @@ CSV 默认每 1 秒记录一次，包含：
 max_temp_c
 load1/load5/load15
 cpu_freq_min_mhz/cpu_freq_max_mhz/cpu_freq_avg_mhz
-raw_x/raw_y/raw_z
-filtered_x/filtered_y/filtered_z
+raw_x/raw_y/raw_z/raw_yaw_deg
+filtered_x/filtered_y/filtered_z/filtered_yaw_deg
 raw_filtered_delta_xy_m
 raw_window_xy_p2p_m
 filtered_window_xy_p2p_m
+motion_factor
+is_stationary
+stationary_filtered_window_xy_p2p_m
 map_quality_fitness
 map_quality_jump_xy_m
 ```
 
-其中 `raw_window_xy_p2p_m` 和 `filtered_window_xy_p2p_m` 是最近窗口内的 XY 峰峰值，默认窗口为 10 秒。`summary.json` 会额外计算温度/负载和定位抖动的相关系数，例如：
+重点看三类数：
 
 ```text
-correlation.temp_vs_raw_window_xy_p2p
-correlation.load1_vs_raw_window_xy_p2p
+motion_factor                         # 越接近 0 越像静止，越接近 1 越像真实运动
+is_stationary                         # 1 表示当前窗口被认为适合统计静态漂移
+stationary_filtered_window_xy_p2p_m    # 静止窗口内滤波位姿 XY 峰峰值
+```
+
+这样做是为了避免电控调车时把“机器人真的开走了”误算成静态漂移。车在动时，日志仍会记录温度、load、质量和轨迹，但静止漂移统计会被暂停或清空。
+
+`summary.json` 会额外计算温度/负载和定位抖动的相关系数，例如：
+
+```text
+correlation.temp_vs_stationary_filtered_window_xy_p2p
+correlation.load1_vs_stationary_filtered_window_xy_p2p
 correlation.temp_vs_map_quality_jump_xy
 ```
 
-如果温度或 `load1` 上升时，`raw_window_xy_p2p_m`、`map_quality_jump_xy_m` 也同步上升，并且相关系数明显为正，就说明定位抖动很可能和热/负载相关。这个监测脚本本身很轻量，热源主要应该来自正常运行时的 PlotJuggler、调试节点、桌面程序和定位链路。
+如果温度或 `load1` 上升时，静止窗口峰峰值、`map_quality_jump_xy_m` 也同步上升，并且相关系数明显为正，就说明定位抖动很可能和热/负载相关。这个监测脚本本身很轻量；主要负载通常来自 PlotJuggler、RViz、VS Code、QQ、Clash、桌面环境和定位链路本身。
 
 可调参数：
 
 ```bash
-RC_THERMAL_POSE_MONITOR_INTERVAL=1.0
-RC_THERMAL_POSE_MONITOR_WINDOW=10.0
-RC_THERMAL_POSE_MONITOR_SUMMARY_INTERVAL=30.0
-RC_THERMAL_POSE_MONITOR_RAW_TOPIC=/robot/pose
-RC_THERMAL_POSE_MONITOR_FILTERED_TOPIC=/robot/pose_filtered
-RC_THERMAL_POSE_MONITOR_QUALITY_TOPIC=/map_lidar/quality
+RC_HEALTH_MONITOR=0                      # 关闭健康日志
+RC_HEALTH_MONITOR_INTERVAL=1.0           # 采样周期，默认 1 秒
+RC_HEALTH_MONITOR_WINDOW=10.0            # 峰峰值窗口，默认 10 秒
+RC_HEALTH_MONITOR_RETENTION_DAYS=7       # 只清理旧健康日志文件，不删整次运行日志
+RC_HEALTH_MONITOR_STATIC_SPEED=0.015
+RC_HEALTH_MONITOR_FULL_SPEED=0.12
+RC_HEALTH_MONITOR_STATIC_YAW_RATE_DEG=5.0
+RC_HEALTH_MONITOR_FULL_YAW_RATE_DEG=35.0
+```
+
+如果要故意复现高负载发热问题，就不要使用 headless，也不要关闭 PlotJuggler；如果要做低负载对照实验，再加：
+
+```bash
+RC_AUTOSTART_HEADLESS=1 \
+RC_AUTOSTART_PLOTJUGGLER=0 \
+RC_AUTOSTART_TF_COMPARE=0 \
+RC_AUTOSTART_LIDAR_XYZR=0 \
+./autostart/start_all_terminals.sh
 ```
 
 ## 建图和重定位
@@ -605,7 +619,8 @@ RC_THERMAL_POSE_MONITOR_QUALITY_TOPIC=/map_lidar/quality
 Livox MID360 -> FAST-LIO -> /cloud_registered + /Odometry
 建图模式：/map_save -> maps/mid360_map.pcd 或自动重命名后的 PCD
 重定位观察链路：lidar_map_localization -> /map_lidar/odom -> lidar_localization -> /robot/pose -> pose_stability_filter -> /robot/pose_filtered
-CAN 默认链路：TF init -> base_link_highrate/base_link -> rc_serial_driver
+relocalization CAN 默认链路：/robot/pose_filtered -> rc_serial_driver
+tracking CAN 默认链路：TF init -> base_link_highrate/base_link -> rc_serial_driver
 ```
 
 高精度来自保存地图后的 NDT/ICP 地图匹配，不是单纯调 FAST-LIO 参数。`/robot/pose` 已经转换成机器人业务坐标：
@@ -618,7 +633,7 @@ z = 上方
 yaw = 左转为正
 ```
 
-`/lidar/pose` 是历史兼容名，内容和 `/robot/pose` 相同，实际表示的也是机器人中心点，不是雷达原点。重定位模式下 CAN 默认不直接使用这些 topic，而是继续使用 TF 链路；如果手动设置 `RC_CAN_POSE_SOURCE=pose_topic`，才会直接发送指定 topic 里的机器人业务坐标。正负 0.5 cm 的静态误差目标需要依赖足够好的现场地图、稳定的静态环境、正确外参、雷达安装刚性和足够点云结构；代码提供重定位链路，但不能单独保证所有现场都达到这个误差。
+`/lidar/pose` 是历史兼容名，内容和 `/robot/pose` 相同，实际表示的也是机器人中心点，不是雷达原点。重定位模式下 CAN 默认严格发送 `/robot/pose_filtered`；普通 FAST-LIO tracking 模式下仍使用旧 TF 链路。正负 0.5 cm 的静态误差目标需要依赖足够好的现场地图、稳定的静态环境、正确外参、雷达安装刚性和足够点云结构；代码提供重定位链路，但不能单独保证所有现场都达到这个误差。
 
 ### 建图
 
@@ -699,11 +714,12 @@ RC_RELOCALIZATION_INITIAL_YAW=0.0 \
 
 也可以运行后通过 RViz 或命令发布 `/initialpose` 来更新初始猜测。初值越接近真实位置，NDT/ICP 越容易收敛；如果 `MAP_LOCALIZER.log` 里持续出现 `map registration rejected` 且 `fitness` 远大于阈值，就表示重定位没有成功，不应该使用此时的 `/robot/pose`、`/lidar/pose` 或 CAN 坐标。
 
-低负载重定位启动：
+低负载重定位启动。这个模式不会降低雷达频率，只是不启动 PlotJuggler/RViz 等 GUI 调试负载：
 
 ```bash
 cd "/home/orangepi/RC_LIDAR_NOW"
 RC_LIDAR_MODE=relocalization \
+RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
 RC_AUTOSTART_HEADLESS=1 \
 RC_AUTOSTART_PLOTJUGGLER=0 \
 ./autostart/start_all_terminals.sh
@@ -742,26 +758,24 @@ ros2 topic echo /lidar/pose_filter/status --once
 ros2 topic echo /lidar/point --once
 ```
 
-CAN 发送默认保持原来的 TF 链路，不直接使用地图重定位 topic：
+重定位模式下，CAN 默认严格使用滤波后的地图重定位 topic：
 
 ```text
-pose_source=tf
-x/y/yaw: init -> base_link_highrate
-z:       init -> base_link
+pose_source=pose_topic
+pose_topic=/robot/pose_filtered
 ```
 
-这条链路不经过 `/map_lidar/odom` 地图重定位输出，延续之前调车时使用的 FAST-LIO/TF 高频坐标。`/robot/pose` 和 `/robot/pose_filtered` 目前主要用于 PlotJuggler 观察地图重定位质量和滤波效果；确认稳定前不默认接入 CAN。
+这条链路经过 `/map_lidar/odom -> /robot/pose -> /robot/pose_filtered`，电控收到的是地图重定位后的滤波机器人中心点坐标。如果 `/robot/pose_filtered` 没有刷新或 topic 不存在，CAN 会暂停发送，不会自动退回 TF。
 
-如果需要实验性地让 CAN 使用重定位 topic，必须手动覆盖：
+如果需要临时回退旧 TF 链路，必须手动覆盖：
 
 ```bash
-RC_CAN_POSE_SOURCE=pose_topic RC_CAN_POSE_TOPIC=/robot/pose ./autostart/start_all_terminals.sh
-RC_CAN_POSE_SOURCE=pose_topic RC_CAN_POSE_TOPIC=/robot/pose_filtered ./autostart/start_all_terminals.sh
+RC_CAN_POSE_SOURCE=tf ./autostart/start_all_terminals.sh
 ```
 
 `/robot/pose_filtered` 是低延迟自适应滤波后的机器人中心点位姿，主要用于观察是否能降低地图重定位输出的毫米到厘米级抖动，以及拒绝少数硬离群点。它不会让原始点云匹配本身变得更准；判断原始定位质量仍要看 `/robot/pose`、`/map_lidar/quality` 和现场地图质量。
 
-普通模式和重定位模式默认都是：
+普通 tracking 模式默认仍是：
 
 ```text
 pose_source=tf
@@ -771,8 +785,7 @@ pose_source=tf
 
 ```bash
 RC_CAN_POSE_SOURCE=tf ./autostart/start_all_terminals.sh
-RC_CAN_POSE_SOURCE=pose_topic RC_CAN_POSE_TOPIC=/lidar/pose ./autostart/start_all_terminals.sh
-RC_CAN_POSE_SOURCE=pose_topic RC_CAN_POSE_TOPIC=/lidar/pose_filtered ./autostart/start_all_terminals.sh
+RC_CAN_POSE_SOURCE=pose_topic RC_CAN_POSE_TOPIC=/robot/pose_filtered ./autostart/start_all_terminals.sh
 ```
 
 PlotJuggler 里看机器人中心点滤波前后抖动，优先选这些曲线：
@@ -792,7 +805,7 @@ PlotJuggler 里看机器人中心点滤波前后抖动，优先选这些曲线�
 - `/robot/pose_filtered` 是滤波后的观察值。滤波目标是静止时压住小抖动，运动时尽量保留连续轨迹；绕点转圈时，连续的正弦/余弦曲线通常比台阶或锯齿更符合真实运动。
 - 当前滤波用 `xy_speed` 和 `yaw_rate` 计算运动因子：静止时使用较强平滑，明显运动时快速跟随原始曲线，中间状态平滑过渡。
 - 硬离群点仍会被短暂拒绝并保持旧输出；但如果连续拒绝超过默认 10 次，或持续超过默认 1 秒，会认为这已经不是单帧异常，而是位姿发生了真实变化，于是重新捕获当前位姿，避免输出永久停成水平线。
-- CAN 默认链路和滤波观察链路已经分开。CAN 默认继续使用 TF 的 `init -> base_link_highrate/base_link`，不会因为 `/robot/pose` 或 `/robot/pose_filtered` 的表现而直接影响电控。
+- 当前生产策略是：重定位模式下 CAN 默认使用 `/robot/pose_filtered`，tracking 模式下才继续使用 TF 的 `init -> base_link_highrate/base_link`。因此调车时如果启用 `RC_LIDAR_MODE=relocalization`，滤波表现会直接影响电控收到的坐标。
 
 滤波默认参数可以通过环境变量覆盖：
 
@@ -1036,7 +1049,7 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
 2. `src/rc_serial_driver/launch/serial_driver.launch.py`
    - 原 launch 文件加载 `config/serial_driver.yaml`，但实际配置文件名是 `rc_serial_driver.yaml`。
    - 已改为加载 `config/rc_serial_driver.yaml`，否则节点会启动但不会读取配置文件。
-   - 增加 `RC_CAN_POSE_SOURCE` 和 `RC_CAN_POSE_TOPIC` 环境变量支持；普通模式和重定位模式默认都读 TF，手动设置 `RC_CAN_POSE_SOURCE=pose_topic` 时才读 `/robot/pose` 或 `/robot/pose_filtered`。
+   - 增加 `RC_CAN_POSE_SOURCE` 和 `RC_CAN_POSE_TOPIC` 环境变量支持；重定位模式默认严格读 `/robot/pose_filtered`，tracking 模式默认读 TF。
 
 3. `autostart/*.sh`
    - 统一通过 `autostart/common_env.sh` 加载当前工作区环境。
@@ -1095,7 +1108,7 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
    - 新增 CAN 预检和恢复脚本：自动检测 `can*` / `slcan*`，存在时配置 `1000000` bit/s 和 `restart-ms 100`。
    - `start_all_terminals.sh` 会写入 `logs/autostart/latest/can_preflight.txt`。
    - 如果 USB-CAN 没有枚举出任何 CAN 接口，`CAN_SERIAL` 会停止启动并在日志里提示重插、换 USB 口或带供电 HUB。
-   - `rc_serial_driver` 发给电控的 CAN 坐标为 `X右/Y前/Z上`：`x_can=x_tf`、`y_can=y_tf`、`z_can=z_tf`、`yaw_can=yaw_tf`；TF 树本身已经完成坐标轴调整。
+   - `rc_serial_driver` 发给电控的 CAN 坐标为 `X右/Y前/Z上`。tracking 模式默认使用 TF，relocalization 模式默认使用 `/robot/pose_filtered`，不再悄悄 fallback 到旧 TF 链路。
 
 16. `autostart/install_one_click_network.sh`
    - 一次性配置免密码一键启动所需的网络环境。
@@ -1128,12 +1141,12 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
    - 新增建图保存和地图重定位的一键脚本。
    - `RC_LIDAR_MODE=mapping` 用于建图保存；`RC_LIDAR_MODE=relocalization` 用于基于地图的高精度重定位。
    - 未设置 `RC_FASTLIO_MAP_SAVE_PATH` 时，若默认 `maps/mid360_map.pcd` 已存在，会自动保存为带时间戳的新 PCD，避免覆盖旧地图。
-   - 重定位模式默认启动位姿滤波供 PlotJuggler 观察，但 CAN 默认仍使用 TF 链路 `init -> base_link_highrate`，不直接使用 `/robot/pose_filtered`；`stop_all.sh` 和 CAN 重启脚本已同步清理新增节点，避免模式切换后残留旧进程。
+   - 重定位模式默认启动位姿滤波，并默认把 `/robot/pose_filtered` 作为 CAN 发送来源；`stop_all.sh` 和 CAN 重启脚本已同步清理新增节点，避免模式切换后残留旧进程。
 
 22. `autostart/thermal_pose_monitor.py`、`autostart/thermal_pose_monitor.sh`
-   - 新增按需温度/负载/位姿稳定性监测，只有 `RC_THERMAL_POSE_MONITOR=1` 时启动。
-   - 每秒记录温度、`load1/load5/load15`、CPU 频率、`/robot/pose`、`/robot/pose_filtered`、`/map_lidar/quality` 和最近窗口的 XY 峰峰值。
-   - 输出 `logs/autostart/latest/thermal_pose_monitor.csv` 与 `thermal_pose_monitor_summary.json`，用于判断定位抖动是否和热/负载正相关。
+   - 新增默认启动的轻量健康日志；`RC_HEALTH_MONITOR=0` 可关闭，旧变量 `RC_THERMAL_POSE_MONITOR` 仍兼容。
+   - 每秒记录温度、`load1/load5/load15`、CPU 频率、`/robot/pose`、`/robot/pose_filtered`、`/map_lidar/quality`、运动状态和静止窗口 XY 峰峰值。
+   - 输出 `logs/autostart/latest/health_monitor.csv` 与 `health_monitor_summary.json`，用于判断定位抖动是否和热/负载正相关，同时避免把真实行驶位移直接当成静态漂移。
    - `stop_all.sh` 和 CAN 重启脚本已同步清理该监测进程。
 
 ## 注意事项
