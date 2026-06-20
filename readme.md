@@ -435,7 +435,7 @@ RC_LIDAR_MODE=tracking
 这个模式保持原来的 FAST-LIO + world/init TF + CAN 输出链路，不依赖地图文件。新增的模式有：
 
 ```text
-RC_LIDAR_MODE=mapping          # 建图，用 /map_save 保存 maps/mid360_map.pcd
+RC_LIDAR_MODE=mapping          # 建图，用 /map_save 保存 PCD 地图
 RC_LIDAR_MODE=relocalization   # 读取 maps/mid360_map.pcd 做地图匹配重定位
 ```
 
@@ -481,7 +481,7 @@ sudo apt install -y xdotool
 
 ```text
 Livox MID360 -> FAST-LIO -> /cloud_registered + /Odometry
-建图模式：/map_save -> maps/mid360_map.pcd
+建图模式：/map_save -> maps/mid360_map.pcd 或自动重命名后的 PCD
 重定位模式：lidar_map_localization -> /map_lidar/odom -> lidar_localization -> /lidar/pose -> rc_serial_driver
 ```
 
@@ -518,11 +518,25 @@ RC_LIDAR_MODE=mapping ./autostart/start_all_terminals.sh
 ./autostart/save_fast_lio_map.sh
 ```
 
-默认地图路径：
+默认地图路径优先使用：
 
 ```text
 maps/mid360_map.pcd
 ```
+
+如果这个文件已经存在，并且没有手动设置 `RC_FASTLIO_MAP_SAVE_PATH`，`autostart/fastlio.sh` 会自动选择一个不冲突的新文件名，例如：
+
+```text
+maps/mid360_map_20260620_173012.pcd
+```
+
+此外，FAST-LIO 的 `/map_save` 服务在真正写文件前也会检查目标文件是否已经存在；如果存在，会再次自动改成带时间戳的新文件名。因此同一次运行里连续保存多次，也不会覆盖旧地图。实际本次 FAST-LIO 启动时使用的请求路径会写入：
+
+```text
+logs/autostart/latest/fastlio_map_save_path.txt
+```
+
+`autostart/save_fast_lio_map.sh` 会优先读取正在运行的 FAST-LIO 参数；如果 `/map_save` 自动重命名，脚本会从服务返回信息里打印真实保存路径。
 
 `*.pcd` 默认不会提交到 GitHub，现场地图建议单独备份。
 
@@ -587,10 +601,18 @@ RC_CAN_POSE_SOURCE=pose_topic RC_CAN_POSE_TOPIC=/lidar/pose ./autostart/start_al
 
 ### 地图路径
 
-默认路径是：
+重定位默认读取：
 
 ```text
 maps/mid360_map.pcd
+```
+
+如果建图时自动保存成了带时间戳的新文件，重定位时需要指定那份地图：
+
+```bash
+RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW!!!/maps/mid360_map_20260620_173012.pcd" \
+RC_LIDAR_MODE=relocalization \
+./autostart/start_all_terminals.sh
 ```
 
 临时使用其他地图：
@@ -601,13 +623,15 @@ RC_LIDAR_MODE=relocalization \
 ./autostart/start_all_terminals.sh
 ```
 
-FAST-LIO 保存路径可用：
+如果你明确想保存到某个固定路径，可以手动指定 FAST-LIO 保存路径：
 
 ```bash
 RC_FASTLIO_MAP_SAVE_PATH=/home/orangepi/maps/site_a.pcd \
 RC_LIDAR_MODE=mapping \
 ./autostart/start_all_terminals.sh
 ```
+
+显式设置 `RC_FASTLIO_MAP_SAVE_PATH` 时脚本会尊重该请求路径；如果该文件已存在，`/map_save` 仍会自动生成不冲突的新文件名。
 
 ## 自转外参校准
 
@@ -841,6 +865,7 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
 21. `autostart/start_mapping_terminals.sh`、`autostart/save_fast_lio_map.sh`、`autostart/map_localizer.sh`、`autostart/pose_interface_mapping.sh`、`autostart/pose_interface_relocalization.sh`
    - 新增建图保存和地图重定位的一键脚本。
    - `RC_LIDAR_MODE=mapping` 用于建图保存；`RC_LIDAR_MODE=relocalization` 用于基于地图的高精度重定位。
+   - 未设置 `RC_FASTLIO_MAP_SAVE_PATH` 时，若默认 `maps/mid360_map.pcd` 已存在，会自动保存为带时间戳的新 PCD，避免覆盖旧地图。
    - `stop_all.sh` 和 CAN 重启脚本已同步清理新增节点，避免模式切换后残留旧进程。
 
 ## 注意事项

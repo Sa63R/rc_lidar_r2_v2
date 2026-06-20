@@ -39,6 +39,10 @@
 #include <fstream>
 #include <csignal>
 #include <chrono>
+#include <ctime>
+#include <iomanip>
+#include <sstream>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <Python.h>
 #include <so3_math.h>
@@ -606,10 +610,62 @@ void publish_map(rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub
     // pubLaserCloudMap->publish(laserCloudMap);
 }
 
-void save_to_pcd()
+bool path_exists(const string & path)
 {
+    struct stat buffer;
+    return !path.empty() && stat(path.c_str(), &buffer) == 0;
+}
+
+string timestamp_for_filename()
+{
+    std::time_t now = std::time(nullptr);
+    std::tm tm_now;
+    localtime_r(&now, &tm_now);
+
+    char buffer[32];
+    std::strftime(buffer, sizeof(buffer), "%Y%m%d_%H%M%S", &tm_now);
+    return string(buffer);
+}
+
+string unique_map_file_path(const string & requested_path)
+{
+    if (requested_path.empty() || !path_exists(requested_path))
+    {
+        return requested_path;
+    }
+
+    const size_t slash_pos = requested_path.find_last_of('/');
+    const string dir = slash_pos == string::npos ? string("") : requested_path.substr(0, slash_pos + 1);
+    const string filename = slash_pos == string::npos ? requested_path : requested_path.substr(slash_pos + 1);
+    const size_t dot_pos = filename.find_last_of('.');
+    const string stem = dot_pos == string::npos ? filename : filename.substr(0, dot_pos);
+    const string ext = dot_pos == string::npos ? string(".pcd") : filename.substr(dot_pos);
+    const string stamp = timestamp_for_filename();
+
+    for (int index = 0; index < 1000; ++index)
+    {
+        std::ostringstream suffix;
+        suffix << "_" << stamp;
+        if (index > 0)
+        {
+            suffix << "_" << std::setw(2) << std::setfill('0') << index;
+        }
+
+        const string candidate = dir + stem + suffix.str() + ext;
+        if (!path_exists(candidate))
+        {
+            return candidate;
+        }
+    }
+
+    return dir + stem + "_" + stamp + "_" + std::to_string(getpid()) + ext;
+}
+
+int save_to_unique_pcd(string & saved_path)
+{
+    saved_path = unique_map_file_path(map_file_path);
     pcl::PCDWriter pcd_writer;
-    pcd_writer.writeBinary(map_file_path, *pcl_wait_pub);
+    return pcd_writer.writeBinary(saved_path, *pcl_wait_pub);
 }
 
 template<typename T>
@@ -1117,9 +1173,20 @@ private:
         RCLCPP_INFO(this->get_logger(), "Saving map to %s...", map_file_path.c_str());
         if (pcd_save_en)
         {
-            save_to_pcd();
-            res->success = true;
-            res->message = "Map saved.";
+            string saved_path;
+            const int status = save_to_unique_pcd(saved_path);
+            if (status == 0)
+            {
+                res->success = true;
+                res->message = "Map saved to " + saved_path;
+                RCLCPP_INFO(this->get_logger(), "%s", res->message.c_str());
+            }
+            else
+            {
+                res->success = false;
+                res->message = "Failed to save map to " + saved_path;
+                RCLCPP_ERROR(this->get_logger(), "%s", res->message.c_str());
+            }
         }
         else
         {
