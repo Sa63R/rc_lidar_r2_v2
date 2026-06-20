@@ -501,6 +501,23 @@ PlotJuggler 的 ROS2 插件会弹出确认窗口，本工程用 `xdotool` 自动
 sudo apt install -y xdotool
 ```
 
+PlotJuggler 默认只负责自动打开 ROS2 streamer 和预选关键 topic，不再强制加载右侧曲线分屏布局。启动脚本会在打开 PlotJuggler 前同步用户配置：
+
+```text
+~/.config/PlotJuggler/io.plotjuggler.PlotJuggler.ini
+[DataStreamROS2]
+default_topics=...
+```
+
+这样 Topic Selector 里会默认选中 `/robot/pose`、`/robot/pose_filtered`、`/map_lidar/quality`、`/lidar/pose_filter/status` 和三个 `/tf_compare/...` topic。之前出现“只选中了 body/body_highrate 对比 topic”的原因，就是这个 `default_topics` 还保留着旧值；XML 里的 `selected_topics` 不一定会覆盖 ROS2 插件的用户配置。
+
+如果确实想恢复旧的自动分屏布局，可以手动指定：
+
+```bash
+PLOTJUGGLER_TF_LAYOUT="$PWD/src/fastlio_world_init/config/tf_compare_plotjuggler.xml" \
+  ./autostart/start_all_terminals.sh
+```
+
 ## 建图和重定位
 
 新增建图/重定位链路参考 `Sa63R/rc_lidar_r2`，但保留当前工程的 TF 语义和经典 SocketCAN 报文格式。
@@ -947,12 +964,12 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
    - 发布 `world -> body` 的 XYZ 平移，保持雷达原始坐标轴。
 
 10. `src/fastlio_world_init/config/tf_compare_plotjuggler.xml`
-    - 新增 PlotJuggler 布局，自动预选 `/robot/pose`、`/robot/pose_filtered`、`/map_lidar/quality`、`/lidar/pose_filter/status` 和三个 `/tf_compare/...` topic。
-    - 第一页按 X/Y/Z 对比机器人中心点滤波前后的曲线，第二页保留 TF 对比。
+    - 保留 PlotJuggler ROS2 streamer 配置模板，包含 `/robot/pose`、`/robot/pose_filtered`、`/map_lidar/quality`、`/lidar/pose_filter/status` 和三个 `/tf_compare/...` topic。
+    - 默认启动不再强制加载自动分屏曲线布局；需要时可用 `PLOTJUGGLER_TF_LAYOUT=...` 手动指定。
 
 11. `autostart/robot_tf_offsets.sh`、`autostart/lidar_tf_offset.sh`、`autostart/plotjuggler_tf_compare.sh`
     - 一键启动时自动启动 TF 对比发布节点和 PlotJuggler。
-    - `plotjuggler_tf_compare.sh` 在重定位模式下会等待 `/robot/pose`、`/robot/pose_filtered`、质量 topic 和 `/tf_compare/...` topic 出现，再打开 PlotJuggler。
+    - `plotjuggler_tf_compare.sh` 在重定位模式下会等待 `/robot/pose`、`/robot/pose_filtered`、质量 topic 和 `/tf_compare/...` topic 出现，写入 PlotJuggler 的 `DataStreamROS2/default_topics`，再打开 PlotJuggler。
 
 12. `src/fastlio_world_init/fastlio_world_init/rotation_extrinsic_calibrator.py`
     - 新增自转外参校准工具。
@@ -1019,4 +1036,4 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
 sudo apt update
 sudo apt install -y ros-humble-robot-localization
 ```
-- PlotJuggler 自动确认窗口依赖 `xdotool`。如果未安装，PlotJuggler 仍会启动，但需要手动点击 `Warning`、`Start Streaming?`、`Topic Selector` 等弹窗确认。
+- PlotJuggler 自动确认窗口依赖 `xdotool`。如果未安装，PlotJuggler 仍会启动，但需要手动点击 `Warning`、`Start Streaming?`、`Topic Selector` 等弹窗确认。PlotJuggler ROS2 插件没有可靠的完全静默订阅参数，因此本工程采用“启动前写入 `default_topics` + 自动确认弹窗”的低风险方案。
