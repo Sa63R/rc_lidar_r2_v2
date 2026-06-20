@@ -31,7 +31,7 @@ class MapLocalizer : public rclcpp::Node {
   using CloudT = pcl::PointCloud<PointT>;
 
   MapLocalizer() : Node("map_localizer") {
-    map_path_ = declare_parameter<std::string>("map_path", "/home/orangepi/RC_LIDAR_NOW!!!/maps/mid360_map.pcd");
+    map_path_ = declare_parameter<std::string>("map_path", "/home/orangepi/RC_LIDAR_NOW/maps/mid360_map.pcd");
     scan_topic_ = declare_parameter<std::string>("scan_topic", "/cloud_registered");
     odom_topic_ = declare_parameter<std::string>("odom_topic", "/Odometry");
     initialpose_topic_ = declare_parameter<std::string>("initialpose_topic", "/initialpose");

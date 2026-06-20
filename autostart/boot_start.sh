@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-WORKSPACE_DIR="/home/orangepi/RC_LIDAR_NOW!!!"
+WORKSPACE_DIR="/home/orangepi/RC_LIDAR_NOW"
 LOG_DIR="$WORKSPACE_DIR/logs/autostart"
 BOOT_LOG="$LOG_DIR/xdg_autostart.log"
 LOCK_FILE="/tmp/rc_lidar_xdg_autostart.lock"

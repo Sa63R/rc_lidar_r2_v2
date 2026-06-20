@@ -10,4 +10,4 @@ install -m 0644 "$DIR/rc_lidar_autostart.desktop" "$DESKTOP_FILE"
 
 echo "[desktop-autostart] installed: $DESKTOP_FILE"
 echo "[desktop-autostart] it will run after the orangepi graphical desktop session starts."
-echo "[desktop-autostart] log: /home/orangepi/RC_LIDAR_NOW!!!/logs/autostart/xdg_autostart.log"
+echo "[desktop-autostart] log: /home/orangepi/RC_LIDAR_NOW/logs/autostart/xdg_autostart.log"

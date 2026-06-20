@@ -6,7 +6,7 @@
 
 - 系统：Ubuntu 22.04.5 LTS, aarch64
 - ROS：ROS 2 Humble
-- 工作区路径：`/home/orangepi/RC_LIDAR_NOW!!!`
+- 工作区路径：`/home/orangepi/RC_LIDAR_NOW`
 - 已存在关键工具：`colcon`、`ros2`、`rosdep`
 - 已安装 PlotJuggler：`ros-humble-plotjuggler`、`ros-humble-plotjuggler-ros`
 - 已存在 Livox-SDK2：
@@ -72,7 +72,7 @@ sudo make install
 每次打开新终端，先进入工作区并加载 ROS：
 
 ```bash
-cd "/home/orangepi/RC_LIDAR_NOW!!!"
+cd "/home/orangepi/RC_LIDAR_NOW"
 source /opt/ros/humble/setup.bash
 ```
 
@@ -158,7 +158,7 @@ RC_AUTOSTART_SETUP_LIVOX_NET=0 ./autostart/start_all_terminals.sh
 为了保证开机后一键启动时不再要求输入 sudo 密码，先运行一次：
 
 ```bash
-cd "/home/orangepi/RC_LIDAR_NOW!!!"
+cd "/home/orangepi/RC_LIDAR_NOW"
 ./autostart/install_one_click_network.sh
 ```
 
@@ -167,7 +167,7 @@ cd "/home/orangepi/RC_LIDAR_NOW!!!"
 设置桌面开机自启：
 
 ```bash
-cd "/home/orangepi/RC_LIDAR_NOW!!!"
+cd "/home/orangepi/RC_LIDAR_NOW"
 ./autostart/install_desktop_autostart.sh
 ```
 
@@ -317,7 +317,7 @@ src/rc_serial_driver/config/rc_serial_driver.yaml
 每个新终端都先执行：
 
 ```bash
-cd "/home/orangepi/RC_LIDAR_NOW!!!"
+cd "/home/orangepi/RC_LIDAR_NOW"
 source /opt/ros/humble/setup.bash
 source install/setup.bash
 ```
@@ -373,21 +373,21 @@ ros2 launch rc_serial_driver serial_driver.launch.py
 先做一次不打开终端的预检查：
 
 ```bash
-cd "/home/orangepi/RC_LIDAR_NOW!!!"
+cd "/home/orangepi/RC_LIDAR_NOW"
 RC_AUTOSTART_DRY_RUN=1 ./autostart/start_all_terminals.sh
 ```
 
 确认输出里启动项都显示 `would launch` 后，再执行真正的一键启动：
 
 ```bash
-cd "/home/orangepi/RC_LIDAR_NOW!!!"
+cd "/home/orangepi/RC_LIDAR_NOW"
 ./autostart/start_all_terminals.sh
 ```
 
 日志会写到：
 
 ```text
-/home/orangepi/RC_LIDAR_NOW!!!/logs/autostart/latest
+/home/orangepi/RC_LIDAR_NOW/logs/autostart/latest
 ```
 
 一键启动默认会先执行一次旧进程清理，避免重复运行脚本后出现两套 Livox / FAST-LIO / EKF / CAN 发送节点同时发布。清理日志在：
@@ -399,7 +399,7 @@ logs/autostart/latest/prestop.log
 如果只是想手动停止当前雷达定位栈：
 
 ```bash
-cd "/home/orangepi/RC_LIDAR_NOW!!!"
+cd "/home/orangepi/RC_LIDAR_NOW"
 ./autostart/stop_all.sh
 ```
 
@@ -502,7 +502,7 @@ yaw = 左转为正
 先启动建图模式：
 
 ```bash
-cd "/home/orangepi/RC_LIDAR_NOW!!!"
+cd "/home/orangepi/RC_LIDAR_NOW"
 RC_LIDAR_MODE=mapping ./autostart/start_all_terminals.sh
 ```
 
@@ -551,7 +551,7 @@ ls -lh maps/mid360_map.pcd
 低负载重定位启动：
 
 ```bash
-cd "/home/orangepi/RC_LIDAR_NOW!!!"
+cd "/home/orangepi/RC_LIDAR_NOW"
 RC_LIDAR_MODE=relocalization \
 RC_AUTOSTART_HEADLESS=1 \
 RC_AUTOSTART_PLOTJUGGLER=0 \
@@ -610,7 +610,7 @@ maps/mid360_map.pcd
 如果建图时自动保存成了带时间戳的新文件，重定位时需要指定那份地图：
 
 ```bash
-RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW!!!/maps/mid360_map_20260620_173012.pcd" \
+RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260620_173012.pcd" \
 RC_LIDAR_MODE=relocalization \
 ./autostart/start_all_terminals.sh
 ```
@@ -640,7 +640,7 @@ RC_LIDAR_MODE=mapping \
 先正常启动低负载定位栈，等待 `world_tf` 初始化完成，然后运行：
 
 ```bash
-cd "/home/orangepi/RC_LIDAR_NOW!!!"
+cd "/home/orangepi/RC_LIDAR_NOW"
 source /opt/ros/humble/setup.bash
 source install/setup.bash
 

@@ -87,6 +87,11 @@ kill_pid_safely() {
   self_pgid="$(ps -o pgid= -p "$$" 2>/dev/null | tr -d ' ')"
   target_pgid="$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')"
 
+  if [ -n "${target_pgid:-}" ] && [ "$target_pgid" = "$self_pgid" ]; then
+    log "skip pid=$pid in current process group cmd=$cmd"
+    return 0
+  fi
+
   pkill "-$signal" -P "$pid" 2>/dev/null || true
   kill "-$signal" "$pid" 2>/dev/null || true
 

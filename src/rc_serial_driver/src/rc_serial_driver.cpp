@@ -36,7 +36,7 @@ namespace
 constexpr uint8_t RESTART_PAYLOAD[8] = {0xA5, 0x5A, 0x01, 0xFE, 0x00, 0x00, 0x00, 0x00};
 
 int g_can_id_restart = 0x30;
-std::string g_restart_script = "/home/orangepi/RC_LIDAR_NOW!!!/autostart/restart_lidar_stack.sh";
+std::string g_restart_script = "/home/orangepi/RC_LIDAR_NOW/autostart/restart_lidar_stack.sh";
 bool g_restart_enabled = true;
 std::chrono::steady_clock::time_point g_last_restart_time{};
 rclcpp::TimerBase::SharedPtr g_recv_timer;
@@ -221,7 +221,7 @@ void RCSerialDriver::getParams()
   g_can_id_restart = declare_parameter<int>("can_id_restart", 0x30);
   g_restart_script = declare_parameter<std::string>(
     "restart_script",
-    "/home/orangepi/RC_LIDAR_NOW!!!/autostart/restart_lidar_stack.sh");
+    "/home/orangepi/RC_LIDAR_NOW/autostart/restart_lidar_stack.sh");
   g_restart_enabled = declare_parameter<bool>("restart_enabled", true);
 
   RCLCPP_INFO(get_logger(), "Restart CAN ID: 0x%X", g_can_id_restart);

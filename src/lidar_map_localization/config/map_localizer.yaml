@@ -1,6 +1,6 @@
 map_localizer:
   ros__parameters:
-    map_path: /home/orangepi/RC_LIDAR_NOW!!!/maps/mid360_map.pcd
+    map_path: /home/orangepi/RC_LIDAR_NOW/maps/mid360_map.pcd
     scan_topic: /cloud_registered
     odom_topic: /Odometry
     initialpose_topic: /initialpose

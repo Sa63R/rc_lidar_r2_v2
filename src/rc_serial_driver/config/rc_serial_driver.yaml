@@ -9,5 +9,5 @@
     pose_topic: "/lidar/pose"
     pose_topic_timeout_sec: 0.5
     restart_enabled: true
-    restart_script: "/home/orangepi/RC_LIDAR_NOW!!!/autostart/restart_lidar_stack.sh"
+    restart_script: "/home/orangepi/RC_LIDAR_NOW/autostart/restart_lidar_stack.sh"
     timestamp_offset: 0.0         # 时间戳偏移
