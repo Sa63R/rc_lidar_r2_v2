@@ -1,0 +1,24 @@
+lidar_pose_from_odom:
+  ros__parameters:
+    input_odom_topic: /map_lidar/odom
+    output_pose_topic: /lidar/pose
+    output_point_topic: /lidar/point
+    output_odom_topic: /lidar/odom
+    lidar_frame: body
+    base_frame: base_link
+    publish_tf: false
+    publish_static_tf: false
+    output_base_frame: true
+    zero_on_first_pose: false
+    zero_delay_sec: 5.0
+    zero_frame_id: init
+    # Current Orange Pi static extrinsic, matching my_static_tf body -> base_link.
+    lidar_to_base_xyz: [-0.240, 0.287302, -0.760]
+    lidar_to_base_rpy: [0.0, 0.0, 1.5707963267948966]
+    # Relocalization mode uses the saved map raw frame as parent.
+    # This reference is map -> init, so /lidar/pose becomes init -> base_link.
+    reference_pose_enabled: true
+    reference_frame_id: init
+    reference_pose_xyz: [-0.240, 0.287302, -0.760]
+    reference_pose_rpy: [0.0, 0.0, 1.5707963267948966]
+    log_period_sec: 1.0

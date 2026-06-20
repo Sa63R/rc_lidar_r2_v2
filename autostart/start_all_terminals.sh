@@ -9,6 +9,16 @@ LOG_ROOT="${RC_LIDAR_LOG_ROOT:-$WORKSPACE_DIR/logs/autostart}"
 # boot：开机启动
 # can_restart：CAN 报文触发重启
 RUN_REASON="${RUN_REASON:-manual}"
+RC_LIDAR_MODE="${RC_LIDAR_MODE:-tracking}"
+case "$RC_LIDAR_MODE" in
+  tracking|mapping|relocalization)
+    ;;
+  *)
+    echo "[ERROR] Unknown RC_LIDAR_MODE=$RC_LIDAR_MODE. Use tracking, mapping, or relocalization." >&2
+    exit 2
+    ;;
+esac
+RC_LIDAR_MAP_PATH="${RC_LIDAR_MAP_PATH:-$WORKSPACE_DIR/maps/mid360_map.pcd}"
 
 RUN_ID="$(date +%Y%m%d_%H%M%S)_${RUN_REASON}"
 LOG_DIR="$LOG_ROOT/run_$RUN_ID"
@@ -19,6 +29,8 @@ ln -sfn "$LOG_DIR" "$LOG_ROOT/latest"
 export RUN_ID
 export LOG_DIR
 export RUN_REASON
+export RC_LIDAR_MODE
+export RC_LIDAR_MAP_PATH
 
 # ROS2 自己的日志目录
 export ROS_LOG_DIR="$LOG_DIR/ros2"
@@ -32,6 +44,8 @@ mkdir -p "$ROS_LOG_DIR"
   echo "time: $(date -Iseconds)"
   echo "run_id: $RUN_ID"
   echo "run_reason: $RUN_REASON"
+  echo "runtime_mode: $RC_LIDAR_MODE"
+  echo "map_path: $RC_LIDAR_MAP_PATH"
   echo "log_dir: $LOG_DIR"
   echo "dir: $DIR"
   echo "user: $(whoami)"
@@ -96,6 +110,21 @@ resolve_headless_mode() {
 
 RUN_HEADLESS="$(resolve_headless_mode)"
 echo "headless: $RUN_HEADLESS" >> "$LOG_DIR/start_summary.txt"
+
+if [ "$RC_LIDAR_MODE" = "relocalization" ] && [ ! -s "$RC_LIDAR_MAP_PATH" ]; then
+  if [ "${RC_AUTOSTART_DRY_RUN:-0}" = "1" ]; then
+    echo "[dry-run] relocalization map would be required: $RC_LIDAR_MAP_PATH" | tee -a "$LOG_DIR/start_summary.txt"
+  else
+    {
+      echo "[ERROR] RC_LIDAR_MODE=relocalization needs a non-empty map file:"
+      echo "        $RC_LIDAR_MAP_PATH"
+      echo "Build one first with:"
+      echo "        RC_LIDAR_MODE=mapping ./autostart/start_all_terminals.sh"
+      echo "        ./autostart/save_fast_lio_map.sh"
+    } | tee -a "$LOG_DIR/start_summary.txt"
+    exit 3
+  fi
+fi
 
 resolve_gui_terminal() {
   case "${RC_AUTOSTART_TERMINAL:-auto}" in
@@ -370,13 +399,25 @@ start_one "LIVOX" "livox.sh"
 start_one "FASTLIO" "fastlio.sh"
 start_one "HIGHRATE_BODY" "highrate_body.sh"
 start_one "world_tf" "world_tf.sh"
+if [ "$RC_LIDAR_MODE" = "mapping" ]; then
+  start_one "POSE_INTERFACE" "pose_interface_mapping.sh"
+elif [ "$RC_LIDAR_MODE" = "relocalization" ]; then
+  start_one "MAP_LOCALIZER" "map_localizer.sh"
+  start_one "POSE_INTERFACE" "pose_interface_relocalization.sh"
+else
+  echo "[$(date -Iseconds)] tracking mode: skipped MAP_LOCALIZER and POSE_INTERFACE" | tee -a "$LOG_DIR/start_summary.txt"
+fi
 if should_start_tf_compare; then
   start_one "TF_ROBOT_OFFSET" "robot_tf_offsets.sh"
   start_one "TF_LIDAR_OFFSET" "lidar_tf_offset.sh"
 else
   echo "[$(date -Iseconds)] skipped TF compare publishers" | tee -a "$LOG_DIR/start_summary.txt"
 fi
-start_one "CAN_SERIAL" "serial_driver.sh"
+if [ "$RC_LIDAR_MODE" = "mapping" ] && [ "${RC_AUTOSTART_CAN_DURING_MAPPING:-0}" != "1" ]; then
+  echo "[$(date -Iseconds)] skipped CAN_SERIAL in mapping mode" | tee -a "$LOG_DIR/start_summary.txt"
+else
+  start_one "CAN_SERIAL" "serial_driver.sh"
+fi
 if should_start_lidar_xyzr; then
   start_one "LIDAR_XYZR" "lidar_xyzr.sh"
 else

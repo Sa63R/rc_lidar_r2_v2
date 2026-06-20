@@ -37,6 +37,8 @@ compile_commands.json
 *.pid
 *.status
 *.pcd
+/maps/*.pcd
+!/maps/.gitkeep
 *.bag
 *.db3
 *.mcap

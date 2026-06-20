@@ -1,0 +1,28 @@
+map_localizer:
+  ros__parameters:
+    map_path: /home/orangepi/RC_LIDAR_NOW!!!/maps/mid360_map.pcd
+    scan_topic: /cloud_registered
+    odom_topic: /Odometry
+    initialpose_topic: /initialpose
+    output_odom_topic: /map_lidar/odom
+    output_pose_topic: /map_lidar/pose
+    output_map_topic: /localization/map
+    map_frame: map
+    odom_frame: camera_init
+    body_frame: body
+    publish_tf: true
+    auto_initialize_identity: true
+    registration_method: ndt
+    localize_period_sec: 0.1
+    map_leaf_size: 0.10
+    scan_leaf_size: 0.10
+    min_scan_points: 150
+    fitness_threshold: 1.5
+    ndt_resolution: 0.5
+    ndt_step_size: 0.05
+    ndt_transformation_epsilon: 0.001
+    ndt_max_iterations: 60
+    icp_max_correspondence_distance: 0.6
+    icp_transformation_epsilon: 0.0005
+    icp_euclidean_fitness_epsilon: 0.001
+    icp_max_iterations: 80

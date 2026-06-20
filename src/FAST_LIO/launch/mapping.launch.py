@@ -4,7 +4,7 @@ from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import EnvironmentVariable, LaunchConfiguration, PathJoinSubstitution
 from launch.conditions import IfCondition
 
 from launch_ros.actions import Node
@@ -21,6 +21,7 @@ def generate_launch_description():
     config_file = LaunchConfiguration('config_file')
     rviz_use = LaunchConfiguration('rviz')
     rviz_cfg = LaunchConfiguration('rviz_cfg')
+    map_file_path = LaunchConfiguration('map_file_path')
 
     declare_use_sim_time_cmd = DeclareLaunchArgument(
         'use_sim_time', default_value='false',
@@ -42,12 +43,27 @@ def generate_launch_description():
         'rviz_cfg', default_value=default_rviz_config_path,
         description='RViz config file path'
     )
+    declare_map_file_path_cmd = DeclareLaunchArgument(
+        'map_file_path',
+        default_value=PathJoinSubstitution([
+            EnvironmentVariable(
+                'RC_LIDAR_WORKSPACE',
+                default_value='/home/orangepi/RC_LIDAR_NOW!!!',
+            ),
+            'maps',
+            'mid360_map.pcd',
+        ]),
+        description='PCD path used by the /map_save service'
+    )
 
     fast_lio_node = Node(
         package='fast_lio',
         executable='fastlio_mapping',
         parameters=[PathJoinSubstitution([config_path, config_file]),
-                    {'use_sim_time': use_sim_time}],
+                    {
+                        'use_sim_time': use_sim_time,
+                        'map_file_path': map_file_path,
+                    }],
         output='screen'
     )
     rviz_node = Node(
@@ -63,6 +79,7 @@ def generate_launch_description():
     ld.add_action(decalre_config_file_cmd)
     ld.add_action(declare_rviz_cmd)
     ld.add_action(declare_rviz_config_path_cmd)
+    ld.add_action(declare_map_file_path_cmd)
 
     ld.add_action(fast_lio_node)
     ld.add_action(rviz_node)

@@ -19,10 +19,12 @@
 
 ## 包结构
 
-`src/` 下包含 5 个 ROS 2 包：
+`src/` 下包含 7 个 ROS 2 包：
 
 - `livox_ros_driver2`：Livox 雷达驱动，发布 `/livox/lidar` 和 `/livox/imu`
 - `fast_lio`：FAST-LIO 建图定位节点
+- `lidar_map_localization`：读取保存的 PCD 地图，用 NDT/ICP 把 FAST-LIO 当前点云重定位到地图
+- `lidar_localization`：把 `/Odometry` 或 `/map_lidar/odom` 转成稳定的 `/lidar/pose`
 - `my_static_tf`：静态 TF launch
 - `fastlio_world_init`：根据 FAST-LIO 初始 TF 生成 world 初始化 TF，并发布 TF 对比曲线 topic 的 Python 节点
 - `rc_serial_driver`：读取 TF 并通过 SocketCAN 发送位姿，同时监听 CAN 重启命令
@@ -93,13 +95,13 @@ source install/setup.bash
 本次验证结果：
 
 ```text
-Summary: 5 packages finished
+Summary: 7 packages finished
 ```
 
 可执行文件检查：
 
 ```bash
-for p in fast_lio livox_ros_driver2 rc_serial_driver fastlio_world_init my_static_tf; do
+for p in fast_lio livox_ros_driver2 lidar_map_localization lidar_localization rc_serial_driver fastlio_world_init my_static_tf; do
   echo "== $p =="
   ros2 pkg executables "$p"
 done
@@ -109,6 +111,10 @@ done
 
 ```text
 fast_lio fastlio_mapping
+lidar_map_localization map_localizer
+lidar_localization pose_from_odom
+lidar_localization print_lidar_pose
+lidar_localization print_xy_yaw
 livox_ros_driver2 livox_ros_driver2_node
 rc_serial_driver rc_serial_driver_node
 fastlio_world_init lidar_tf_offset
@@ -237,7 +243,7 @@ yaw_can = 左转为正，0 表示初始化朝向
 ```text
 x_can = x_tf
 y_can = y_tf
-z_can =  z_tf
+z_can = z_tf
 yaw_can = yaw_tf
 ```
 
@@ -247,6 +253,8 @@ CAN 帧格式保持不变：
 0x12: float x_can, float y_can
 0x13: float z_can, float yaw_can
 ```
+
+普通 `tracking` 模式下，CAN 坐标来自现有 TF：`init -> base_link_highrate`。重定位 `relocalization` 模式下，CAN 坐标来自 `/lidar/pose`，也就是地图匹配后的 `init -> base_link` 位姿；CAN 帧 ID 和 float 打包格式不变。
 
 一键启动会先运行 `autostart/can_setup.sh`。如果没有指定 `CAN_INTERFACE`，它会自动寻找系统里第一个 `can*` 或 `slcan*` SocketCAN 接口；找到后会在免密 `sudo` 可用时自动配置：
 
@@ -418,6 +426,19 @@ LIDAR_XYZR       点云调试打印
 PLOTJUGGLER      打开 TF Compare 布局并订阅 /tf_compare topic
 ```
 
+默认运行模式是：
+
+```text
+RC_LIDAR_MODE=tracking
+```
+
+这个模式保持原来的 FAST-LIO + world/init TF + CAN 输出链路，不依赖地图文件。新增的模式有：
+
+```text
+RC_LIDAR_MODE=mapping          # 建图，用 /map_save 保存 maps/mid360_map.pcd
+RC_LIDAR_MODE=relocalization   # 读取 maps/mid360_map.pcd 做地图匹配重定位
+```
+
 手动启动时 FAST-LIO 默认会同时打开 RViz。如果想关闭 RViz：
 
 ```bash
@@ -450,6 +471,142 @@ PlotJuggler 的 ROS2 插件会弹出确认窗口，本工程用 `xdotool` 自动
 
 ```bash
 sudo apt install -y xdotool
+```
+
+## 建图和重定位
+
+新增建图/重定位链路参考 `Sa63R/rc_lidar_r2`，但保留当前工程的 TF 语义和经典 SocketCAN 报文格式。
+
+目标链路是：
+
+```text
+Livox MID360 -> FAST-LIO -> /cloud_registered + /Odometry
+建图模式：/map_save -> maps/mid360_map.pcd
+重定位模式：lidar_map_localization -> /map_lidar/odom -> lidar_localization -> /lidar/pose -> rc_serial_driver
+```
+
+高精度来自保存地图后的 NDT/ICP 地图匹配，不是单纯调 FAST-LIO 参数。`/lidar/pose` 已经转换成机器人业务坐标：
+
+```text
+frame_id = init
+x = 右方
+y = 前方
+z = 上方
+yaw = 左转为正
+```
+
+因此重定位模式下 CAN 会直接发送 `/lidar/pose`，不会再做额外坐标轴旋转。正负 0.5 cm 的静态误差目标需要依赖足够好的现场地图、稳定的静态环境、正确外参、雷达安装刚性和足够点云结构；代码提供重定位链路，但不能单独保证所有现场都达到这个误差。
+
+### 建图
+
+先启动建图模式：
+
+```bash
+cd "/home/orangepi/RC_LIDAR_NOW!!!"
+RC_LIDAR_MODE=mapping ./autostart/start_all_terminals.sh
+```
+
+也可以用快捷脚本：
+
+```bash
+./autostart/start_mapping_terminals.sh
+```
+
+移动机器人覆盖需要重定位的场地，等 FAST-LIO 地图稳定后保存：
+
+```bash
+./autostart/save_fast_lio_map.sh
+```
+
+默认地图路径：
+
+```text
+maps/mid360_map.pcd
+```
+
+`*.pcd` 默认不会提交到 GitHub，现场地图建议单独备份。
+
+### 重定位
+
+确认地图存在：
+
+```bash
+ls -lh maps/mid360_map.pcd
+```
+
+低负载重定位启动：
+
+```bash
+cd "/home/orangepi/RC_LIDAR_NOW!!!"
+RC_LIDAR_MODE=relocalization \
+RC_AUTOSTART_HEADLESS=1 \
+RC_AUTOSTART_PLOTJUGGLER=0 \
+./autostart/start_all_terminals.sh
+```
+
+如果想打开图形窗口调试：
+
+```bash
+RC_LIDAR_MODE=relocalization ./autostart/start_all_terminals.sh
+```
+
+重定位模式会新增：
+
+```text
+MAP_LOCALIZER   lidar_map_localization，发布 /map_lidar/odom
+POSE_INTERFACE lidar_localization，发布 /lidar/pose、/lidar/point、/lidar/odom
+```
+
+验证 topic：
+
+```bash
+ros2 topic echo /map_lidar/odom --once
+ros2 topic echo /lidar/pose --once
+ros2 topic echo /lidar/point --once
+```
+
+重定位模式下 CAN 发送节点会自动切到：
+
+```text
+pose_source=pose_topic
+pose_topic=/lidar/pose
+```
+
+普通模式仍然是：
+
+```text
+pose_source=tf
+```
+
+如果需要手动覆盖：
+
+```bash
+RC_CAN_POSE_SOURCE=tf ./autostart/start_all_terminals.sh
+RC_CAN_POSE_SOURCE=pose_topic RC_CAN_POSE_TOPIC=/lidar/pose ./autostart/start_all_terminals.sh
+```
+
+### 地图路径
+
+默认路径是：
+
+```text
+maps/mid360_map.pcd
+```
+
+临时使用其他地图：
+
+```bash
+RC_LIDAR_MAP_PATH=/home/orangepi/maps/site_a.pcd \
+RC_LIDAR_MODE=relocalization \
+./autostart/start_all_terminals.sh
+```
+
+FAST-LIO 保存路径可用：
+
+```bash
+RC_FASTLIO_MAP_SAVE_PATH=/home/orangepi/maps/site_a.pcd \
+RC_LIDAR_MODE=mapping \
+./autostart/start_all_terminals.sh
 ```
 
 ## 自转外参校准
@@ -595,6 +752,7 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
 2. `src/rc_serial_driver/launch/serial_driver.launch.py`
    - 原 launch 文件加载 `config/serial_driver.yaml`，但实际配置文件名是 `rc_serial_driver.yaml`。
    - 已改为加载 `config/rc_serial_driver.yaml`，否则节点会启动但不会读取配置文件。
+   - 增加 `RC_CAN_POSE_SOURCE` 和 `RC_CAN_POSE_TOPIC` 环境变量支持；普通模式读 TF，重定位模式读 `/lidar/pose`。
 
 3. `autostart/*.sh`
    - 统一通过 `autostart/common_env.sh` 加载当前工作区环境。
@@ -669,6 +827,21 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
    - 新增统一停止脚本，用于清理本项目启动的 Livox、FAST-LIO、静态 TF、EKF、CAN 发送、RViz、PlotJuggler、自转校准等进程。
    - `start_all_terminals.sh` 默认会在真正启动前调用 `stop_all.sh --quiet`，防止重复启动导致多个 `/odometry/filtered` publisher 或重复 TF。
    - `RC_AUTOSTART_DRY_RUN=1` 时不会执行清理；需要临时跳过可设置 `RC_AUTOSTART_SKIP_PRESTOP=1`。
+
+19. `src/lidar_map_localization`
+   - 新增 PCD 地图重定位节点 `map_localizer`。
+   - 默认读取 `maps/mid360_map.pcd`，订阅 `/cloud_registered` 和 `/Odometry`，输出 `/map_lidar/odom`、`/map_lidar/pose`、`/localization/map`。
+   - 当前帧名适配为 FAST-LIO 原始帧：`map -> camera_init -> body`。
+
+20. `src/lidar_localization`
+   - 新增 `pose_from_odom` 位姿接口。
+   - 建图模式下可把 `/Odometry` 转成相对启动点的 `/lidar/pose`。
+   - 重定位模式下把 `/map_lidar/odom` 转成业务坐标 `init -> base_link` 的 `/lidar/pose`，坐标语义为 `X右/Y前/Z上`。
+
+21. `autostart/start_mapping_terminals.sh`、`autostart/save_fast_lio_map.sh`、`autostart/map_localizer.sh`、`autostart/pose_interface_mapping.sh`、`autostart/pose_interface_relocalization.sh`
+   - 新增建图保存和地图重定位的一键脚本。
+   - `RC_LIDAR_MODE=mapping` 用于建图保存；`RC_LIDAR_MODE=relocalization` 用于基于地图的高精度重定位。
+   - `stop_all.sh` 和 CAN 重启脚本已同步清理新增节点，避免模式切换后残留旧进程。
 
 ## 注意事项
 

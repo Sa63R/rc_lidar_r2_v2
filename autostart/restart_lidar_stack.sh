@@ -87,6 +87,8 @@ close_terminal_windows_by_title() {
     "TF_ROBOT_OFFSET"
     "TF_LIDAR_OFFSET"
     "PLOTJUGGLER"
+    "MAP_LOCALIZER"
+    "POSE_INTERFACE"
   )
 
   if command -v wmctrl >/dev/null 2>&1; then
@@ -134,7 +136,14 @@ close_terminal_windows_by_title() {
     "$DIR/robot_tf_offsets.sh"
     "$DIR/lidar_tf_offset.sh"
     "$DIR/plotjuggler_tf_compare.sh"
+    "$DIR/map_localizer.sh"
+    "$DIR/pose_interface_mapping.sh"
+    "$DIR/pose_interface_relocalization.sh"
     "ros2 launch rc_serial_driver serial_driver.launch.py"
+    "ros2 launch lidar_map_localization"
+    "ros2 launch lidar_localization"
+    "map_localizer"
+    "pose_from_odom"
     "$DIR/diagnose_logger.sh"
   )
 

@@ -31,7 +31,7 @@ should_kill_cmd() {
     *"$WORKSPACE_DIR"*|*"$DIR"*)
       return 0
       ;;
-    *"ros2 launch my_static_tf "*|*"ros2 launch fast_lio "*|*"ros2 launch livox_ros_driver2 "*|*"ros2 launch rc_serial_driver "*)
+    *"ros2 launch my_static_tf "*|*"ros2 launch fast_lio "*|*"ros2 launch livox_ros_driver2 "*|*"ros2 launch rc_serial_driver "*|*"ros2 launch lidar_map_localization "*|*"ros2 launch lidar_localization "*)
       return 0
       ;;
     *"ros2 run robot_localization "*|*"ros2 run fastlio_world_init "*)
@@ -40,7 +40,7 @@ should_kill_cmd() {
     *"fastlio_mapping"*|*"livox_ros_driver2_node"*|*"rc_serial_driver_node"*|*"ekf_node"*)
       return 0
       ;;
-    *"world_from_fastlio_init"*|*"robot_tf_offsets"*|*"lidar_tf_offset"*|*"lidar_xyzr.py"*)
+    *"world_from_fastlio_init"*|*"robot_tf_offsets"*|*"lidar_tf_offset"*|*"lidar_xyzr.py"*|*"map_localizer"*|*"pose_from_odom"*)
       return 0
       ;;
     *"rotation_extrinsic_calibrator"*)
@@ -126,6 +126,8 @@ close_terminal_windows_by_title() {
     "TF_LIDAR_OFFSET"
     "PLOTJUGGLER"
     "ROTATION_CALIB"
+    "MAP_LOCALIZER"
+    "POSE_INTERFACE"
   )
 
   if command -v wmctrl >/dev/null 2>&1; then
@@ -156,11 +158,16 @@ patterns=(
   "$DIR/robot_tf_offsets.sh"
   "$DIR/lidar_tf_offset.sh"
   "$DIR/plotjuggler_tf_compare.sh"
+  "$DIR/map_localizer.sh"
+  "$DIR/pose_interface_mapping.sh"
+  "$DIR/pose_interface_relocalization.sh"
   "$DIR/diagnose_logger.sh"
   "ros2 launch my_static_tf"
   "ros2 launch fast_lio"
   "ros2 launch livox_ros_driver2"
   "ros2 launch rc_serial_driver"
+  "ros2 launch lidar_map_localization"
+  "ros2 launch lidar_localization"
   "ros2 run robot_localization"
   "ros2 run fastlio_world_init"
   "fastlio_mapping"
@@ -173,6 +180,8 @@ patterns=(
   "lidar_tf_offset"
   "rotation_extrinsic_calibrator"
   "lidar_xyzr.py"
+  "map_localizer"
+  "pose_from_odom"
   "rviz2"
   "plotjuggler"
 )

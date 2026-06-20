@@ -15,4 +15,11 @@ if [ -z "${FASTLIO_RVIZ:-}" ]; then
 fi
 
 echo "[fastlio] FASTLIO_RVIZ=$FASTLIO_RVIZ"
-exec ros2 launch fast_lio mapping.launch.py config_file:=mid360.yaml rviz:="$FASTLIO_RVIZ"
+MAP_SAVE_PATH="${RC_FASTLIO_MAP_SAVE_PATH:-$RC_LIDAR_WORKSPACE/maps/mid360_map.pcd}"
+mkdir -p "$(dirname "$MAP_SAVE_PATH")"
+
+echo "[fastlio] map_file_path=$MAP_SAVE_PATH"
+exec ros2 launch fast_lio mapping.launch.py \
+  config_file:=mid360.yaml \
+  rviz:="$FASTLIO_RVIZ" \
+  map_file_path:="$MAP_SAVE_PATH"

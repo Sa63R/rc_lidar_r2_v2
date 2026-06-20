@@ -10,6 +10,8 @@ def generate_launch_description():
         get_package_share_directory('rc_serial_driver'), 'config', 'rc_serial_driver.yaml')
     can_interface = os.environ.get('CAN_INTERFACE', 'can0')
     can_bitrate = int(os.environ.get('CAN_BITRATE', '1000000'))
+    pose_source = os.environ.get('RC_CAN_POSE_SOURCE', 'tf')
+    pose_topic = os.environ.get('RC_CAN_POSE_TOPIC', '/lidar/pose')
 
     rc_serial_driver_node = Node(
         package='rc_serial_driver',
@@ -22,6 +24,8 @@ def generate_launch_description():
             {
                 'can_interface': can_interface,
                 'can_bitrate': can_bitrate,
+                'pose_source': pose_source,
+                'pose_topic': pose_topic,
             },
         ],
     )

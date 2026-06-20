@@ -18,6 +18,7 @@
 #include <chrono>
 #include <cstring>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -35,7 +36,7 @@ namespace
 constexpr uint8_t RESTART_PAYLOAD[8] = {0xA5, 0x5A, 0x01, 0xFE, 0x00, 0x00, 0x00, 0x00};
 
 int g_can_id_restart = 0x30;
-std::string g_restart_script = "/home/rc/jwt/rc/autostart/restart_lidar_stack.sh";
+std::string g_restart_script = "/home/orangepi/RC_LIDAR_NOW!!!/autostart/restart_lidar_stack.sh";
 bool g_restart_enabled = true;
 std::chrono::steady_clock::time_point g_last_restart_time{};
 rclcpp::TimerBase::SharedPtr g_recv_timer;
@@ -72,6 +73,17 @@ bool isCanTxQueueFullError(int error_number)
     default:
       return false;
   }
+}
+
+float yawFromQuaternion(const geometry_msgs::msg::Quaternion & q_msg)
+{
+  tf2::Quaternion q(q_msg.x, q_msg.y, q_msg.z, q_msg.w);
+  tf2::Matrix3x3 m(q);
+  double roll;
+  double pitch;
+  double yaw;
+  m.getRPY(roll, pitch, yaw);
+  return static_cast<float>(yaw);
 }
 
 void requestRadarRestart(const rclcpp::Logger & logger)
@@ -120,6 +132,11 @@ RCSerialDriver::RCSerialDriver(const rclcpp::NodeOptions & options)
   // TF buffer and listener for map->body transform
   tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+
+  pose_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
+    pose_topic_,
+    10,
+    std::bind(&RCSerialDriver::poseCallback, this, std::placeholders::_1));
 
   // Timer to send pose at 50 Hz
   send_timer_ = this->create_wall_timer(
@@ -189,11 +206,22 @@ void RCSerialDriver::getParams()
   can_id_frame1_ = declare_parameter<int>("can_id_frame1", 0x12);
   can_id_frame2_ = declare_parameter<int>("can_id_frame2", 0x13);
   can_bitrate_ = declare_parameter<int>("can_bitrate", 1000000);
+  pose_source_ = declare_parameter<std::string>("pose_source", "tf");
+  pose_topic_ = declare_parameter<std::string>("pose_topic", "/lidar/pose");
+  pose_topic_timeout_sec_ = declare_parameter<double>("pose_topic_timeout_sec", 0.5);
+
+  if (pose_source_ != "tf" && pose_source_ != "pose_topic" && pose_source_ != "auto") {
+    RCLCPP_WARN(
+      get_logger(),
+      "Unknown pose_source '%s', falling back to 'tf'. Expected tf, pose_topic, or auto.",
+      pose_source_.c_str());
+    pose_source_ = "tf";
+  }
   
   g_can_id_restart = declare_parameter<int>("can_id_restart", 0x30);
   g_restart_script = declare_parameter<std::string>(
     "restart_script",
-    "/home/rc/jwt/rc/autostart/restart_lidar_stack.sh");
+    "/home/orangepi/RC_LIDAR_NOW!!!/autostart/restart_lidar_stack.sh");
   g_restart_enabled = declare_parameter<bool>("restart_enabled", true);
 
   RCLCPP_INFO(get_logger(), "Restart CAN ID: 0x%X", g_can_id_restart);
@@ -201,6 +229,12 @@ void RCSerialDriver::getParams()
 
   RCLCPP_INFO(get_logger(), "CAN Interface: %s", can_interface_.c_str());
   RCLCPP_INFO(get_logger(), "Expected CAN Bitrate: %d bit/s (ensure pre-configured)", can_bitrate_);
+  RCLCPP_INFO(
+    get_logger(),
+    "Pose source: %s (pose_topic=%s timeout=%.2fs)",
+    pose_source_.c_str(),
+    pose_topic_.c_str(),
+    pose_topic_timeout_sec_);
 }
 
 void RCSerialDriver::initCAN()
@@ -264,49 +298,38 @@ void RCSerialDriver::sendMapBodyPose()
   }
 
   try {
-    // 低频完整 3D 坐标: init -> base_link
-    // 用它取 z
-    geometry_msgs::msg::TransformStamped tf_low =
-      tf_buffer_->lookupTransform("init", "base_link", tf2::TimePointZero);
+    float x_can = 0.0f;
+    float y_can = 0.0f;
+    float z_can = 0.0f;
+    float yaw_can = 0.0f;
+    std::string source_used;
 
-    // 高频平面坐标: init -> base_link_highrate
-    // 用它取 x, y, yaw
-    geometry_msgs::msg::TransformStamped tf_high =
-      tf_buffer_->lookupTransform("init", "base_link_highrate", tf2::TimePointZero);
+    if (pose_source_ == "pose_topic" || pose_source_ == "auto") {
+      if (readPoseFromTopic(x_can, y_can, z_can, yaw_can)) {
+        source_used = pose_topic_;
+      }
+    }
 
-    // === 机器人业务 TF 坐标: x=右, y=前, z=上 ===
-    float x_tf = static_cast<float>(tf_high.transform.translation.x);
-    float y_tf = static_cast<float>(tf_high.transform.translation.y);
+    if (source_used.empty() && pose_source_ != "pose_topic") {
+      if (readPoseFromTf(x_can, y_can, z_can, yaw_can)) {
+        source_used = "TF init->base_link_highrate";
+      }
+    }
 
-    // === z 来自低频 base_link ===
-    float z_tf = static_cast<float>(tf_low.transform.translation.z);
-
-    // === yaw 来自高频 base_link_highrate ===
-    tf2::Quaternion q_high(
-      tf_high.transform.rotation.x,
-      tf_high.transform.rotation.y,
-      tf_high.transform.rotation.z,
-      tf_high.transform.rotation.w);
-
-    tf2::Matrix3x3 m_high(q_high);
-    double roll_high, pitch_high, yaw_high;
-    m_high.getRPY(roll_high, pitch_high, yaw_high);
-
-    float yaw_tf = static_cast<float>(yaw_high);
-
-    // TF tree already exposes the robot business frame, so CAN sends it directly.
-    float x_can = x_tf;
-    float y_can = y_tf;
-    float z_can = z_tf;
-    float yaw_can = yaw_tf;
+    if (source_used.empty()) {
+      RCLCPP_DEBUG_THROTTLE(
+        get_logger(),
+        *get_clock(),
+        1000,
+        "Pose source not ready: %s",
+        pose_source_.c_str());
+      return;
+    }
 
     RCLCPP_DEBUG_STREAM(
       get_logger(),
-      "Sending pose: robot_tf[x_right=" << x_tf
-      << " y_forward=" << y_tf
-      << " z_up=" << z_tf
-      << " yaw_left_positive=" << yaw_tf
-      << "] can_output[x_right=" << x_can
+      "Sending pose from " << source_used
+      << ": can_output[x_right=" << x_can
       << " y_forward=" << y_can
       << " z_up=" << z_can
       << " yaw_left_positive=" << yaw_can
@@ -354,6 +377,69 @@ void RCSerialDriver::sendMapBodyPose()
     RCLCPP_ERROR(get_logger(), "Error in sendMapBodyPose: %s", ex.what());
     reopenPort();
   }
+}
+
+void RCSerialDriver::poseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
+{
+  std::lock_guard<std::mutex> lock(pose_mutex_);
+  latest_pose_ = msg;
+}
+
+bool RCSerialDriver::readPoseFromTopic(float & x, float & y, float & z, float & yaw)
+{
+  geometry_msgs::msg::PoseStamped::SharedPtr pose_msg;
+  {
+    std::lock_guard<std::mutex> lock(pose_mutex_);
+    pose_msg = latest_pose_;
+  }
+
+  if (!pose_msg) {
+    return false;
+  }
+
+  const rclcpp::Time stamp(pose_msg->header.stamp);
+  if (stamp.nanoseconds() != 0) {
+    const double age_sec = (now() - stamp).seconds();
+    if (age_sec > pose_topic_timeout_sec_) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(),
+        *get_clock(),
+        1000,
+        "Pose topic %s is stale: age=%.3fs",
+        pose_topic_.c_str(),
+        age_sec);
+      return false;
+    }
+  }
+
+  x = static_cast<float>(pose_msg->pose.position.x);
+  y = static_cast<float>(pose_msg->pose.position.y);
+  z = static_cast<float>(pose_msg->pose.position.z);
+  yaw = yawFromQuaternion(pose_msg->pose.orientation);
+  return true;
+}
+
+bool RCSerialDriver::readPoseFromTf(float & x, float & y, float & z, float & yaw)
+{
+    // 低频完整 3D 坐标: init -> base_link
+    // 用它取 z
+    geometry_msgs::msg::TransformStamped tf_low =
+      tf_buffer_->lookupTransform("init", "base_link", tf2::TimePointZero);
+
+    // 高频平面坐标: init -> base_link_highrate
+    // 用它取 x, y, yaw
+    geometry_msgs::msg::TransformStamped tf_high =
+      tf_buffer_->lookupTransform("init", "base_link_highrate", tf2::TimePointZero);
+
+    // === 机器人业务 TF 坐标: x=右, y=前, z=上 ===
+    x = static_cast<float>(tf_high.transform.translation.x);
+    y = static_cast<float>(tf_high.transform.translation.y);
+
+    // === z 来自低频 base_link ===
+    z = static_cast<float>(tf_low.transform.translation.z);
+
+    yaw = yawFromQuaternion(tf_high.transform.rotation);
+    return true;
 }
 
 void RCSerialDriver::reopenPort()

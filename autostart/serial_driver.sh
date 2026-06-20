@@ -46,5 +46,17 @@ setup_can_if_possible
 
 sleep 3
 
+if [ -z "${RC_CAN_POSE_SOURCE:-}" ]; then
+  if [ "${RC_LIDAR_MODE:-tracking}" = "relocalization" ]; then
+    RC_CAN_POSE_SOURCE="pose_topic"
+  else
+    RC_CAN_POSE_SOURCE="tf"
+  fi
+fi
+RC_CAN_POSE_TOPIC="${RC_CAN_POSE_TOPIC:-/lidar/pose}"
+export RC_CAN_POSE_SOURCE
+export RC_CAN_POSE_TOPIC
+
 echo "[serial] Launching rc_serial_driver with CAN_INTERFACE=${CAN_INTERFACE:-unset}, CAN_BITRATE=$CAN_BITRATE"
+echo "[serial] pose_source=$RC_CAN_POSE_SOURCE pose_topic=$RC_CAN_POSE_TOPIC"
 exec ros2 launch rc_serial_driver serial_driver.launch.py
