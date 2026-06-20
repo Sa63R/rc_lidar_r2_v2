@@ -56,13 +56,15 @@ configure_with_nmcli() {
       ipv4.never-default yes
   fi
 
-  if ! ip -brief addr show "$IFACE" | grep -q "${HOST_CIDR%/*}/"; then
+  if ! ip -brief link show "$IFACE" | grep -q '<[^>]*UP' ||
+    ! ip -brief addr show "$IFACE" | grep -q "${HOST_CIDR%/*}/"; then
     echo "[livox-net] activating $conn on $IFACE ..."
     nmcli con up "$conn" ifname "$IFACE" >/dev/null
   fi
 }
 
-if ! ip -brief addr show "$IFACE" | grep -q "${HOST_CIDR%/*}/"; then
+if ! ip -brief addr show "$IFACE" | grep -q "${HOST_CIDR%/*}/" ||
+  ! ip -brief link show "$IFACE" | grep -q '<[^>]*UP'; then
   if configure_with_nmcli; then
     echo "[livox-net] NetworkManager configured $IFACE for $HOST_CIDR."
   else
@@ -72,6 +74,17 @@ fi
 
 if ip -brief addr show "$IFACE" | grep -q "${HOST_CIDR%/*}/"; then
   echo "[livox-net] $HOST_CIDR already exists on $IFACE."
+  if ! ip -brief link show "$IFACE" | grep -q '<[^>]*UP'; then
+    if [ "$ALLOW_SUDO" = "1" ]; then
+      echo "[livox-net] bringing $IFACE up with sudo fallback ..."
+      sudo ip link set "$IFACE" up
+    else
+      echo "[livox-net] ERROR: $IFACE still has $HOST_CIDR but is not UP."
+      echo "[livox-net] Run once: ./autostart/install_one_click_network.sh"
+      echo "[livox-net] Or temporarily allow sudo fallback: LIVOX_NET_ALLOW_SUDO=1 $0"
+      exit 4
+    fi
+  fi
 elif [ "$ALLOW_SUDO" = "1" ]; then
   if ip -brief link show "$IFACE" | grep -q '<[^>]*UP'; then
     echo "[livox-net] $IFACE is already UP."

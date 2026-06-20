@@ -7,11 +7,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common_env.sh"
 sleep 2
 
 if [ -z "${FASTLIO_RVIZ:-}" ]; then
-  if [ "${RC_AUTOSTART_HEADLESS:-0}" = "1" ]; then
-    FASTLIO_RVIZ=false
-  else
-    FASTLIO_RVIZ=true
-  fi
+  FASTLIO_RVIZ=false
 fi
 
 echo "[fastlio] FASTLIO_RVIZ=$FASTLIO_RVIZ"

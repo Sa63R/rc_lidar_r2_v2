@@ -155,6 +155,25 @@ Failed to init livox lidar sdk.
 RC_AUTOSTART_SETUP_LIVOX_NET=0 ./autostart/start_all_terminals.sh
 ```
 
+常见错误：如果 RViz 里显示 `Frame [camera_init] does not exist`，画面全黑，并且 `world_tf.log` 一直停在 `Waiting for TF camera_init -> body`，优先不要改 TF。先检查 Livox 是否真的起来了。一次实际排查中，根因只是雷达网线没插好，`eth0` 虽然已经有 `192.168.1.5/24`，但链路状态是 `NO-CARRIER`，`ethtool` 显示 `Link detected: no`，所以 Livox 驱动没有启动，FAST-LIO 也就不会发布 `camera_init`。
+
+快速检查命令：
+
+```bash
+cd "/home/orangepi/RC_LIDAR_NOW"
+ip -br link show eth0
+ethtool eth0 | grep -i "Link detected"
+tail -n 80 logs/autostart/latest/LIVOX.log
+```
+
+正常情况下应看到 `Link detected: yes`，并且 `arping -I eth0 -c 3 192.168.1.124` 能收到雷达回应。如果看到 `NO-CARRIER` 或 `Link detected: no`，这是物理链路问题，优先检查雷达供电、网线、交换机/转接盒、网口是否插在 `eth0`。插好后建议清理旧进程再重启：
+
+```bash
+cd "/home/orangepi/RC_LIDAR_NOW"
+./autostart/stop_all.sh
+RC_LIDAR_MODE=mapping ./autostart/start_all_terminals.sh
+```
+
 为了保证开机后一键启动时不再要求输入 sudo 密码，先运行一次：
 
 ```bash
@@ -416,7 +435,7 @@ TF_STATIC1       body -> base_link
 TF_STATIC2       world -> init
 TF_STATIC3       body_highrate -> base_link_highrate
 LIVOX            Livox MID360 driver
-FASTLIO          FAST-LIO mapping, rviz 默认 true
+FASTLIO          FAST-LIO mapping, RViz 默认不启动
 HIGHRATE_BODY    robot_localization EKF；未安装时降级为 body -> body_highrate 静态 TF
 world_tf         fastlio_world_init
 TF_ROBOT_OFFSET  发布 init -> base_link / base_link_highrate 的 XYZ 对比 topic
@@ -439,13 +458,20 @@ RC_LIDAR_MODE=mapping          # 建图，用 /map_save 保存 PCD 地图
 RC_LIDAR_MODE=relocalization   # 读取 maps/mid360_map.pcd 做地图匹配重定位
 ```
 
-手动启动时 FAST-LIO 默认会同时打开 RViz。如果想关闭 RViz：
+当前默认策略：一键启动默认不打开 RViz，包括手动正常启动、低负载启动、建图和重定位。这样可以避免香橙派在现场运行时被 RViz 占用性能。需要临时打开 RViz 调试时，显式设置：
 
 ```bash
-FASTLIO_RVIZ=false ./autostart/start_all_terminals.sh
+FASTLIO_RVIZ=true ./autostart/start_all_terminals.sh
 ```
 
-如果使用 headless 模式，FAST-LIO 默认不打开 RViz：
+建图或重定位时也一样：
+
+```bash
+FASTLIO_RVIZ=true RC_LIDAR_MODE=mapping ./autostart/start_all_terminals.sh
+FASTLIO_RVIZ=true RC_LIDAR_MODE=relocalization ./autostart/start_all_terminals.sh
+```
+
+如果使用 headless 模式，仍建议同时关闭 PlotJuggler：
 
 ```bash
 RC_AUTOSTART_HEADLESS=1 RC_AUTOSTART_PLOTJUGGLER=0 ./autostart/start_all_terminals.sh
@@ -558,10 +584,16 @@ RC_AUTOSTART_PLOTJUGGLER=0 \
 ./autostart/start_all_terminals.sh
 ```
 
-如果想打开图形窗口调试：
+如果想打开图形窗口调试，默认会打开 PlotJuggler，但不会打开 RViz：
 
 ```bash
 RC_LIDAR_MODE=relocalization ./autostart/start_all_terminals.sh
+```
+
+如果重定位调试时也需要 RViz：
+
+```bash
+FASTLIO_RVIZ=true RC_LIDAR_MODE=relocalization ./autostart/start_all_terminals.sh
 ```
 
 重定位模式会新增：
