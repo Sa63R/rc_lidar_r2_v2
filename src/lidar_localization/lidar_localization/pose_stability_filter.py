@@ -27,6 +27,9 @@ class PoseStabilityFilter(Node):
         self.output_pose_topic = self.declare_parameter(
             "output_pose_topic", "/lidar/pose_filtered"
         ).value
+        self.output_pose_alias_topic = self.declare_parameter(
+            "output_pose_alias_topic", "/robot/pose_filtered"
+        ).value
         self.status_topic = self.declare_parameter(
             "status_topic", "/lidar/pose_filter/status"
         ).value
@@ -53,6 +56,11 @@ class PoseStabilityFilter(Node):
         self.last_log_time = self.get_clock().now()
 
         self.pose_pub = self.create_publisher(PoseStamped, self.output_pose_topic, 20)
+        self.pose_alias_pub = (
+            self.create_publisher(PoseStamped, self.output_pose_alias_topic, 20)
+            if self.output_pose_alias_topic
+            else None
+        )
         self.status_pub = self.create_publisher(Float32MultiArray, self.status_topic, 20)
         self.pose_sub = self.create_subscription(
             PoseStamped, self.input_pose_topic, self.pose_callback, 20
@@ -60,6 +68,7 @@ class PoseStabilityFilter(Node):
 
         self.get_logger().info(
             f"pose stability filter ready: {self.input_pose_topic} -> {self.output_pose_topic}"
+            f"{f' and {self.output_pose_alias_topic}' if self.output_pose_alias_topic else ''}"
         )
         self.get_logger().info(
             "filter params: "
@@ -88,7 +97,7 @@ class PoseStabilityFilter(Node):
             self.last_raw_stamp = stamp
             self.last_receive_time = receive_time
             self.accept_count += 1
-            self.pose_pub.publish(self.filtered_pose)
+            self.publish_filtered_pose(self.filtered_pose)
             self.publish_status(True, msg, self.filtered_pose, 0.0, 0.0, 1.0, yaw, yaw)
             return
 
@@ -119,7 +128,7 @@ class PoseStabilityFilter(Node):
             self.last_receive_time = receive_time
             output = self.copy_pose(self.filtered_pose)
             output.header = msg.header
-            self.pose_pub.publish(output)
+            self.publish_filtered_pose(output)
             _, _, filtered_yaw = rpy_from_quat(output.pose.orientation)
             self.publish_status(
                 False, msg, output, xy_step, speed_xy, 0.0, yaw, filtered_yaw
@@ -155,13 +164,18 @@ class PoseStabilityFilter(Node):
         self.last_raw_pose = self.copy_pose(msg)
         self.last_raw_stamp = stamp
         self.last_receive_time = receive_time
-        self.pose_pub.publish(output)
+        self.publish_filtered_pose(output)
         self.publish_status(True, msg, output, xy_step, speed_xy, alpha, yaw, filtered_yaw)
         self.log_accept(xy_step, speed_xy, alpha)
 
     @staticmethod
     def ema(previous: float, current: float, alpha: float) -> float:
         return previous + alpha * (current - previous)
+
+    def publish_filtered_pose(self, msg: PoseStamped) -> None:
+        self.pose_pub.publish(msg)
+        if self.pose_alias_pub:
+            self.pose_alias_pub.publish(msg)
 
     @staticmethod
     def copy_pose(msg: PoseStamped) -> PoseStamped:

@@ -24,7 +24,7 @@
 - `livox_ros_driver2`：Livox 雷达驱动，发布 `/livox/lidar` 和 `/livox/imu`
 - `fast_lio`：FAST-LIO 建图定位节点
 - `lidar_map_localization`：读取保存的 PCD 地图，用 NDT/ICP 把 FAST-LIO 当前点云重定位到地图
-- `lidar_localization`：把 `/Odometry` 或 `/map_lidar/odom` 转成稳定的 `/lidar/pose`
+- `lidar_localization`：把 `/Odometry` 或 `/map_lidar/odom` 转成稳定的机器人中心点位姿 `/robot/pose`，同时保留旧兼容名 `/lidar/pose`
 - `my_static_tf`：静态 TF launch
 - `fastlio_world_init`：根据 FAST-LIO 初始 TF 生成 world 初始化 TF，并发布 TF 对比曲线 topic 的 Python 节点
 - `rc_serial_driver`：读取 TF 并通过 SocketCAN 发送位姿，同时监听 CAN 重启命令
@@ -275,7 +275,7 @@ CAN 帧格式保持不变：
 0x13: float z_can, float yaw_can
 ```
 
-普通 `tracking` 模式下，CAN 坐标来自现有 TF：`init -> base_link_highrate`。重定位 `relocalization` 模式下，CAN 坐标来自 `/lidar/pose`，也就是地图匹配后的 `init -> base_link` 位姿；CAN 帧 ID 和 float 打包格式不变。
+普通 `tracking` 模式下，CAN 坐标来自现有 TF：`init -> base_link_highrate`。重定位 `relocalization` 模式下，CAN 坐标默认来自滤波后的 `/robot/pose_filtered`；关闭滤波时来自 `/robot/pose`。`/lidar/pose` 和 `/lidar/pose_filtered` 只是旧兼容名；CAN 帧 ID 和 float 打包格式不变。
 
 一键启动会先运行 `autostart/can_setup.sh`。如果没有指定 `CAN_INTERFACE`，它会自动寻找系统里第一个 `can*` 或 `slcan*` SocketCAN 接口；找到后会在免密 `sudo` 可用时自动配置：
 
@@ -510,10 +510,10 @@ sudo apt install -y xdotool
 ```text
 Livox MID360 -> FAST-LIO -> /cloud_registered + /Odometry
 建图模式：/map_save -> maps/mid360_map.pcd 或自动重命名后的 PCD
-重定位模式：lidar_map_localization -> /map_lidar/odom -> lidar_localization -> /lidar/pose -> rc_serial_driver
+重定位模式：lidar_map_localization -> /map_lidar/odom -> lidar_localization -> /robot/pose -> pose_stability_filter -> /robot/pose_filtered -> rc_serial_driver
 ```
 
-高精度来自保存地图后的 NDT/ICP 地图匹配，不是单纯调 FAST-LIO 参数。`/lidar/pose` 已经转换成机器人业务坐标：
+高精度来自保存地图后的 NDT/ICP 地图匹配，不是单纯调 FAST-LIO 参数。`/robot/pose` 已经转换成机器人业务坐标：
 
 ```text
 frame_id = init
@@ -523,7 +523,7 @@ z = 上方
 yaw = 左转为正
 ```
 
-因此重定位模式下 CAN 会直接发送 `/lidar/pose`，不会再做额外坐标轴旋转。正负 0.5 cm 的静态误差目标需要依赖足够好的现场地图、稳定的静态环境、正确外参、雷达安装刚性和足够点云结构；代码提供重定位链路，但不能单独保证所有现场都达到这个误差。
+`/lidar/pose` 是历史兼容名，内容和 `/robot/pose` 相同，实际表示的也是机器人中心点，不是雷达原点。因此重定位模式下 CAN 会直接发送机器人业务坐标，不会再做额外坐标轴旋转。正负 0.5 cm 的静态误差目标需要依赖足够好的现场地图、稳定的静态环境、正确外参、雷达安装刚性和足够点云结构；代码提供重定位链路，但不能单独保证所有现场都达到这个误差。
 
 ### 建图
 
@@ -602,7 +602,7 @@ RC_RELOCALIZATION_INITIAL_YAW=0.0 \
 ./autostart/start_all_terminals.sh
 ```
 
-也可以运行后通过 RViz 或命令发布 `/initialpose` 来更新初始猜测。初值越接近真实位置，NDT/ICP 越容易收敛；如果 `MAP_LOCALIZER.log` 里持续出现 `map registration rejected` 且 `fitness` 远大于阈值，就表示重定位没有成功，不应该使用此时的 `/lidar/pose` 或 CAN 坐标。
+也可以运行后通过 RViz 或命令发布 `/initialpose` 来更新初始猜测。初值越接近真实位置，NDT/ICP 越容易收敛；如果 `MAP_LOCALIZER.log` 里持续出现 `map registration rejected` 且 `fitness` 远大于阈值，就表示重定位没有成功，不应该使用此时的 `/robot/pose`、`/lidar/pose` 或 CAN 坐标。
 
 低负载重定位启动：
 
@@ -630,8 +630,8 @@ FASTLIO_RVIZ=true RC_LIDAR_MODE=relocalization ./autostart/start_all_terminals.s
 
 ```text
 MAP_LOCALIZER   lidar_map_localization，发布 /map_lidar/odom
-POSE_INTERFACE lidar_localization，发布 /lidar/pose、/lidar/point、/lidar/odom
-POSE_FILTER    lidar_localization，发布 /lidar/pose_filtered、/lidar/pose_filter/status
+POSE_INTERFACE lidar_localization，发布 /robot/pose，同时保留兼容名 /lidar/pose
+POSE_FILTER    lidar_localization，发布 /robot/pose_filtered，同时保留兼容名 /lidar/pose_filtered
 ```
 
 验证 topic：
@@ -639,6 +639,8 @@ POSE_FILTER    lidar_localization，发布 /lidar/pose_filtered、/lidar/pose_fi
 ```bash
 ros2 topic echo /map_lidar/odom --once
 ros2 topic echo /map_lidar/quality --once
+ros2 topic echo /robot/pose --once
+ros2 topic echo /robot/pose_filtered --once
 ros2 topic echo /lidar/pose --once
 ros2 topic echo /lidar/pose_filtered --once
 ros2 topic echo /lidar/pose_filter/status --once
@@ -649,12 +651,12 @@ ros2 topic echo /lidar/point --once
 
 ```text
 pose_source=pose_topic
-pose_topic=/lidar/pose_filtered
+pose_topic=/robot/pose_filtered
 ```
 
-`/lidar/pose_filtered` 是低延迟稳态滤波后的位姿，主要用于降低静止时 CAN 输出的毫米到厘米级抖动，以及拒绝少数单帧突跳。它不会让原始点云匹配本身变得更准；判断原始定位质量仍要看 `/lidar/pose`、`/map_lidar/quality` 和现场地图质量。
+`/robot/pose_filtered` 是低延迟稳态滤波后的机器人中心点位姿，主要用于降低静止时 CAN 输出的毫米到厘米级抖动，以及拒绝少数单帧突跳。它不会让原始点云匹配本身变得更准；判断原始定位质量仍要看 `/robot/pose`、`/map_lidar/quality` 和现场地图质量。
 
-如果需要恢复旧行为，直接让 CAN 使用原始 `/lidar/pose`：
+如果需要恢复旧行为，直接让 CAN 使用原始 `/robot/pose`：
 
 ```bash
 RC_POSE_FILTER=0 RC_LIDAR_MODE=relocalization ./autostart/start_all_terminals.sh
@@ -670,8 +672,21 @@ pose_source=tf
 
 ```bash
 RC_CAN_POSE_SOURCE=tf ./autostart/start_all_terminals.sh
+RC_CAN_POSE_SOURCE=pose_topic RC_CAN_POSE_TOPIC=/robot/pose ./autostart/start_all_terminals.sh
+RC_CAN_POSE_SOURCE=pose_topic RC_CAN_POSE_TOPIC=/robot/pose_filtered ./autostart/start_all_terminals.sh
 RC_CAN_POSE_SOURCE=pose_topic RC_CAN_POSE_TOPIC=/lidar/pose ./autostart/start_all_terminals.sh
 RC_CAN_POSE_SOURCE=pose_topic RC_CAN_POSE_TOPIC=/lidar/pose_filtered ./autostart/start_all_terminals.sh
+```
+
+PlotJuggler 里看机器人中心点滤波前后抖动，优先选这些曲线：
+
+```text
+/robot/pose/pose/position/x
+/robot/pose_filtered/pose/position/x
+/robot/pose/pose/position/y
+/robot/pose_filtered/pose/position/y
+/robot/pose/pose/position/z
+/robot/pose_filtered/pose/position/z
 ```
 
 `/lidar/pose_filter/status` 使用 `std_msgs/Float32MultiArray`，字段含义：
@@ -898,7 +913,7 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
 2. `src/rc_serial_driver/launch/serial_driver.launch.py`
    - 原 launch 文件加载 `config/serial_driver.yaml`，但实际配置文件名是 `rc_serial_driver.yaml`。
    - 已改为加载 `config/rc_serial_driver.yaml`，否则节点会启动但不会读取配置文件。
-   - 增加 `RC_CAN_POSE_SOURCE` 和 `RC_CAN_POSE_TOPIC` 环境变量支持；普通模式读 TF，重定位模式读 `/lidar/pose`。
+   - 增加 `RC_CAN_POSE_SOURCE` 和 `RC_CAN_POSE_TOPIC` 环境变量支持；普通模式读 TF，重定位模式默认读 `/robot/pose_filtered`。
 
 3. `autostart/*.sh`
    - 统一通过 `autostart/common_env.sh` 加载当前工作区环境。
@@ -932,12 +947,12 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
    - 发布 `world -> body` 的 XYZ 平移，保持雷达原始坐标轴。
 
 10. `src/fastlio_world_init/config/tf_compare_plotjuggler.xml`
-    - 新增 PlotJuggler 布局，自动预选三个 `/tf_compare/...` topic。
-    - 布局中按 X/Y/Z 三个窗口对比机器人低频、机器人高频、雷达三条曲线。
+    - 新增 PlotJuggler 布局，自动预选 `/robot/pose`、`/robot/pose_filtered`、`/map_lidar/quality`、`/lidar/pose_filter/status` 和三个 `/tf_compare/...` topic。
+    - 第一页按 X/Y/Z 对比机器人中心点滤波前后的曲线，第二页保留 TF 对比。
 
 11. `autostart/robot_tf_offsets.sh`、`autostart/lidar_tf_offset.sh`、`autostart/plotjuggler_tf_compare.sh`
     - 一键启动时自动启动 TF 对比发布节点和 PlotJuggler。
-    - `plotjuggler_tf_compare.sh` 会等待 `/tf_compare/...` topic 出现，再打开 PlotJuggler。
+    - `plotjuggler_tf_compare.sh` 在重定位模式下会等待 `/robot/pose`、`/robot/pose_filtered`、质量 topic 和 `/tf_compare/...` topic 出现，再打开 PlotJuggler。
 
 12. `src/fastlio_world_init/fastlio_world_init/rotation_extrinsic_calibrator.py`
     - 新增自转外参校准工具。
@@ -982,15 +997,15 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
 
 20. `src/lidar_localization`
    - 新增 `pose_from_odom` 位姿接口。
-   - 建图模式下可把 `/Odometry` 转成相对启动点的 `/lidar/pose`。
-   - 重定位模式下把 `/map_lidar/odom` 转成业务坐标 `init -> base_link` 的 `/lidar/pose`，坐标语义为 `X右/Y前/Z上`。
-   - 新增 `pose_stability_filter`，将 `/lidar/pose` 平滑为 `/lidar/pose_filtered`，默认供 CAN 使用；`RC_POSE_FILTER=0` 可关闭。
+   - 建图模式下可把 `/Odometry` 转成相对启动点的 `/robot/pose`，同时保留旧兼容名 `/lidar/pose`。
+   - 重定位模式下把 `/map_lidar/odom` 转成业务坐标 `init -> base_link` 的 `/robot/pose`，坐标语义为 `X右/Y前/Z上`。
+   - 新增 `pose_stability_filter`，将 `/robot/pose` 平滑为 `/robot/pose_filtered`，同时保留旧兼容名 `/lidar/pose_filtered`；`RC_POSE_FILTER=0` 可关闭。
 
 21. `autostart/start_mapping_terminals.sh`、`autostart/save_fast_lio_map.sh`、`autostart/map_localizer.sh`、`autostart/pose_interface_mapping.sh`、`autostart/pose_interface_relocalization.sh`、`autostart/pose_stability_filter.sh`
    - 新增建图保存和地图重定位的一键脚本。
    - `RC_LIDAR_MODE=mapping` 用于建图保存；`RC_LIDAR_MODE=relocalization` 用于基于地图的高精度重定位。
    - 未设置 `RC_FASTLIO_MAP_SAVE_PATH` 时，若默认 `maps/mid360_map.pcd` 已存在，会自动保存为带时间戳的新 PCD，避免覆盖旧地图。
-   - 重定位模式默认启动位姿滤波，并让 CAN 使用 `/lidar/pose_filtered`；`stop_all.sh` 和 CAN 重启脚本已同步清理新增节点，避免模式切换后残留旧进程。
+   - 重定位模式默认启动位姿滤波，并让 CAN 使用 `/robot/pose_filtered`；`stop_all.sh` 和 CAN 重启脚本已同步清理新增节点，避免模式切换后残留旧进程。
 
 ## 注意事项
 

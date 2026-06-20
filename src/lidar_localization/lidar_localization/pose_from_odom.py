@@ -5,6 +5,7 @@ from typing import Optional
 import rclpy
 from geometry_msgs.msg import PointStamped, Pose, PoseStamped, TransformStamped
 from nav_msgs.msg import Odometry
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from std_srvs.srv import Trigger
 from tf2_ros import StaticTransformBroadcaster, TransformBroadcaster
@@ -42,6 +43,7 @@ class PoseFromOdom(Node):
 
         self.declare_parameter("input_odom_topic", "/Odometry")
         self.declare_parameter("output_pose_topic", "/lidar/pose")
+        self.declare_parameter("output_pose_alias_topic", "/robot/pose")
         self.declare_parameter("output_point_topic", "/lidar/point")
         self.declare_parameter("output_odom_topic", "/lidar/odom")
         self.declare_parameter("lidar_frame", "body")
@@ -62,6 +64,7 @@ class PoseFromOdom(Node):
 
         self.input_odom_topic = self.get_parameter("input_odom_topic").value
         self.output_pose_topic = self.get_parameter("output_pose_topic").value
+        self.output_pose_alias_topic = self.get_parameter("output_pose_alias_topic").value
         self.output_point_topic = self.get_parameter("output_point_topic").value
         self.output_odom_topic = self.get_parameter("output_odom_topic").value
         self.lidar_frame = self.get_parameter("lidar_frame").value
@@ -97,6 +100,11 @@ class PoseFromOdom(Node):
         self.reference_pose.orientation = quat_from_rpy(*reference_pose_rpy)
 
         self.pose_pub = self.create_publisher(PoseStamped, self.output_pose_topic, 10)
+        self.pose_alias_pub = (
+            self.create_publisher(PoseStamped, self.output_pose_alias_topic, 10)
+            if self.output_pose_alias_topic
+            else None
+        )
         self.point_pub = self.create_publisher(PointStamped, self.output_point_topic, 10)
         self.odom_pub = self.create_publisher(Odometry, self.output_odom_topic, 10)
         self.tf_broadcaster: Optional[TransformBroadcaster] = (
@@ -124,7 +132,9 @@ class PoseFromOdom(Node):
         target = self.base_frame if self.output_base_frame else self.lidar_frame
         self.get_logger().info(
             f"waiting for {self.input_odom_topic}; publishing {target} pose on "
-            f"{self.output_pose_topic} and point on {self.output_point_topic}"
+            f"{self.output_pose_topic}"
+            f"{f' and {self.output_pose_alias_topic}' if self.output_pose_alias_topic else ''}"
+            f"; point on {self.output_point_topic}"
         )
 
     def odom_callback(self, msg: Odometry) -> None:
@@ -150,6 +160,8 @@ class PoseFromOdom(Node):
         pose_msg.header.frame_id = frame_id
         pose_msg.pose = pose
         self.pose_pub.publish(pose_msg)
+        if self.pose_alias_pub:
+            self.pose_alias_pub.publish(pose_msg)
 
         point_msg = PointStamped()
         point_msg.header = pose_msg.header
@@ -273,9 +285,12 @@ def main() -> None:
     node = PoseFromOdom()
     try:
         rclpy.spin(node)
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":

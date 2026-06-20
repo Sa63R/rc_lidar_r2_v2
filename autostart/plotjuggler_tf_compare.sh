@@ -14,6 +14,18 @@ TOPICS=(
   "/tf_compare/lidar_world_to_body"
 )
 
+if [ "${RC_LIDAR_MODE:-tracking}" = "relocalization" ]; then
+  TOPICS+=(
+    "/robot/pose"
+    "/map_lidar/quality"
+    "/lidar/pose_filter/status"
+  )
+
+  if [ "${RC_POSE_FILTER:-1}" != "0" ]; then
+    TOPICS+=("/robot/pose_filtered")
+  fi
+fi
+
 if [ ! -f "$LAYOUT_FILE" ]; then
   echo "[plotjuggler] ERROR: layout file not found: $LAYOUT_FILE"
   exit 2
@@ -35,7 +47,7 @@ wait_for_topics() {
     done
 
     if [ "${#missing[@]}" -eq 0 ]; then
-      echo "[plotjuggler] All tf_compare topics are available."
+      echo "[plotjuggler] All requested topics are available."
       return 0
     fi
 
@@ -43,7 +55,7 @@ wait_for_topics() {
     sleep 1
   done
 
-  echo "[plotjuggler] WARN: timeout waiting for tf_compare topics; starting PlotJuggler anyway."
+  echo "[plotjuggler] WARN: timeout waiting for requested topics; starting PlotJuggler anyway."
   return 0
 }
 

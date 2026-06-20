@@ -11,16 +11,19 @@ fi
 
 INPUT_TOPIC="${RC_POSE_FILTER_INPUT_TOPIC:-/lidar/pose}"
 OUTPUT_TOPIC="${RC_POSE_FILTER_OUTPUT_TOPIC:-/lidar/pose_filtered}"
+ALIAS_TOPIC="${RC_POSE_FILTER_ALIAS_TOPIC:-/robot/pose_filtered}"
 STATUS_TOPIC="${RC_POSE_FILTER_STATUS_TOPIC:-/lidar/pose_filter/status}"
 
 echo "[pose_filter] input=$INPUT_TOPIC"
 echo "[pose_filter] output=$OUTPUT_TOPIC"
+echo "[pose_filter] alias=$ALIAS_TOPIC"
 echo "[pose_filter] status=$STATUS_TOPIC"
 
 exec ros2 run lidar_localization pose_stability_filter \
   --ros-args \
   -p input_pose_topic:="$INPUT_TOPIC" \
   -p output_pose_topic:="$OUTPUT_TOPIC" \
+  -p output_pose_alias_topic:="$ALIAS_TOPIC" \
   -p status_topic:="$STATUS_TOPIC" \
   -p static_alpha:="${RC_POSE_FILTER_STATIC_ALPHA:-0.20}" \
   -p moving_alpha:="${RC_POSE_FILTER_MOVING_ALPHA:-0.65}" \
