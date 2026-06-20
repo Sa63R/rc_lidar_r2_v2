@@ -89,6 +89,7 @@ close_terminal_windows_by_title() {
     "PLOTJUGGLER"
     "MAP_LOCALIZER"
     "POSE_INTERFACE"
+    "POSE_FILTER"
   )
 
   if command -v wmctrl >/dev/null 2>&1; then
@@ -139,11 +140,13 @@ close_terminal_windows_by_title() {
     "$DIR/map_localizer.sh"
     "$DIR/pose_interface_mapping.sh"
     "$DIR/pose_interface_relocalization.sh"
+    "$DIR/pose_stability_filter.sh"
     "ros2 launch rc_serial_driver serial_driver.launch.py"
     "ros2 launch lidar_map_localization"
     "ros2 launch lidar_localization"
     "map_localizer"
     "pose_from_odom"
+    "pose_stability_filter"
     "$DIR/diagnose_logger.sh"
   )
 

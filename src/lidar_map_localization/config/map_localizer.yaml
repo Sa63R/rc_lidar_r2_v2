@@ -7,6 +7,7 @@ map_localizer:
     output_odom_topic: /map_lidar/odom
     output_pose_topic: /map_lidar/pose
     output_map_topic: /localization/map
+    output_quality_topic: /map_lidar/quality
     map_frame: map
     odom_frame: camera_init
     body_frame: body

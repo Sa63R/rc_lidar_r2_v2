@@ -404,6 +404,11 @@ if [ "$RC_LIDAR_MODE" = "mapping" ]; then
 elif [ "$RC_LIDAR_MODE" = "relocalization" ]; then
   start_one "MAP_LOCALIZER" "map_localizer.sh"
   start_one "POSE_INTERFACE" "pose_interface_relocalization.sh"
+  if [ "${RC_POSE_FILTER:-1}" = "0" ]; then
+    echo "[$(date -Iseconds)] skipped POSE_FILTER because RC_POSE_FILTER=0" | tee -a "$LOG_DIR/start_summary.txt"
+  else
+    start_one "POSE_FILTER" "pose_stability_filter.sh"
+  fi
 else
   echo "[$(date -Iseconds)] tracking mode: skipped MAP_LOCALIZER and POSE_INTERFACE" | tee -a "$LOG_DIR/start_summary.txt"
 fi

@@ -631,13 +631,17 @@ FASTLIO_RVIZ=true RC_LIDAR_MODE=relocalization ./autostart/start_all_terminals.s
 ```text
 MAP_LOCALIZER   lidar_map_localization，发布 /map_lidar/odom
 POSE_INTERFACE lidar_localization，发布 /lidar/pose、/lidar/point、/lidar/odom
+POSE_FILTER    lidar_localization，发布 /lidar/pose_filtered、/lidar/pose_filter/status
 ```
 
 验证 topic：
 
 ```bash
 ros2 topic echo /map_lidar/odom --once
+ros2 topic echo /map_lidar/quality --once
 ros2 topic echo /lidar/pose --once
+ros2 topic echo /lidar/pose_filtered --once
+ros2 topic echo /lidar/pose_filter/status --once
 ros2 topic echo /lidar/point --once
 ```
 
@@ -645,7 +649,15 @@ ros2 topic echo /lidar/point --once
 
 ```text
 pose_source=pose_topic
-pose_topic=/lidar/pose
+pose_topic=/lidar/pose_filtered
+```
+
+`/lidar/pose_filtered` 是低延迟稳态滤波后的位姿，主要用于降低静止时 CAN 输出的毫米到厘米级抖动，以及拒绝少数单帧突跳。它不会让原始点云匹配本身变得更准；判断原始定位质量仍要看 `/lidar/pose`、`/map_lidar/quality` 和现场地图质量。
+
+如果需要恢复旧行为，直接让 CAN 使用原始 `/lidar/pose`：
+
+```bash
+RC_POSE_FILTER=0 RC_LIDAR_MODE=relocalization ./autostart/start_all_terminals.sh
 ```
 
 普通模式仍然是：
@@ -659,6 +671,39 @@ pose_source=tf
 ```bash
 RC_CAN_POSE_SOURCE=tf ./autostart/start_all_terminals.sh
 RC_CAN_POSE_SOURCE=pose_topic RC_CAN_POSE_TOPIC=/lidar/pose ./autostart/start_all_terminals.sh
+RC_CAN_POSE_SOURCE=pose_topic RC_CAN_POSE_TOPIC=/lidar/pose_filtered ./autostart/start_all_terminals.sh
+```
+
+`/lidar/pose_filter/status` 使用 `std_msgs/Float32MultiArray`，字段含义：
+
+```text
+data[0]  accepted，1 表示本帧被接受，0 表示被判定为突跳并沿用上一帧滤波值
+data[1]  raw_x
+data[2]  raw_y
+data[3]  filtered_x
+data[4]  filtered_y
+data[5]  raw_xy_step
+data[6]  raw_xy_speed
+data[7]  filter_alpha
+data[8]  raw_yaw
+data[9]  filtered_yaw
+data[10] reject_count
+data[11] accept_count
+```
+
+`/map_lidar/quality` 使用 `std_msgs/Float32MultiArray`，字段含义：
+
+```text
+data[0] accepted
+data[1] converged
+data[2] fitness
+data[3] fitness_threshold
+data[4] consecutive_rejects
+data[5] filtered_scan_points
+data[6] filtered_map_points
+data[7] output_jump_xy
+data[8] has_initial_pose
+data[9] consecutive_accepts
 ```
 
 ### 地图路径
@@ -694,6 +739,21 @@ RC_LIDAR_MODE=mapping \
 ```
 
 显式设置 `RC_FASTLIO_MAP_SAVE_PATH` 时脚本会尊重该请求路径；如果该文件已存在，`/map_save` 仍会自动生成不冲突的新文件名。
+
+### 地图质量评分
+
+可以离线检查 PCD 地图的基本质量：
+
+```bash
+cd /home/orangepi/RC_LIDAR_NOW
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+
+ros2 run lidar_map_localization pcd_quality_report \
+  --map maps/mid360_map.pcd
+```
+
+报告会输出点数、XYZ 范围、Z 高度分布、不同体素大小下的占用数量和点密度。这个工具不会自动修改地图，只用于比较多次建图结果。一般来说，地图点数过低、10cm XY 网格点密度过低、Z 方向结构太弱、或者出现很长的漂移尾巴，都会让重定位更容易抖动。
 
 ## 自转外参校准
 
@@ -916,19 +976,21 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
 
 19. `src/lidar_map_localization`
    - 新增 PCD 地图重定位节点 `map_localizer`。
-   - 默认读取 `maps/mid360_map.pcd`，订阅 `/cloud_registered` 和 `/Odometry`，输出 `/map_lidar/odom`、`/map_lidar/pose`、`/localization/map`。
+   - 默认读取 `maps/mid360_map.pcd`，订阅 `/cloud_registered` 和 `/Odometry`，输出 `/map_lidar/odom`、`/map_lidar/pose`、`/localization/map`、`/map_lidar/quality`。
    - 当前帧名适配为 FAST-LIO 原始帧：`map -> camera_init -> body`。
+   - 新增 `pcd_quality_report`，用于离线检查 PCD 地图点数、范围和体素密度。
 
 20. `src/lidar_localization`
    - 新增 `pose_from_odom` 位姿接口。
    - 建图模式下可把 `/Odometry` 转成相对启动点的 `/lidar/pose`。
    - 重定位模式下把 `/map_lidar/odom` 转成业务坐标 `init -> base_link` 的 `/lidar/pose`，坐标语义为 `X右/Y前/Z上`。
+   - 新增 `pose_stability_filter`，将 `/lidar/pose` 平滑为 `/lidar/pose_filtered`，默认供 CAN 使用；`RC_POSE_FILTER=0` 可关闭。
 
-21. `autostart/start_mapping_terminals.sh`、`autostart/save_fast_lio_map.sh`、`autostart/map_localizer.sh`、`autostart/pose_interface_mapping.sh`、`autostart/pose_interface_relocalization.sh`
+21. `autostart/start_mapping_terminals.sh`、`autostart/save_fast_lio_map.sh`、`autostart/map_localizer.sh`、`autostart/pose_interface_mapping.sh`、`autostart/pose_interface_relocalization.sh`、`autostart/pose_stability_filter.sh`
    - 新增建图保存和地图重定位的一键脚本。
    - `RC_LIDAR_MODE=mapping` 用于建图保存；`RC_LIDAR_MODE=relocalization` 用于基于地图的高精度重定位。
    - 未设置 `RC_FASTLIO_MAP_SAVE_PATH` 时，若默认 `maps/mid360_map.pcd` 已存在，会自动保存为带时间戳的新 PCD，避免覆盖旧地图。
-   - `stop_all.sh` 和 CAN 重启脚本已同步清理新增节点，避免模式切换后残留旧进程。
+   - 重定位模式默认启动位姿滤波，并让 CAN 使用 `/lidar/pose_filtered`；`stop_all.sh` 和 CAN 重启脚本已同步清理新增节点，避免模式切换后残留旧进程。
 
 ## 注意事项
 

@@ -133,6 +133,7 @@ close_terminal_windows_by_title() {
     "ROTATION_CALIB"
     "MAP_LOCALIZER"
     "POSE_INTERFACE"
+    "POSE_FILTER"
   )
 
   if command -v wmctrl >/dev/null 2>&1; then
@@ -166,6 +167,7 @@ patterns=(
   "$DIR/map_localizer.sh"
   "$DIR/pose_interface_mapping.sh"
   "$DIR/pose_interface_relocalization.sh"
+  "$DIR/pose_stability_filter.sh"
   "$DIR/diagnose_logger.sh"
   "ros2 launch my_static_tf"
   "ros2 launch fast_lio"
@@ -187,6 +189,7 @@ patterns=(
   "lidar_xyzr.py"
   "map_localizer"
   "pose_from_odom"
+  "pose_stability_filter"
   "rviz2"
   "plotjuggler"
 )

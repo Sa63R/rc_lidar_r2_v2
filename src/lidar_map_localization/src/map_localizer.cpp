@@ -19,6 +19,7 @@
 #include <pcl_conversions/pcl_conversions.h>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
+#include <std_msgs/msg/float32_multi_array.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 
 using namespace std::chrono_literals;
@@ -38,6 +39,7 @@ class MapLocalizer : public rclcpp::Node {
     output_odom_topic_ = declare_parameter<std::string>("output_odom_topic", "/map_lidar/odom");
     output_pose_topic_ = declare_parameter<std::string>("output_pose_topic", "/map_lidar/pose");
     output_map_topic_ = declare_parameter<std::string>("output_map_topic", "/localization/map");
+    output_quality_topic_ = declare_parameter<std::string>("output_quality_topic", "/map_lidar/quality");
     map_frame_ = declare_parameter<std::string>("map_frame", "map");
     odom_frame_ = declare_parameter<std::string>("odom_frame", "camera_init");
     body_frame_ = declare_parameter<std::string>("body_frame", "body");
@@ -94,6 +96,7 @@ class MapLocalizer : public rclcpp::Node {
 
     odom_pub_ = create_publisher<nav_msgs::msg::Odometry>(output_odom_topic_, 20);
     pose_pub_ = create_publisher<geometry_msgs::msg::PoseStamped>(output_pose_topic_, 20);
+    quality_pub_ = create_publisher<std_msgs::msg::Float32MultiArray>(output_quality_topic_, 20);
     map_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(
         output_map_topic_, rclcpp::QoS(1).transient_local().reliable());
 
@@ -241,6 +244,9 @@ class MapLocalizer : public rclcpp::Node {
       RCLCPP_WARN_THROTTLE(
           get_logger(), *get_clock(), 2000,
           "scan has too few points after filtering: %zu", filtered_scan->size());
+      ++consecutive_rejects_;
+      consecutive_accepts_ = 0;
+      publishQuality(stamp, false, false, -1.0, filtered_scan->size(), 0.0);
       return;
     }
 
@@ -249,10 +255,13 @@ class MapLocalizer : public rclcpp::Node {
     bool converged = align(filtered_scan, guess, result, fitness);
 
     if (!converged || !std::isfinite(fitness) || fitness > fitness_threshold_) {
+      ++consecutive_rejects_;
+      consecutive_accepts_ = 0;
       RCLCPP_WARN_THROTTLE(
           get_logger(), *get_clock(), 2000,
           "map registration rejected: converged=%d fitness=%.3f threshold=%.3f",
           converged ? 1 : 0, fitness, fitness_threshold_);
+      publishQuality(stamp, converged, false, fitness, filtered_scan->size(), 0.0);
       return;
     }
 
@@ -261,7 +270,7 @@ class MapLocalizer : public rclcpp::Node {
       map_T_odom_ = result;
     }
 
-    publishLocalization(stamp, odom, result, fitness);
+    publishLocalization(stamp, odom, result, fitness, filtered_scan->size());
   }
 
   bool align(
@@ -301,7 +310,8 @@ class MapLocalizer : public rclcpp::Node {
       const rclcpp::Time& stamp,
       const nav_msgs::msg::Odometry::SharedPtr& odom,
       const Eigen::Matrix4f& map_T_odom,
-      double fitness) {
+      double fitness,
+      std::size_t scan_points) {
     Eigen::Matrix4f odom_T_body = poseToMatrix(odom->pose.pose);
     Eigen::Matrix4f map_T_body = map_T_odom * odom_T_body;
 
@@ -319,6 +329,19 @@ class MapLocalizer : public rclcpp::Node {
     pose.pose = output.pose.pose;
     pose_pub_->publish(pose);
 
+    const double x = output.pose.pose.position.x;
+    const double y = output.pose.pose.position.y;
+    double jump_xy = 0.0;
+    if (last_output_pose_available_) {
+      jump_xy = std::hypot(x - last_output_x_, y - last_output_y_);
+    }
+    last_output_x_ = x;
+    last_output_y_ = y;
+    last_output_pose_available_ = true;
+    consecutive_rejects_ = 0;
+    ++consecutive_accepts_;
+    publishQuality(stamp, true, true, fitness, scan_points, jump_xy);
+
     if (tf_broadcaster_) {
       tf_broadcaster_->sendTransform(matrixToTransform(stamp, map_frame_, odom_frame_, map_T_odom));
     }
@@ -328,6 +351,30 @@ class MapLocalizer : public rclcpp::Node {
         "localized in map: x=%.3f y=%.3f z=%.3f fitness=%.3f",
         output.pose.pose.position.x, output.pose.pose.position.y,
         output.pose.pose.position.z, fitness);
+  }
+
+  void publishQuality(
+      const rclcpp::Time& stamp,
+      bool converged,
+      bool accepted,
+      double fitness,
+      std::size_t scan_points,
+      double jump_xy) {
+    (void)stamp;
+    std_msgs::msg::Float32MultiArray msg;
+    msg.data = {
+        accepted ? 1.0f : 0.0f,
+        converged ? 1.0f : 0.0f,
+        static_cast<float>(fitness),
+        static_cast<float>(fitness_threshold_),
+        static_cast<float>(consecutive_rejects_),
+        static_cast<float>(scan_points),
+        static_cast<float>(map_filtered_ ? map_filtered_->size() : 0),
+        static_cast<float>(jump_xy),
+        has_map_to_odom_ ? 1.0f : 0.0f,
+        static_cast<float>(consecutive_accepts_),
+    };
+    quality_pub_->publish(msg);
   }
 
   static Eigen::Matrix4f poseToMatrix(const geometry_msgs::msg::Pose& pose) {
@@ -406,6 +453,7 @@ class MapLocalizer : public rclcpp::Node {
   std::string output_odom_topic_;
   std::string output_pose_topic_;
   std::string output_map_topic_;
+  std::string output_quality_topic_;
   std::string map_frame_;
   std::string odom_frame_;
   std::string body_frame_;
@@ -434,6 +482,11 @@ class MapLocalizer : public rclcpp::Node {
   double icp_transformation_epsilon_{0.001};
   double icp_euclidean_fitness_epsilon_{0.01};
   int icp_max_iterations_{40};
+  int consecutive_rejects_{0};
+  int consecutive_accepts_{0};
+  bool last_output_pose_available_{false};
+  double last_output_x_{0.0};
+  double last_output_y_{0.0};
 
   CloudT::Ptr map_raw_;
   CloudT::Ptr map_filtered_;
@@ -447,6 +500,7 @@ class MapLocalizer : public rclcpp::Node {
   rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr initialpose_sub_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pose_pub_;
+  rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr quality_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr map_pub_;
   std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
   rclcpp::TimerBase::SharedPtr timer_;

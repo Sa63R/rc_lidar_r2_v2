@@ -22,6 +22,7 @@ setup(
     entry_points={
         "console_scripts": [
             "pose_from_odom = lidar_localization.pose_from_odom:main",
+            "pose_stability_filter = lidar_localization.pose_stability_filter:main",
             "print_lidar_pose = lidar_localization.print_lidar_pose:main",
             "print_xy_yaw = lidar_localization.print_xy_yaw:main",
         ],

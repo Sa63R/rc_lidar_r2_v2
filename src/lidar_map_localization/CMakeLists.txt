@@ -14,6 +14,7 @@ find_package(nav_msgs REQUIRED)
 find_package(pcl_conversions REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(PCL REQUIRED COMPONENTS common io filters registration)
 
@@ -26,10 +27,15 @@ ament_target_dependencies(map_localizer
   pcl_conversions
   rclcpp
   sensor_msgs
+  std_msgs
   tf2_ros
 )
 
-install(TARGETS map_localizer
+add_executable(pcd_quality_report src/pcd_quality_report.cpp)
+target_include_directories(pcd_quality_report PRIVATE ${PCL_INCLUDE_DIRS})
+target_link_libraries(pcd_quality_report ${PCL_LIBRARIES})
+
+install(TARGETS map_localizer pcd_quality_report
   DESTINATION lib/${PROJECT_NAME}
 )
 
