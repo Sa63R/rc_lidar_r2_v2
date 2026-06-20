@@ -447,6 +447,8 @@ LIDAR_XYZR       点云调试打印
 PLOTJUGGLER      打开 TF Compare 布局并订阅 /tf_compare topic
 ```
 
+`THERMAL_MONITOR` 默认不启动。只有显式设置 `RC_THERMAL_POSE_MONITOR=1` 时才会启动，用于记录温度、CPU 负载、CPU 频率和定位抖动之间的关系。
+
 默认运行模式是：
 
 ```text
@@ -516,6 +518,81 @@ default_topics=...
 ```bash
 PLOTJUGGLER_TF_LAYOUT="$PWD/src/fastlio_world_init/config/tf_compare_plotjuggler.xml" \
   ./autostart/start_all_terminals.sh
+```
+
+### 温度/负载与定位误差诊断
+
+如果要验证“香橙派温度或 CPU 负载升高后，定位误差是否变大”，可以按需打开温度-位姿监测：
+
+```bash
+cd "/home/orangepi/RC_LIDAR_NOW"
+./autostart/stop_all.sh
+
+RC_THERMAL_POSE_MONITOR=1 \
+RC_LIDAR_MODE=relocalization \
+RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
+./autostart/start_all_terminals.sh
+```
+
+这个命令是“复现问题”的高负载测试方式，会保留正常图形调试负载。不要额外加 `RC_AUTOSTART_HEADLESS=1`、`RC_AUTOSTART_PLOTJUGGLER=0` 等低负载参数，否则温度可能升不上去，实验条件就不成立。
+
+如果要做低负载对照实验，再使用：
+
+```bash
+cd "/home/orangepi/RC_LIDAR_NOW"
+./autostart/stop_all.sh
+
+RC_THERMAL_POSE_MONITOR=1 \
+RC_LIDAR_MODE=relocalization \
+RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
+RC_AUTOSTART_HEADLESS=1 \
+RC_AUTOSTART_PLOTJUGGLER=0 \
+RC_AUTOSTART_TF_COMPARE=0 \
+RC_AUTOSTART_LIDAR_XYZR=0 \
+./autostart/start_all_terminals.sh
+```
+
+监测日志会写入最近一次启动目录：
+
+```text
+logs/autostart/latest/thermal_pose_monitor.csv
+logs/autostart/latest/thermal_pose_monitor_summary.json
+```
+
+CSV 默认每 1 秒记录一次，包含：
+
+```text
+max_temp_c
+load1/load5/load15
+cpu_freq_min_mhz/cpu_freq_max_mhz/cpu_freq_avg_mhz
+raw_x/raw_y/raw_z
+filtered_x/filtered_y/filtered_z
+raw_filtered_delta_xy_m
+raw_window_xy_p2p_m
+filtered_window_xy_p2p_m
+map_quality_fitness
+map_quality_jump_xy_m
+```
+
+其中 `raw_window_xy_p2p_m` 和 `filtered_window_xy_p2p_m` 是最近窗口内的 XY 峰峰值，默认窗口为 10 秒。`summary.json` 会额外计算温度/负载和定位抖动的相关系数，例如：
+
+```text
+correlation.temp_vs_raw_window_xy_p2p
+correlation.load1_vs_raw_window_xy_p2p
+correlation.temp_vs_map_quality_jump_xy
+```
+
+如果温度或 `load1` 上升时，`raw_window_xy_p2p_m`、`map_quality_jump_xy_m` 也同步上升，并且相关系数明显为正，就说明定位抖动很可能和热/负载相关。这个监测脚本本身很轻量，热源主要应该来自正常运行时的 PlotJuggler、调试节点、桌面程序和定位链路。
+
+可调参数：
+
+```bash
+RC_THERMAL_POSE_MONITOR_INTERVAL=1.0
+RC_THERMAL_POSE_MONITOR_WINDOW=10.0
+RC_THERMAL_POSE_MONITOR_SUMMARY_INTERVAL=30.0
+RC_THERMAL_POSE_MONITOR_RAW_TOPIC=/robot/pose
+RC_THERMAL_POSE_MONITOR_FILTERED_TOPIC=/robot/pose_filtered
+RC_THERMAL_POSE_MONITOR_QUALITY_TOPIC=/map_lidar/quality
 ```
 
 ## 建图和重定位
@@ -1052,6 +1129,12 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
    - `RC_LIDAR_MODE=mapping` 用于建图保存；`RC_LIDAR_MODE=relocalization` 用于基于地图的高精度重定位。
    - 未设置 `RC_FASTLIO_MAP_SAVE_PATH` 时，若默认 `maps/mid360_map.pcd` 已存在，会自动保存为带时间戳的新 PCD，避免覆盖旧地图。
    - 重定位模式默认启动位姿滤波供 PlotJuggler 观察，但 CAN 默认仍使用 TF 链路 `init -> base_link_highrate`，不直接使用 `/robot/pose_filtered`；`stop_all.sh` 和 CAN 重启脚本已同步清理新增节点，避免模式切换后残留旧进程。
+
+22. `autostart/thermal_pose_monitor.py`、`autostart/thermal_pose_monitor.sh`
+   - 新增按需温度/负载/位姿稳定性监测，只有 `RC_THERMAL_POSE_MONITOR=1` 时启动。
+   - 每秒记录温度、`load1/load5/load15`、CPU 频率、`/robot/pose`、`/robot/pose_filtered`、`/map_lidar/quality` 和最近窗口的 XY 峰峰值。
+   - 输出 `logs/autostart/latest/thermal_pose_monitor.csv` 与 `thermal_pose_monitor_summary.json`，用于判断定位抖动是否和热/负载正相关。
+   - `stop_all.sh` 和 CAN 重启脚本已同步清理该监测进程。
 
 ## 注意事项
 

@@ -90,6 +90,7 @@ close_terminal_windows_by_title() {
     "MAP_LOCALIZER"
     "POSE_INTERFACE"
     "POSE_FILTER"
+    "THERMAL_MONITOR"
   )
 
   if command -v wmctrl >/dev/null 2>&1; then
@@ -141,12 +142,14 @@ close_terminal_windows_by_title() {
     "$DIR/pose_interface_mapping.sh"
     "$DIR/pose_interface_relocalization.sh"
     "$DIR/pose_stability_filter.sh"
+    "$DIR/thermal_pose_monitor.sh"
     "ros2 launch rc_serial_driver serial_driver.launch.py"
     "ros2 launch lidar_map_localization"
     "ros2 launch lidar_localization"
     "map_localizer"
     "pose_from_odom"
     "pose_stability_filter"
+    "thermal_pose_monitor.py"
     "$DIR/diagnose_logger.sh"
   )
 

@@ -43,6 +43,9 @@ should_kill_cmd() {
     *"world_from_fastlio_init"*|*"robot_tf_offsets"*|*"lidar_tf_offset"*|*"lidar_xyzr.py"*|*"map_localizer"*|*"pose_from_odom"*)
       return 0
       ;;
+    *"thermal_pose_monitor.sh"*|*"thermal_pose_monitor.py"*)
+      return 0
+      ;;
     *"rotation_extrinsic_calibrator"*)
       return 0
       ;;
@@ -134,6 +137,7 @@ close_terminal_windows_by_title() {
     "MAP_LOCALIZER"
     "POSE_INTERFACE"
     "POSE_FILTER"
+    "THERMAL_MONITOR"
   )
 
   if command -v wmctrl >/dev/null 2>&1; then
@@ -168,6 +172,7 @@ patterns=(
   "$DIR/pose_interface_mapping.sh"
   "$DIR/pose_interface_relocalization.sh"
   "$DIR/pose_stability_filter.sh"
+  "$DIR/thermal_pose_monitor.sh"
   "$DIR/diagnose_logger.sh"
   "ros2 launch my_static_tf"
   "ros2 launch fast_lio"
@@ -190,6 +195,7 @@ patterns=(
   "map_localizer"
   "pose_from_odom"
   "pose_stability_filter"
+  "thermal_pose_monitor.py"
   "rviz2"
   "plotjuggler"
 )

@@ -392,6 +392,21 @@ should_start_lidar_xyzr() {
   esac
 }
 
+should_start_thermal_pose_monitor() {
+  case "${RC_THERMAL_POSE_MONITOR:-0}" in
+    1|true|TRUE|yes|YES|on|ON)
+      return 0
+      ;;
+    0|false|FALSE|no|NO|off|OFF|"")
+      return 1
+      ;;
+    *)
+      echo "[WARN] Unknown RC_THERMAL_POSE_MONITOR=${RC_THERMAL_POSE_MONITOR}; disabled." | tee -a "$LOG_DIR/start_summary.txt"
+      return 1
+      ;;
+  esac
+}
+
 start_one "TF_STATIC1" "lidar_to_base_tf.sh"
 start_one "TF_STATIC2" "map_to_init_tf.sh"
 start_one "TF_STATIC3" "lidar_to_base_highrate_tf.sh"
@@ -411,6 +426,11 @@ elif [ "$RC_LIDAR_MODE" = "relocalization" ]; then
   fi
 else
   echo "[$(date -Iseconds)] tracking mode: skipped MAP_LOCALIZER and POSE_INTERFACE" | tee -a "$LOG_DIR/start_summary.txt"
+fi
+if should_start_thermal_pose_monitor; then
+  start_one "THERMAL_MONITOR" "thermal_pose_monitor.sh"
+else
+  echo "[$(date -Iseconds)] skipped THERMAL_MONITOR because RC_THERMAL_POSE_MONITOR is not enabled" | tee -a "$LOG_DIR/start_summary.txt"
 fi
 if should_start_tf_compare; then
   start_one "TF_ROBOT_OFFSET" "robot_tf_offsets.sh"
