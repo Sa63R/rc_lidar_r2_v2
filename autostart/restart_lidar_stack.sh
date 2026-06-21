@@ -92,6 +92,9 @@ close_terminal_windows_by_title() {
     "POSE_FILTER"
     "HEALTH_MONITOR"
     "THERMAL_MONITOR"
+    "READY_NOTIFY"
+    "RC LiDAR Ready"
+    "RC LiDAR Not Ready"
   )
 
   if command -v wmctrl >/dev/null 2>&1; then
@@ -144,6 +147,7 @@ close_terminal_windows_by_title() {
     "$DIR/pose_interface_relocalization.sh"
     "$DIR/pose_stability_filter.sh"
     "$DIR/thermal_pose_monitor.sh"
+    "$DIR/relocalization_ready_notify.sh"
     "ros2 launch rc_serial_driver serial_driver.launch.py"
     "ros2 launch lidar_map_localization"
     "ros2 launch lidar_localization"
@@ -151,6 +155,7 @@ close_terminal_windows_by_title() {
     "pose_from_odom"
     "pose_stability_filter"
     "thermal_pose_monitor.py"
+    "relocalization_ready_notify.py"
     "$DIR/diagnose_logger.sh"
   )
 

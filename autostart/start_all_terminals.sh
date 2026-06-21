@@ -23,6 +23,13 @@ RC_HEALTH_MONITOR="${RC_HEALTH_MONITOR:-${RC_THERMAL_POSE_MONITOR:-1}}"
 
 RUN_ID="$(date +%Y%m%d_%H%M%S)_${RUN_REASON}"
 LOG_DIR="$LOG_ROOT/run_$RUN_ID"
+BOOT_ID="$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo unknown)"
+UPTIME_SEC="$(awk '{print int($1)}' /proc/uptime 2>/dev/null || echo 0)"
+
+sync_file() {
+  local path="$1"
+  sync -f "$path" >/dev/null 2>&1 || sync >/dev/null 2>&1 || true
+}
 
 mkdir -p "$LOG_DIR"
 ln -sfn "$LOG_DIR" "$LOG_ROOT/latest"
@@ -33,6 +40,7 @@ export RUN_REASON
 export RC_LIDAR_MODE
 export RC_LIDAR_MAP_PATH
 export RC_HEALTH_MONITOR
+export RC_LIDAR_BOOT_ID="${RC_LIDAR_BOOT_ID:-$BOOT_ID}"
 
 # ROS2 自己的日志目录
 export ROS_LOG_DIR="$LOG_DIR/ros2"
@@ -46,6 +54,9 @@ mkdir -p "$ROS_LOG_DIR"
   echo "time: $(date -Iseconds)"
   echo "run_id: $RUN_ID"
   echo "run_reason: $RUN_REASON"
+  echo "boot_id: $BOOT_ID"
+  echo "uptime_sec: $UPTIME_SEC"
+  echo "epoch_sec: $(date +%s)"
   echo "runtime_mode: $RC_LIDAR_MODE"
   echo "map_path: $RC_LIDAR_MAP_PATH"
   echo "health_monitor: $RC_HEALTH_MONITOR"
@@ -58,6 +69,7 @@ mkdir -p "$ROS_LOG_DIR"
   echo "ROS_LOG_DIR: $ROS_LOG_DIR"
   echo "========================================="
 } | tee "$LOG_DIR/start_summary.txt"
+sync_file "$LOG_DIR/start_summary.txt"
 
 if [ -x "$DIR/cleanup_autostart_logs.sh" ]; then
   if [ "${RC_AUTOSTART_DRY_RUN:-0}" = "1" ]; then
@@ -70,6 +82,7 @@ if [ -x "$DIR/cleanup_autostart_logs.sh" ]; then
 else
   echo "cleanup_autostart_logs.sh not found or not executable, skipped." > "$LOG_DIR/log_cleanup.log"
 fi
+sync_file "$LOG_DIR/log_cleanup.log"
 
 # 如果是 restart_lidar_stack.sh 调起来的，记录来源
 if [ -n "${RESTART_LOG:-}" ]; then
@@ -86,16 +99,20 @@ elif [ "${RC_AUTOSTART_SKIP_PRESTOP:-0}" = "1" ]; then
   echo "prestop: skipped by RC_AUTOSTART_SKIP_PRESTOP=1" >> "$LOG_DIR/start_summary.txt"
 elif [ -x "$DIR/stop_all.sh" ]; then
   echo "prestop: running $DIR/stop_all.sh --quiet" >> "$LOG_DIR/start_summary.txt"
+  sync_file "$LOG_DIR/start_summary.txt"
   "$DIR/stop_all.sh" --quiet > "$LOG_DIR/prestop.log" 2>&1 || true
+  sync_file "$LOG_DIR/prestop.log"
 else
   echo "prestop: stop_all.sh not found or not executable, skipped" >> "$LOG_DIR/start_summary.txt"
 fi
+sync_file "$LOG_DIR/start_summary.txt"
 
 if [ -x "$DIR/can_setup.sh" ]; then
   "$DIR/can_setup.sh" --check-only > "$LOG_DIR/can_preflight.txt" 2>&1 || true
 else
   echo "can_setup.sh not found or not executable, skipped." > "$LOG_DIR/can_preflight.txt"
 fi
+sync_file "$LOG_DIR/can_preflight.txt"
 
 resolve_headless_mode() {
   case "${RC_AUTOSTART_HEADLESS:-auto}" in
@@ -189,6 +206,8 @@ else
   START_DELAY="${RC_AUTOSTART_START_DELAY:-3}"
 fi
 sleep "$START_DELAY"
+echo "post_start_delay: $(date -Iseconds)" >> "$LOG_DIR/start_summary.txt"
+sync_file "$LOG_DIR/start_summary.txt"
 
 # 可选后台健康检查：没有这个脚本也不影响启动
 if [ -x "$DIR/diagnose_logger.sh" ]; then
@@ -422,6 +441,26 @@ should_start_thermal_pose_monitor() {
   esac
 }
 
+should_start_ready_notify() {
+  case "${RC_READY_NOTIFY:-auto}" in
+    1|true|TRUE|yes|YES|on|ON)
+      return 0
+      ;;
+    0|false|FALSE|no|NO|off|OFF)
+      return 1
+      ;;
+    auto)
+      [ "$RC_LIDAR_MODE" = "relocalization" ] && [ "$RUN_REASON" != "can_restart" ]
+      return
+      ;;
+    *)
+      echo "[WARN] Unknown RC_READY_NOTIFY=${RC_READY_NOTIFY}; using auto." | tee -a "$LOG_DIR/start_summary.txt"
+      [ "$RC_LIDAR_MODE" = "relocalization" ] && [ "$RUN_REASON" != "can_restart" ]
+      return
+      ;;
+  esac
+}
+
 start_one "TF_STATIC1" "lidar_to_base_tf.sh"
 start_one "TF_STATIC2" "map_to_init_tf.sh"
 start_one "TF_STATIC3" "lidar_to_base_highrate_tf.sh"
@@ -438,6 +477,11 @@ elif [ "$RC_LIDAR_MODE" = "relocalization" ]; then
     echo "[$(date -Iseconds)] skipped POSE_FILTER because RC_POSE_FILTER=0" | tee -a "$LOG_DIR/start_summary.txt"
   else
     start_one "POSE_FILTER" "pose_stability_filter.sh"
+  fi
+  if should_start_ready_notify; then
+    start_one "READY_NOTIFY" "relocalization_ready_notify.sh"
+  else
+    echo "[$(date -Iseconds)] skipped READY_NOTIFY" | tee -a "$LOG_DIR/start_summary.txt"
   fi
 else
   echo "[$(date -Iseconds)] tracking mode: skipped MAP_LOCALIZER and POSE_INTERFACE" | tee -a "$LOG_DIR/start_summary.txt"
@@ -479,3 +523,4 @@ fi
   echo "Log dir: $LOG_DIR"
   echo "Latest: $LOG_ROOT/latest"
 } | tee -a "$LOG_DIR/start_summary.txt"
+sync_file "$LOG_DIR/start_summary.txt"

@@ -188,13 +188,20 @@ cd "/home/orangepi/RC_LIDAR_NOW"
 ```bash
 cd "/home/orangepi/RC_LIDAR_NOW"
 ./autostart/install_desktop_autostart.sh
+./autostart/install_user_systemd_autostart.sh
 ```
 
-这会在 `/home/orangepi/.config/autostart/` 安装一个 `.desktop` 文件。它会在 `orangepi` 用户登录图形桌面后自动运行 `autostart/start_all_terminals.sh`，日志写到：
+推荐同时安装 user systemd 自启和桌面 XDG 自启。user systemd 是主要兜底入口，XDG 桌面自启保留为备用入口；两边都会调用 `autostart/boot_start.sh`。`boot_start.sh` 会记录当前 `boot_id`，同一次开机只允许真正启动一次，避免桌面自启重复触发导致两套雷达进程或两份互相干扰的日志。
+
+自启诊断日志写到：
 
 ```text
 logs/autostart/xdg_autostart.log
+logs/autostart/boot_attempts.log
+logs/autostart/boot_start_state.env
 ```
+
+`boot_attempts.log` 只记录“自启入口有没有被调用”和跳过原因；`start_summary.txt`、`health_monitor.csv` 等仍然在每次实际运行的 `logs/autostart/run_<时间>_boot/` 目录里。由于香橙派开机后可能先用错误系统时间启动，随后被 NTP/chrony 校时，判断日志先后时不要只看文件名时间；优先看 `start_summary.txt` 里的 `boot_id`、`uptime_sec`、`epoch_sec`，以及 `boot_attempts.log`。
 
 开机自启默认使用低负载重定位模式，并假设机器人从建图原点附近启动：
 
@@ -211,6 +218,18 @@ RC_HEALTH_MONITOR=1
 ```
 
 也就是说，开机后会自动用 `maps/mid360_map.pcd` 做重定位，启动 TF、Livox、FAST-LIO、地图匹配、位姿接口、位姿滤波、CAN 和健康日志等核心链路；CAN 发 `/robot/pose_filtered`，但不会弹 RViz/PlotJuggler 界面。TF 对比发布节点和点云调试打印也会随 PlotJuggler/headless 策略默认跳过，避免香橙派 CPU 被调试工具抢走。需要临时开图形调试时，手动运行一键脚本并覆盖这些环境变量即可。
+
+检查开机自启是否触发：
+
+```bash
+cd "/home/orangepi/RC_LIDAR_NOW"
+tail -n 80 logs/autostart/boot_attempts.log
+tail -n 120 logs/autostart/xdg_autostart.log
+systemctl --user status rc-lidar-autostart.service
+find logs/autostart -maxdepth 1 -type d -name 'run_*' -printf '%TY-%Tm-%Td %TH:%TM:%TS %f\n' | sort -r | head
+```
+
+如果强制断电重启后没有新的 `run_*_boot`，先看 `boot_attempts.log`：没有新记录说明自启入口没有被调用；有记录但没有 `run_*` 说明 `boot_start.sh` 被同 boot_id 保护跳过或 `start_all_terminals.sh` 失败。
 
 临时配置示例：
 
@@ -798,6 +817,33 @@ RC_AUTOSTART_PLOTJUGGLER=0 \
 ./autostart/start_all_terminals.sh
 ```
 
+开机和手动重定位默认会启动一个轻量就绪提示 `READY_NOTIFY`。它不会参与定位计算，只订阅 `/robot/pose_filtered` 和 `/map_lidar/quality`，当地图重定位连续稳定通过质量检查后，会写入：
+
+```text
+logs/autostart/<run>/relocalization_ready.json
+```
+
+如果当前有图形桌面，它还会弹出一个小终端窗口提示：
+
+```text
+RC LiDAR 重定位完成
+现在可以移动小车
+```
+
+这个时间表示“重定位输出已经连续稳定”的时刻，不是进程刚启动的时刻。当前默认判据是：`/robot/pose_filtered` 刷新正常，`/map_lidar/quality` 连续 accepted/converged，`fitness <= 0.05`，并且稳定 3 秒。一般从一键启动开始到 ready 预计约几十秒；冷启动、网口慢、地图匹配慢或现场点云质量差时会更久。实际耗时以 `relocalization_ready.json` 里的 `elapsed_sec` 为准。
+
+可调参数：
+
+```bash
+RC_READY_NOTIFY=0                    # 关闭就绪提示
+RC_READY_NOTIFY_STABLE_SEC=3.0       # 连续稳定多久才认为 ready
+RC_READY_NOTIFY_TIMEOUT_SEC=120.0    # 超时时间
+RC_READY_NOTIFY_MAX_FITNESS=0.05     # ready 的 fitness 上限
+RC_READY_NOTIFY_WINDOW_SECONDS=20    # 提示窗口自动关闭时间
+```
+
+CAN 报文触发的自动重启默认不弹 ready 窗口，避免电控反复重启时刷屏；如确实需要，重启环境里设置 `RC_READY_NOTIFY=1`。
+
 如果想打开图形窗口调试，默认会打开 PlotJuggler，但不会打开 RViz：
 
 ```bash
@@ -816,6 +862,7 @@ FASTLIO_RVIZ=true RC_LIDAR_MODE=relocalization ./autostart/start_all_terminals.s
 MAP_LOCALIZER   lidar_map_localization，发布 /map_lidar/odom
 POSE_INTERFACE lidar_localization，发布 /robot/pose，同时保留兼容名 /lidar/pose
 POSE_FILTER    lidar_localization，发布 /robot/pose_filtered，同时保留兼容名 /lidar/pose_filtered
+READY_NOTIFY   等待 /robot/pose_filtered 与 /map_lidar/quality 稳定后弹出就绪提示
 ```
 
 验证 topic：
@@ -1197,10 +1244,11 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
    - 持久化 `eth0 -> 192.168.1.5/24`。
    - 安装 udev 规则，USB-CAN 枚举为 `can*` 时自动拉起 CAN 口。
 
-17. `autostart/boot_start.sh`、`autostart/rc_lidar_autostart.desktop`、`autostart/install_desktop_autostart.sh`
-   - 新增图形桌面开机自启入口。
-   - 登录 `orangepi` 桌面后自动运行 `autostart/start_all_terminals.sh`。
-   - 自启日志写到 `logs/autostart/xdg_autostart.log`。
+17. `autostart/boot_start.sh`、`autostart/rc_lidar_autostart.desktop`、`autostart/install_desktop_autostart.sh`、`autostart/rc-lidar-autostart.service`、`autostart/install_user_systemd_autostart.sh`
+   - 新增 user systemd 自启入口，并保留图形桌面 XDG 自启入口作为备用。
+   - 两个入口都调用 `boot_start.sh`，并通过 `boot_id` 状态文件保证同一次开机只真正启动一次。
+   - 自启入口诊断写到 `logs/autostart/xdg_autostart.log`、`logs/autostart/boot_attempts.log`、`logs/autostart/boot_start_state.env`。
+   - `start_all_terminals.sh` 会在创建 `start_summary.txt`、预检日志和最终启动摘要后主动 `sync`，降低强制断电时日志完全丢失的概率。
 
 18. `autostart/stop_all.sh`、`autostart/start_all_terminals.sh`
    - 新增统一停止脚本，用于清理本项目启动的 Livox、FAST-LIO、静态 TF、EKF、CAN 发送、RViz、PlotJuggler、自转校准等进程。
@@ -1241,6 +1289,12 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
 24. `src/lidar_map_localization`
    - `/map_lidar/quality` 保留前 10 个字段兼容不变，并追加 reason_code、align_ms、raw_scan_points、scan_age_sec、odom_age_sec、output_jump_yaw、map_to_odom 修正量和 overlap_ratio。
    - `RC_MAP_QUALITY_OVERLAP=1` 时才低频计算 scan/map 近邻重合率；默认关闭，避免增加常态 CPU 负载。
+
+25. `autostart/relocalization_ready_notify.py`、`autostart/relocalization_ready_notify.sh`
+   - 新增重定位 ready 提示；默认在开机和手动 `RC_LIDAR_MODE=relocalization` 时启动，CAN 自动重启默认不弹窗。
+   - 判据为 `/robot/pose_filtered` 刷新正常，`/map_lidar/quality` 连续 accepted/converged，`fitness <= RC_READY_NOTIFY_MAX_FITNESS`，并稳定 `RC_READY_NOTIFY_STABLE_SEC` 秒。
+   - ready 后写入 `logs/autostart/<run>/relocalization_ready.json`，并在有图形桌面时弹出“RC LiDAR 重定位完成，现在可以移动小车”的小终端窗口；节点随后退出，常态没有后台负载。
+   - `stop_all.sh` 和 CAN 重启清理逻辑已同步处理 `READY_NOTIFY` 进程和窗口。
 
 ## 注意事项
 

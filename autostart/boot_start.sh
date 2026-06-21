@@ -4,23 +4,89 @@ set -euo pipefail
 WORKSPACE_DIR="/home/orangepi/RC_LIDAR_NOW"
 LOG_DIR="$WORKSPACE_DIR/logs/autostart"
 BOOT_LOG="$LOG_DIR/xdg_autostart.log"
+ATTEMPT_LOG="$LOG_DIR/boot_attempts.log"
 LOCK_FILE="/tmp/rc_lidar_xdg_autostart.lock"
+STATE_FILE="$LOG_DIR/boot_start_state.env"
 
 mkdir -p "$LOG_DIR"
+
+BOOT_ID="$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo unknown)"
+UPTIME_SEC="$(awk '{print int($1)}' /proc/uptime 2>/dev/null || echo 0)"
+DRY_RUN="${RC_AUTOSTART_DRY_RUN:-0}"
+FORCE_BOOT_START="${RC_LIDAR_FORCE_BOOT_START:-0}"
+
+sync_file() {
+  local path="$1"
+  sync -f "$path" >/dev/null 2>&1 || sync >/dev/null 2>&1 || true
+}
+
+log_boot_event() {
+  local message="$1"
+  {
+    echo "[$(date -Iseconds)] $message"
+    echo "  boot_id: $BOOT_ID"
+    echo "  uptime_sec: $UPTIME_SEC"
+    echo "  pid: $$"
+    echo "  ppid: $PPID"
+    echo "  display: ${DISPLAY:-}"
+    echo "  xdg_session_type: ${XDG_SESSION_TYPE:-}"
+  } >> "$BOOT_LOG" 2>&1
+  {
+    echo "$(date -Iseconds),boot_id=$BOOT_ID,uptime_sec=$UPTIME_SEC,pid=$$,ppid=$PPID,message=$message"
+  } >> "$ATTEMPT_LOG" 2>&1
+  sync_file "$BOOT_LOG"
+  sync_file "$ATTEMPT_LOG"
+}
+
+state_value() {
+  local key="$1"
+  if [ ! -f "$STATE_FILE" ]; then
+    return 0
+  fi
+  awk -F= -v key="$key" '$1 == key {print substr($0, length(key) + 2)}' "$STATE_FILE" 2>/dev/null | tail -n 1 || true
+}
+
+write_state() {
+  local status="$1"
+  local tmp="$STATE_FILE.tmp.$$"
+  {
+    echo "boot_id=$BOOT_ID"
+    echo "status=$status"
+    echo "updated_at=$(date -Iseconds)"
+    echo "uptime_sec=$UPTIME_SEC"
+    echo "pid=$$"
+    echo "workspace=$WORKSPACE_DIR"
+    echo "latest_log_dir=$(readlink -f "$LOG_DIR/latest" 2>/dev/null || true)"
+  } > "$tmp"
+  mv "$tmp" "$STATE_FILE"
+  sync_file "$STATE_FILE"
+}
 
 {
   echo
   echo "========== XDG AUTOSTART =========="
   echo "time: $(date -Iseconds)"
+  echo "boot_id: $BOOT_ID"
+  echo "uptime_sec: $UPTIME_SEC"
+  echo "pid: $$"
   echo "user: $(whoami)"
   echo "display: ${DISPLAY:-}"
   echo "xdg_session_type: ${XDG_SESSION_TYPE:-}"
   echo "workspace: $WORKSPACE_DIR"
 } >> "$BOOT_LOG" 2>&1
+sync_file "$BOOT_LOG"
+log_boot_event "boot_start invoked"
 
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
-  echo "[boot] another rc_lidar autostart is already running, skipped." >> "$BOOT_LOG" 2>&1
+  log_boot_event "another rc_lidar autostart is already running, skipped"
+  exit 0
+fi
+
+previous_boot_id="$(state_value boot_id)"
+previous_status="$(state_value status)"
+if [ "$DRY_RUN" != "1" ] && [ "$FORCE_BOOT_START" != "1" ] && [ "$previous_boot_id" = "$BOOT_ID" ] && [ "$previous_status" != "failed" ]; then
+  log_boot_event "same boot_id already handled with status=$previous_status, skipped"
   exit 0
 fi
 
@@ -35,5 +101,27 @@ export RC_AUTOSTART_PLOTJUGGLER="${RC_AUTOSTART_PLOTJUGGLER:-0}"
 export RC_CAN_POSE_SOURCE="${RC_CAN_POSE_SOURCE:-pose_topic}"
 export RC_CAN_POSE_TOPIC="${RC_CAN_POSE_TOPIC:-/robot/pose_filtered}"
 export RC_HEALTH_MONITOR="${RC_HEALTH_MONITOR:-1}"
+export RC_READY_NOTIFY="${RC_READY_NOTIFY:-1}"
 
+if [ "$DRY_RUN" != "1" ]; then
+  write_state "starting"
+fi
+
+set +e
 ./autostart/start_all_terminals.sh >> "$BOOT_LOG" 2>&1
+rc=$?
+set -e
+
+if [ "$rc" -eq 0 ]; then
+  log_boot_event "start_all_terminals finished successfully"
+  if [ "$DRY_RUN" != "1" ]; then
+    write_state "started"
+  fi
+else
+  log_boot_event "start_all_terminals failed rc=$rc"
+  if [ "$DRY_RUN" != "1" ]; then
+    write_state "failed"
+  fi
+fi
+
+exit "$rc"

@@ -1,0 +1,24 @@
+[Unit]
+Description=RC LiDAR low-load relocalization autostart
+Documentation=file:/home/orangepi/RC_LIDAR_NOW/readme.md
+After=default.target
+ConditionPathExists=/home/orangepi/RC_LIDAR_NOW/autostart/boot_start.sh
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/orangepi/RC_LIDAR_NOW
+Environment=RUN_REASON=boot
+Environment=RC_LIDAR_MODE=relocalization
+Environment=RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1
+Environment=RC_AUTOSTART_HEADLESS=1
+Environment=RC_AUTOSTART_PLOTJUGGLER=0
+Environment=RC_CAN_POSE_SOURCE=pose_topic
+Environment=RC_CAN_POSE_TOPIC=/robot/pose_filtered
+Environment=RC_HEALTH_MONITOR=1
+Environment=RC_READY_NOTIFY=1
+ExecStart=/home/orangepi/RC_LIDAR_NOW/autostart/boot_start.sh
+RemainAfterExit=yes
+TimeoutStartSec=240
+
+[Install]
+WantedBy=default.target

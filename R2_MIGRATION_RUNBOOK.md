@@ -249,6 +249,41 @@ RC_CAN_POSE_SOURCE=tf ./autostart/start_all_terminals.sh
 
 ## 5. 迁移启动策略和开机自启
 
+安装自启入口时，优先安装 user systemd，自带 XDG 桌面自启只作为备用。两个入口都调用 `autostart/boot_start.sh`，脚本会用 `boot_id` 防止同一次开机重复启动。
+
+```bash
+cd "$R2_WS"
+./autostart/install_desktop_autostart.sh
+./autostart/install_user_systemd_autostart.sh
+systemctl --user status rc-lidar-autostart.service
+```
+
+R2 上不要直接复制 Orange Pi 的 systemd 用户目录；只运行仓库里的安装脚本。若 R2 没有自动登录图形桌面，user systemd 仍可能需要 R2 的登录/linger 策略配合，先用下面命令确认自启入口有没有被调用：
+
+```bash
+tail -n 80 logs/autostart/boot_attempts.log
+tail -n 120 logs/autostart/xdg_autostart.log
+cat logs/autostart/boot_start_state.env
+find logs/autostart -maxdepth 1 -type d -name 'run_*' -printf '%TY-%Tm-%Td %TH:%TM:%TS %f\n' | sort -r | head
+```
+
+注意：开机后系统时间可能先不准，之后被 NTP/chrony 校正。排查日志先后时，不要只看 `run_YYYYMMDD_HHMMSS` 文件名；同时看 `start_summary.txt` 里的 `boot_id`、`uptime_sec` 和 `epoch_sec`。
+
+当前 Orange Pi 工程还有一个重定位 ready 提示节点 `READY_NOTIFY`。迁移到 R2 时也建议保留：它订阅 `/robot/pose_filtered` 和 `/map_lidar/quality`，当重定位连续 accepted/converged 且 `fitness` 达标后写：
+
+```text
+logs/autostart/<run>/relocalization_ready.json
+```
+
+如果 R2 有图形桌面和终端，它还会弹出“RC LiDAR 重定位完成，现在可以移动小车”的小窗口。这个节点不参与定位计算，ready 后自动退出，常态开销近似为零。R2 上需要按现场情况复核这些阈值：
+
+```bash
+RC_READY_NOTIFY_STABLE_SEC=3.0
+RC_READY_NOTIFY_TIMEOUT_SEC=120.0
+RC_READY_NOTIFY_MAX_FITNESS=0.05
+RC_READY_NOTIFY=0          # 如 R2 不需要提示窗口，可关闭
+```
+
 先做 dry-run：
 
 ```bash
