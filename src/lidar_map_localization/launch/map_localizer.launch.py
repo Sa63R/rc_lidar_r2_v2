@@ -17,6 +17,10 @@ def generate_launch_description():
     initial_guess_roll = LaunchConfiguration("initial_guess_roll")
     initial_guess_pitch = LaunchConfiguration("initial_guess_pitch")
     initial_guess_yaw = LaunchConfiguration("initial_guess_yaw")
+    quality_overlap_enabled = LaunchConfiguration("quality_overlap_enabled")
+    quality_overlap_distance = LaunchConfiguration("quality_overlap_distance")
+    quality_overlap_period_sec = LaunchConfiguration("quality_overlap_period_sec")
+    quality_overlap_max_points = LaunchConfiguration("quality_overlap_max_points")
 
     return LaunchDescription(
         [
@@ -51,6 +55,10 @@ def generate_launch_description():
             DeclareLaunchArgument("initial_guess_roll", default_value="0.0"),
             DeclareLaunchArgument("initial_guess_pitch", default_value="0.0"),
             DeclareLaunchArgument("initial_guess_yaw", default_value="0.0"),
+            DeclareLaunchArgument("quality_overlap_enabled", default_value="false"),
+            DeclareLaunchArgument("quality_overlap_distance", default_value="0.20"),
+            DeclareLaunchArgument("quality_overlap_period_sec", default_value="1.0"),
+            DeclareLaunchArgument("quality_overlap_max_points", default_value="1000"),
             Node(
                 package="lidar_map_localization",
                 executable="map_localizer",
@@ -83,6 +91,18 @@ def generate_launch_description():
                         ),
                         "initial_guess_yaw": ParameterValue(
                             initial_guess_yaw, value_type=float
+                        ),
+                        "quality_overlap_enabled": ParameterValue(
+                            quality_overlap_enabled, value_type=bool
+                        ),
+                        "quality_overlap_distance": ParameterValue(
+                            quality_overlap_distance, value_type=float
+                        ),
+                        "quality_overlap_period_sec": ParameterValue(
+                            quality_overlap_period_sec, value_type=float
+                        ),
+                        "quality_overlap_max_points": ParameterValue(
+                            quality_overlap_max_points, value_type=int
                         ),
                     },
                 ],

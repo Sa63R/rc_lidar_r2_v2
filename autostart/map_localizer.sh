@@ -20,6 +20,10 @@ INITIAL_Z="${RC_RELOCALIZATION_INITIAL_Z:-0.0}"
 INITIAL_ROLL="${RC_RELOCALIZATION_INITIAL_ROLL:-0.0}"
 INITIAL_PITCH="${RC_RELOCALIZATION_INITIAL_PITCH:-0.0}"
 INITIAL_YAW="${RC_RELOCALIZATION_INITIAL_YAW:-0.0}"
+QUALITY_OVERLAP="$(to_bool "${RC_MAP_QUALITY_OVERLAP:-0}")"
+QUALITY_OVERLAP_DISTANCE="${RC_MAP_QUALITY_OVERLAP_DISTANCE:-0.20}"
+QUALITY_OVERLAP_PERIOD_SEC="${RC_MAP_QUALITY_OVERLAP_PERIOD_SEC:-1.0}"
+QUALITY_OVERLAP_MAX_POINTS="${RC_MAP_QUALITY_OVERLAP_MAX_POINTS:-1000}"
 
 if [ ! -s "$MAP_PATH" ]; then
   echo "[map_localizer] ERROR: map file is missing or empty: $MAP_PATH"
@@ -32,6 +36,7 @@ fi
 echo "[map_localizer] map_path=$MAP_PATH"
 echo "[map_localizer] auto_initialize_identity=$ASSUME_MAP_ORIGIN"
 echo "[map_localizer] initial_guess_enabled=$INITIAL_GUESS"
+echo "[map_localizer] quality_overlap_enabled=$QUALITY_OVERLAP"
 if [ "$INITIAL_GUESS" = "true" ]; then
   echo "[map_localizer] initial map->camera_init guess xyz=($INITIAL_X, $INITIAL_Y, $INITIAL_Z) rpy=($INITIAL_ROLL, $INITIAL_PITCH, $INITIAL_YAW)"
 fi
@@ -45,4 +50,8 @@ exec ros2 launch lidar_map_localization map_localizer.launch.py \
   initial_guess_z:="$INITIAL_Z" \
   initial_guess_roll:="$INITIAL_ROLL" \
   initial_guess_pitch:="$INITIAL_PITCH" \
-  initial_guess_yaw:="$INITIAL_YAW"
+  initial_guess_yaw:="$INITIAL_YAW" \
+  quality_overlap_enabled:="$QUALITY_OVERLAP" \
+  quality_overlap_distance:="$QUALITY_OVERLAP_DISTANCE" \
+  quality_overlap_period_sec:="$QUALITY_OVERLAP_PERIOD_SEC" \
+  quality_overlap_max_points:="$QUALITY_OVERLAP_MAX_POINTS"

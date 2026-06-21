@@ -59,6 +59,18 @@ mkdir -p "$ROS_LOG_DIR"
   echo "========================================="
 } | tee "$LOG_DIR/start_summary.txt"
 
+if [ -x "$DIR/cleanup_autostart_logs.sh" ]; then
+  if [ "${RC_AUTOSTART_DRY_RUN:-0}" = "1" ]; then
+    RC_AUTOSTART_LOG_CLEANUP_DRY_RUN=1 "$DIR/cleanup_autostart_logs.sh" "$LOG_ROOT" > "$LOG_DIR/log_cleanup.log" 2>&1 || true
+  elif [ "${RC_AUTOSTART_LOG_CLEANUP:-1}" = "1" ]; then
+    "$DIR/cleanup_autostart_logs.sh" "$LOG_ROOT" > "$LOG_DIR/log_cleanup.log" 2>&1 || true
+  else
+    echo "log cleanup disabled by RC_AUTOSTART_LOG_CLEANUP=0" > "$LOG_DIR/log_cleanup.log"
+  fi
+else
+  echo "cleanup_autostart_logs.sh not found or not executable, skipped." > "$LOG_DIR/log_cleanup.log"
+fi
+
 # 如果是 restart_lidar_stack.sh 调起来的，记录来源
 if [ -n "${RESTART_LOG:-}" ]; then
   {

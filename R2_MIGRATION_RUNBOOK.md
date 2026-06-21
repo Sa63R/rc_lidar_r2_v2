@@ -611,14 +611,20 @@ RC_CAN_POSE_SOURCE=tf ./autostart/start_all_terminals.sh
 ```text
 logs/autostart/latest/health_monitor.csv
 logs/autostart/latest/health_monitor_summary.json
+logs/autostart/latest/health_monitor_run.json
+logs/autostart/latest/health_monitor_stop.json
+logs/autostart/latest/health_events.jsonl
 ```
 
 确认：
 
 ```bash
 ls -lh logs/autostart/latest/health_monitor.*
+ls -lh logs/autostart/latest/health_events.jsonl
 tail -n 5 logs/autostart/latest/health_monitor.csv
 cat logs/autostart/latest/health_monitor_summary.json
+cat logs/autostart/latest/health_monitor_run.json
+test -f logs/autostart/latest/health_monitor_stop.json && cat logs/autostart/latest/health_monitor_stop.json || echo "no graceful stop marker yet"
 ```
 
 重点字段：
@@ -632,8 +638,22 @@ filtered_window_xy_p2p_m
 stationary_filtered_window_xy_p2p_m
 map_quality_fitness
 map_quality_jump_xy_m
+map_quality_reason_code
+map_quality_align_ms
+map_quality_scan_age_sec
+map_quality_odom_age_sec
+map_quality_map_to_odom_delta_xy_m
+map_quality_overlap_ratio
 motion_factor
 is_stationary
+spike_candidate
+sustained_motion
+static_context_raw_xy_p2p_m
+static_context_filtered_xy_p2p_m
+filter_status_accepted
+filter_status_alpha
+filter_status_motion_factor
+filter_status_recovered
 ```
 
 判断规则：
@@ -641,7 +661,42 @@ is_stationary
 - `motion_factor` 接近 0 且 `is_stationary=1` 时，静态漂移统计有效。
 - 车在动时，不要把轨迹变化当成漂移。
 - 温度、load、CPU 降频和 `stationary_filtered_window_xy_p2p_m` 同时上升，说明抖动可能和热/负载有关。
+- `spike_candidate=1` 表示当前样本像静止尖峰，不能直接当作真实运动忽略。
+- `sustained_motion=1` 才表示连续运动足够久，静态漂移统计应暂停。
+- `static_context_*` 不会被单帧尖峰清空，适合排查“r2 没动但坐标突然跳了几厘米”。
+- `health_events.jsonl` 只在 raw/filter/map/filter-status 出现跳变、拒绝、恢复或 bad fitness 时写入事件前后窗口摘要。
+- `/map_lidar/quality` 的 `reason_code` 为 `0 accepted, 1 too_few_points, 2 not_converged, 3 bad_fitness`。
+- `RC_MAP_QUALITY_OVERLAP=1` 可临时打开 scan/map 重合率诊断，默认保持 `0`，避免增加 r2 常态负载。
 - 如果低负载无抖动，高负载有尖峰，优先关掉 VS Code、Chromium、QQ、Clash GUI、RViz、PlotJuggler 等非必要负载。
+- `health_monitor_run.json` 启动即写，用于确认本轮 `RUN_REASON` 是 `manual`、`boot` 还是 `can_restart`。
+- `health_monitor_stop.json` 只有正常收到停止信号并收尾时才出现。CAN 重启一般会保留 stop marker；直接断电再开机通常没有上一轮 stop marker。
+- CSV 每行 flush，默认每 5 秒 fsync；summary 使用临时文件原子替换。直接断电时仍可能丢最后几秒数据，但不应影响已经落盘的大部分记录。
+- 健康日志文件默认保留 7 天：`health_monitor.csv`、`health_monitor_summary.json`、`health_monitor_run.json`、`health_monitor_stop.json`、`health_events.jsonl`、`health_event_context.csv`。
+- 原始运行日志目录也会做保守清理：`logs/autostart/run_*` 默认保留 30 天，并额外保留最近 10 次、`latest` 指向的当前运行、`latest_restart` 指向的最近重启日志。它不会删除 `maps/`、`logs/calibration/`、`report_assets/`，也不会按文件名去删 PCD 或校准报告。
+- 每次一键启动会把原始日志清理结果写到当前运行目录的 `log_cleanup.log`。
+
+可调参数：
+
+```bash
+RC_HEALTH_MONITOR_INTERVAL=0.2
+RC_HEALTH_MONITOR_SUMMARY_INTERVAL=30.0
+RC_HEALTH_MONITOR_FSYNC_INTERVAL=5.0
+RC_HEALTH_MONITOR_WINDOW=10.0
+RC_HEALTH_MONITOR_EVENT_PRE_SEC=3.0
+RC_HEALTH_MONITOR_EVENT_POST_SEC=3.0
+RC_HEALTH_MONITOR_SPIKE_RAW_STEP=0.02
+RC_HEALTH_MONITOR_SPIKE_FILTERED_STEP=0.015
+RC_HEALTH_MONITOR_SPIKE_MAP_JUMP=0.02
+RC_HEALTH_MONITOR_SPIKE_FITNESS=0.02
+RC_HEALTH_MONITOR_SUSTAINED_MOTION_SEC=2.0
+RC_HEALTH_MONITOR_EVENT_CONTEXT_CSV=0
+RC_HEALTH_MONITOR_RETENTION_DAYS=7
+RC_AUTOSTART_LOG_RETENTION_DAYS=30
+RC_AUTOSTART_LOG_KEEP_RECENT=10
+RC_AUTOSTART_LOG_CLEANUP=1
+RC_AUTOSTART_LOG_CLEANUP_DRY_RUN=1
+RC_MAP_QUALITY_OVERLAP=0
+```
 
 低负载对照启动：
 

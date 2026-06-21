@@ -1,5 +1,7 @@
 #include <chrono>
+#include <algorithm>
 #include <cmath>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -11,7 +13,9 @@
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <pcl/filters/voxel_grid.h>
+#include <pcl/common/transforms.h>
 #include <pcl/io/pcd_io.h>
+#include <pcl/kdtree/kdtree_flann.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <pcl/registration/icp.h>
@@ -66,6 +70,10 @@ class MapLocalizer : public rclcpp::Node {
     icp_transformation_epsilon_ = declare_parameter<double>("icp_transformation_epsilon", 0.001);
     icp_euclidean_fitness_epsilon_ = declare_parameter<double>("icp_euclidean_fitness_epsilon", 0.01);
     icp_max_iterations_ = declare_parameter<int>("icp_max_iterations", 40);
+    quality_overlap_enabled_ = declare_parameter<bool>("quality_overlap_enabled", false);
+    quality_overlap_distance_ = declare_parameter<double>("quality_overlap_distance", 0.20);
+    quality_overlap_period_sec_ = declare_parameter<double>("quality_overlap_period_sec", 1.0);
+    quality_overlap_max_points_ = declare_parameter<int>("quality_overlap_max_points", 1000);
 
     map_T_odom_.setIdentity();
     if (initial_guess_enabled_) {
@@ -128,6 +136,13 @@ class MapLocalizer : public rclcpp::Node {
   }
 
  private:
+  enum class QualityReason {
+    kAccepted = 0,
+    kTooFewPoints = 1,
+    kNotConverged = 2,
+    kBadFitness = 3,
+  };
+
   void loadMap() {
     map_raw_.reset(new CloudT);
     map_filtered_.reset(new CloudT);
@@ -143,6 +158,8 @@ class MapLocalizer : public rclcpp::Node {
     map_loaded_ = !map_filtered_->empty();
 
     if (map_loaded_) {
+      map_kdtree_.reset(new pcl::KdTreeFLANN<PointT>);
+      map_kdtree_->setInputCloud(map_filtered_);
       RCLCPP_INFO(
           get_logger(), "loaded map: raw=%zu filtered=%zu path=%s",
           map_raw_->size(), map_filtered_->size(), map_path_.c_str());
@@ -240,19 +257,35 @@ class MapLocalizer : public rclcpp::Node {
     }
 
     CloudT::Ptr filtered_scan = downsample(scan, scan_leaf_size_);
+    const double scan_age_sec = ageSec(now(), stamp);
+    const double odom_age_sec = ageSec(now(), rclcpp::Time(odom->header.stamp));
+    const std::size_t raw_scan_points = scan->size();
     if (static_cast<int>(filtered_scan->size()) < min_scan_points_) {
       RCLCPP_WARN_THROTTLE(
           get_logger(), *get_clock(), 2000,
           "scan has too few points after filtering: %zu", filtered_scan->size());
       ++consecutive_rejects_;
       consecutive_accepts_ = 0;
-      publishQuality(stamp, false, false, -1.0, filtered_scan->size(), 0.0);
+      publishQuality(
+          stamp, false, false, -1.0, filtered_scan->size(), 0.0,
+          QualityReason::kTooFewPoints, 0.0, raw_scan_points,
+          scan_age_sec, odom_age_sec, 0.0, 0.0, 0.0, -1.0);
       return;
     }
 
     Eigen::Matrix4f result = guess;
     double fitness = 0.0;
+    const auto align_start = std::chrono::steady_clock::now();
     bool converged = align(filtered_scan, guess, result, fitness);
+    const auto align_end = std::chrono::steady_clock::now();
+    const double align_ms = std::chrono::duration<double, std::milli>(
+        align_end - align_start).count();
+    const double map_to_odom_delta_xy = std::hypot(
+        static_cast<double>(result(0, 3) - guess(0, 3)),
+        static_cast<double>(result(1, 3) - guess(1, 3)));
+    const double map_to_odom_delta_yaw_deg = std::abs(
+        radiansToDegrees(shortestAngle(yawFromMatrix(result) - yawFromMatrix(guess))));
+    const double overlap_ratio = computeOverlapRatio(filtered_scan, result);
 
     if (!converged || !std::isfinite(fitness) || fitness > fitness_threshold_) {
       ++consecutive_rejects_;
@@ -261,7 +294,11 @@ class MapLocalizer : public rclcpp::Node {
           get_logger(), *get_clock(), 2000,
           "map registration rejected: converged=%d fitness=%.3f threshold=%.3f",
           converged ? 1 : 0, fitness, fitness_threshold_);
-      publishQuality(stamp, converged, false, fitness, filtered_scan->size(), 0.0);
+      publishQuality(
+          stamp, converged, false, fitness, filtered_scan->size(), 0.0,
+          converged ? QualityReason::kBadFitness : QualityReason::kNotConverged,
+          align_ms, raw_scan_points, scan_age_sec, odom_age_sec, 0.0,
+          map_to_odom_delta_xy, map_to_odom_delta_yaw_deg, overlap_ratio);
       return;
     }
 
@@ -270,7 +307,10 @@ class MapLocalizer : public rclcpp::Node {
       map_T_odom_ = result;
     }
 
-    publishLocalization(stamp, odom, result, fitness, filtered_scan->size());
+    publishLocalization(
+        stamp, odom, result, fitness, filtered_scan->size(), align_ms,
+        raw_scan_points, scan_age_sec, odom_age_sec, map_to_odom_delta_xy,
+        map_to_odom_delta_yaw_deg, overlap_ratio);
   }
 
   bool align(
@@ -311,7 +351,14 @@ class MapLocalizer : public rclcpp::Node {
       const nav_msgs::msg::Odometry::SharedPtr& odom,
       const Eigen::Matrix4f& map_T_odom,
       double fitness,
-      std::size_t scan_points) {
+      std::size_t scan_points,
+      double align_ms,
+      std::size_t raw_scan_points,
+      double scan_age_sec,
+      double odom_age_sec,
+      double map_to_odom_delta_xy,
+      double map_to_odom_delta_yaw_deg,
+      double overlap_ratio) {
     Eigen::Matrix4f odom_T_body = poseToMatrix(odom->pose.pose);
     Eigen::Matrix4f map_T_body = map_T_odom * odom_T_body;
 
@@ -331,16 +378,25 @@ class MapLocalizer : public rclcpp::Node {
 
     const double x = output.pose.pose.position.x;
     const double y = output.pose.pose.position.y;
+    const double yaw = yawFromMatrix(map_T_body);
     double jump_xy = 0.0;
+    double jump_yaw_deg = 0.0;
     if (last_output_pose_available_) {
       jump_xy = std::hypot(x - last_output_x_, y - last_output_y_);
+      jump_yaw_deg = std::abs(
+          radiansToDegrees(shortestAngle(yaw - last_output_yaw_)));
     }
     last_output_x_ = x;
     last_output_y_ = y;
+    last_output_yaw_ = yaw;
     last_output_pose_available_ = true;
     consecutive_rejects_ = 0;
     ++consecutive_accepts_;
-    publishQuality(stamp, true, true, fitness, scan_points, jump_xy);
+    publishQuality(
+        stamp, true, true, fitness, scan_points, jump_xy,
+        QualityReason::kAccepted, align_ms, raw_scan_points,
+        scan_age_sec, odom_age_sec, jump_yaw_deg, map_to_odom_delta_xy,
+        map_to_odom_delta_yaw_deg, overlap_ratio);
 
     if (tf_broadcaster_) {
       tf_broadcaster_->sendTransform(matrixToTransform(stamp, map_frame_, odom_frame_, map_T_odom));
@@ -353,13 +409,67 @@ class MapLocalizer : public rclcpp::Node {
         output.pose.pose.position.z, fitness);
   }
 
+  double computeOverlapRatio(const CloudT::Ptr& scan, const Eigen::Matrix4f& transform) {
+    if (!quality_overlap_enabled_ || !map_kdtree_ || !map_filtered_ || map_filtered_->empty()) {
+      return -1.0;
+    }
+    const double current_sec = now().seconds();
+    if (
+        last_overlap_time_sec_ >= 0.0
+        && current_sec - last_overlap_time_sec_ < quality_overlap_period_sec_) {
+      return last_overlap_ratio_;
+    }
+    last_overlap_time_sec_ = current_sec;
+
+    CloudT aligned;
+    pcl::transformPointCloud(*scan, aligned, transform);
+    if (aligned.empty()) {
+      last_overlap_ratio_ = 0.0;
+      return last_overlap_ratio_;
+    }
+
+    const int max_points = std::max(1, quality_overlap_max_points_);
+    const std::size_t step = std::max<std::size_t>(1, aligned.size() / max_points);
+    const float max_distance_sq = static_cast<float>(
+        quality_overlap_distance_ * quality_overlap_distance_);
+    std::vector<int> indices(1);
+    std::vector<float> distances(1);
+    std::size_t checked = 0;
+    std::size_t matched = 0;
+    for (std::size_t i = 0; i < aligned.size(); i += step) {
+      const auto& point = aligned[i];
+      if (!std::isfinite(point.x) || !std::isfinite(point.y) || !std::isfinite(point.z)) {
+        continue;
+      }
+      if (map_kdtree_->nearestKSearch(point, 1, indices, distances) > 0) {
+        if (!distances.empty() && distances[0] <= max_distance_sq) {
+          ++matched;
+        }
+        ++checked;
+      }
+    }
+    last_overlap_ratio_ = checked > 0
+        ? static_cast<double>(matched) / static_cast<double>(checked)
+        : 0.0;
+    return last_overlap_ratio_;
+  }
+
   void publishQuality(
       const rclcpp::Time& stamp,
       bool converged,
       bool accepted,
       double fitness,
       std::size_t scan_points,
-      double jump_xy) {
+      double jump_xy,
+      QualityReason reason,
+      double align_ms,
+      std::size_t raw_scan_points,
+      double scan_age_sec,
+      double odom_age_sec,
+      double output_jump_yaw_deg,
+      double map_to_odom_delta_xy,
+      double map_to_odom_delta_yaw_deg,
+      double overlap_ratio) {
     (void)stamp;
     std_msgs::msg::Float32MultiArray msg;
     msg.data = {
@@ -373,8 +483,44 @@ class MapLocalizer : public rclcpp::Node {
         static_cast<float>(jump_xy),
         has_map_to_odom_ ? 1.0f : 0.0f,
         static_cast<float>(consecutive_accepts_),
+        static_cast<float>(static_cast<int>(reason)),
+        static_cast<float>(align_ms),
+        static_cast<float>(raw_scan_points),
+        static_cast<float>(scan_age_sec),
+        static_cast<float>(odom_age_sec),
+        static_cast<float>(output_jump_yaw_deg),
+        static_cast<float>(map_to_odom_delta_xy),
+        static_cast<float>(map_to_odom_delta_yaw_deg),
+        static_cast<float>(overlap_ratio),
     };
     quality_pub_->publish(msg);
+  }
+
+  static double ageSec(const rclcpp::Time& current, const rclcpp::Time& stamp) {
+    if (stamp.nanoseconds() <= 0) {
+      return std::numeric_limits<double>::quiet_NaN();
+    }
+    return (current - stamp).seconds();
+  }
+
+  static double yawFromMatrix(const Eigen::Matrix4f& matrix) {
+    return std::atan2(static_cast<double>(matrix(1, 0)), static_cast<double>(matrix(0, 0)));
+  }
+
+  static double shortestAngle(double value) {
+    constexpr double pi = 3.14159265358979323846;
+    while (value > pi) {
+      value -= 2.0 * pi;
+    }
+    while (value < -pi) {
+      value += 2.0 * pi;
+    }
+    return value;
+  }
+
+  static double radiansToDegrees(double value) {
+    constexpr double pi = 3.14159265358979323846;
+    return value * 180.0 / pi;
   }
 
   static Eigen::Matrix4f poseToMatrix(const geometry_msgs::msg::Pose& pose) {
@@ -482,14 +628,22 @@ class MapLocalizer : public rclcpp::Node {
   double icp_transformation_epsilon_{0.001};
   double icp_euclidean_fitness_epsilon_{0.01};
   int icp_max_iterations_{40};
+  bool quality_overlap_enabled_{false};
+  double quality_overlap_distance_{0.20};
+  double quality_overlap_period_sec_{1.0};
+  int quality_overlap_max_points_{1000};
+  double last_overlap_time_sec_{-1.0};
+  double last_overlap_ratio_{-1.0};
   int consecutive_rejects_{0};
   int consecutive_accepts_{0};
   bool last_output_pose_available_{false};
   double last_output_x_{0.0};
   double last_output_y_{0.0};
+  double last_output_yaw_{0.0};
 
   CloudT::Ptr map_raw_;
   CloudT::Ptr map_filtered_;
+  pcl::KdTreeFLANN<PointT>::Ptr map_kdtree_;
   CloudT::Ptr latest_scan_;
   builtin_interfaces::msg::Time latest_scan_stamp_;
   nav_msgs::msg::Odometry::SharedPtr latest_odom_;

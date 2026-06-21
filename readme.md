@@ -546,9 +546,12 @@ PLOTJUGGLER_TF_LAYOUT="$PWD/src/fastlio_world_init/config/tf_compare_plotjuggler
 ```text
 logs/autostart/latest/health_monitor.csv
 logs/autostart/latest/health_monitor_summary.json
+logs/autostart/latest/health_monitor_run.json
+logs/autostart/latest/health_monitor_stop.json
+logs/autostart/latest/health_events.jsonl
 ```
 
-CSV 默认每 1 秒记录一次，包含：
+CSV 默认每 0.2 秒记录一次，也就是 5Hz。它不订阅点云，正常情况下开销仍然很低，包含：
 
 ```text
 max_temp_c
@@ -562,8 +565,29 @@ filtered_window_xy_p2p_m
 motion_factor
 is_stationary
 stationary_filtered_window_xy_p2p_m
+spike_candidate
+sustained_motion
+static_context_raw_xy_p2p_m
+static_context_filtered_xy_p2p_m
 map_quality_fitness
 map_quality_jump_xy_m
+map_quality_reason_code
+map_quality_align_ms
+map_quality_raw_scan_points
+map_quality_scan_age_sec
+map_quality_odom_age_sec
+map_quality_output_jump_yaw_deg
+map_quality_map_to_odom_delta_xy_m
+map_quality_map_to_odom_delta_yaw_deg
+map_quality_overlap_ratio
+filter_status_accepted
+filter_status_raw_step_xy_m
+filter_status_speed_xy_mps
+filter_status_alpha
+filter_status_consecutive_rejects
+filter_status_recovered
+filter_status_motion_factor
+filter_status_yaw_rate_degps
 ```
 
 重点看三类数：
@@ -572,9 +596,31 @@ map_quality_jump_xy_m
 motion_factor                         # 越接近 0 越像静止，越接近 1 越像真实运动
 is_stationary                         # 1 表示当前窗口被认为适合统计静态漂移
 stationary_filtered_window_xy_p2p_m    # 静止窗口内滤波位姿 XY 峰峰值
+spike_candidate                       # 1 表示这一刻像单帧尖峰，不应直接当成正常运动
+sustained_motion                      # 1 表示连续运动已超过阈值，静态漂移统计应暂停
+static_context_raw_xy_p2p_m            # 单帧尖峰不会清空的原始静止上下文峰峰值
+static_context_filtered_xy_p2p_m       # 单帧尖峰不会清空的滤波静止上下文峰峰值
+map_quality_reason_code                # 0 accepted, 1 too_few_points, 2 not_converged, 3 bad_fitness
+map_quality_align_ms                   # 地图匹配耗时；突然变大时优先怀疑负载/点云难匹配
+map_quality_scan_age_sec/odom_age_sec  # scan/odom 延迟；突然变大时可能是调度或负载问题
+filter_status_accepted/recovered       # 滤波器是否拒绝或从拒绝状态恢复
 ```
 
-这样做是为了避免电控调车时把“机器人真的开走了”误算成静态漂移。车在动时，日志仍会记录温度、load、质量和轨迹，但静止漂移统计会被暂停或清空。
+这样做是为了避免电控调车时把“机器人真的开走了”误算成静态漂移，同时又避免把静止时的单帧尖峰误判成持续运动后直接清空证据。`is_stationary` 仍表示即时静止判断；`static_context_*` 更适合排查“车没动但突然跳了几厘米”的情况。
+
+`health_events.jsonl` 是低开销事件日志。它只在出现下面情况时写入一行 JSON，不会持续刷屏：
+
+```text
+raw_pose_step              # /robot/pose 单步跳变超过阈值
+filtered_pose_step         # /robot/pose_filtered 单步跳变超过阈值
+map_output_jump            # /map_lidar/quality 的 output_jump_xy 过大
+map_bad_fitness            # fitness 超过诊断阈值
+map_rejected               # 地图匹配本帧被拒绝
+filter_rejected            # 滤波器本帧拒绝
+filter_recovered           # 滤波器从连续拒绝中恢复
+```
+
+每个事件会保存触发原因、触发数值、事件前 3 秒和后 3 秒的温度、load、CPU 频率、地图质量、滤波状态和位姿窗口摘要。如果需要逐点上下文，再临时打开 `RC_HEALTH_MONITOR_EVENT_CONTEXT_CSV=1`，会额外写 `health_event_context.csv`；默认关闭是为了避免日志体积变大。
 
 `summary.json` 会额外计算温度/负载和定位抖动的相关系数，例如：
 
@@ -586,17 +632,44 @@ correlation.temp_vs_map_quality_jump_xy
 
 如果温度或 `load1` 上升时，静止窗口峰峰值、`map_quality_jump_xy_m` 也同步上升，并且相关系数明显为正，就说明定位抖动很可能和热/负载相关。这个监测脚本本身很轻量；主要负载通常来自 PlotJuggler、RViz、VS Code、QQ、Clash、桌面环境和定位链路本身。
 
+日志抗断电策略：
+
+- `health_monitor.csv` 每行写入后都会 flush，默认每 5 秒额外 `fsync` 一次，尽量减少直接断电时丢失的数据。
+- `health_monitor_summary.json` 使用临时文件写完后原子替换，避免断电时留下半截 JSON。
+- `health_monitor_run.json` 在健康日志启动时立即写入，记录 `RUN_ID`、`RUN_REASON`、PID、topic、采样周期和输出路径。
+- `health_monitor_stop.json` 只有健康日志正常收到停止信号并收尾时才会写入。CAN 重启通常会有 stop marker；直接断电通常没有 stop marker，可以据此判断上一轮是否异常掉电。
+- `health_events.jsonl` 事件发生时立即 flush/fsync；它只记录异常窗口摘要，不记录点云。
+- CAN 报文重启会生成新的 `run_<时间>_can_restart` 日志目录；直接断电再开机会生成新的 `run_<时间>_boot` 日志目录。
+- 健康日志文件默认保留 7 天：`health_monitor.csv`、`health_monitor_summary.json`、`health_monitor_run.json`、`health_monitor_stop.json`、`health_events.jsonl`、`health_event_context.csv`。
+- 原始运行日志目录也会做保守清理：`logs/autostart/run_*` 默认保留 30 天，并额外保留最近 10 次、`latest` 指向的当前运行、`latest_restart` 指向的最近重启日志。它不会删除 `maps/`、`logs/calibration/`、`report_assets/`，也不会按文件名去删 PCD 或校准报告。
+- 每次一键启动会把原始日志清理结果写到当前运行目录的 `log_cleanup.log`。
+
 可调参数：
 
 ```bash
 RC_HEALTH_MONITOR=0                      # 关闭健康日志
-RC_HEALTH_MONITOR_INTERVAL=1.0           # 采样周期，默认 1 秒
+RC_HEALTH_MONITOR_INTERVAL=0.2           # 采样周期，默认 0.2 秒，即 5Hz
 RC_HEALTH_MONITOR_WINDOW=10.0            # 峰峰值窗口，默认 10 秒
-RC_HEALTH_MONITOR_RETENTION_DAYS=7       # 只清理旧健康日志文件，不删整次运行日志
+RC_HEALTH_MONITOR_SUMMARY_INTERVAL=30.0  # summary 写入周期，默认 30 秒
+RC_HEALTH_MONITOR_FSYNC_INTERVAL=5.0      # CSV fsync 周期，默认 5 秒；设为 0 只 flush 不定期 fsync
+RC_HEALTH_MONITOR_RETENTION_DAYS=7       # 只清理旧健康日志文件；设为 0 可关闭自动清理
+RC_AUTOSTART_LOG_RETENTION_DAYS=30       # 原始 run_* 日志目录保留天数；设为 0 可关闭原始日志清理
+RC_AUTOSTART_LOG_KEEP_RECENT=10          # 即使超过天数，也额外保留最近 N 次 run_* 目录
+RC_AUTOSTART_LOG_CLEANUP=1               # 设为 0 可关闭一键启动时的原始日志清理
+RC_AUTOSTART_LOG_CLEANUP_DRY_RUN=1       # 只打印会删什么，不实际删除
+RC_HEALTH_MONITOR_EVENT_PRE_SEC=3.0
+RC_HEALTH_MONITOR_EVENT_POST_SEC=3.0
+RC_HEALTH_MONITOR_SPIKE_RAW_STEP=0.02
+RC_HEALTH_MONITOR_SPIKE_FILTERED_STEP=0.015
+RC_HEALTH_MONITOR_SPIKE_MAP_JUMP=0.02
+RC_HEALTH_MONITOR_SPIKE_FITNESS=0.02
+RC_HEALTH_MONITOR_SUSTAINED_MOTION_SEC=2.0
+RC_HEALTH_MONITOR_EVENT_CONTEXT_CSV=0     # 需要逐点事件上下文时设为 1
 RC_HEALTH_MONITOR_STATIC_SPEED=0.015
 RC_HEALTH_MONITOR_FULL_SPEED=0.12
 RC_HEALTH_MONITOR_STATIC_YAW_RATE_DEG=5.0
 RC_HEALTH_MONITOR_FULL_YAW_RATE_DEG=35.0
+RC_MAP_QUALITY_OVERLAP=0                  # 默认关闭地图/scan 重合率诊断，打开会增加少量负载
 ```
 
 如果要故意复现高负载发热问题，就不要使用 headless，也不要关闭 PlotJuggler；如果要做低负载对照实验，再加：
@@ -855,6 +928,15 @@ data[6] filtered_map_points
 data[7] output_jump_xy
 data[8] has_initial_pose
 data[9] consecutive_accepts
+data[10] reason_code，0 accepted, 1 too_few_points, 2 not_converged, 3 bad_fitness
+data[11] align_ms，地图匹配耗时
+data[12] raw_scan_points，降采样前 scan 点数
+data[13] scan_age_sec，当前处理时 scan 的年龄
+data[14] odom_age_sec，当前处理时 odom 的年龄
+data[15] output_jump_yaw_deg，输出位姿 yaw 单步跳变量
+data[16] map_to_odom_delta_xy_m，本轮地图匹配对 map->odom 的 XY 修正量
+data[17] map_to_odom_delta_yaw_deg，本轮地图匹配对 map->odom 的 yaw 修正量
+data[18] overlap_ratio，默认 -1；RC_MAP_QUALITY_OVERLAP=1 时低频计算 scan/map 近邻重合率
 ```
 
 ### 地图路径
@@ -1145,9 +1227,20 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
 
 22. `autostart/thermal_pose_monitor.py`、`autostart/thermal_pose_monitor.sh`
    - 新增默认启动的轻量健康日志；`RC_HEALTH_MONITOR=0` 可关闭，旧变量 `RC_THERMAL_POSE_MONITOR` 仍兼容。
-   - 每秒记录温度、`load1/load5/load15`、CPU 频率、`/robot/pose`、`/robot/pose_filtered`、`/map_lidar/quality`、运动状态和静止窗口 XY 峰峰值。
-   - 输出 `logs/autostart/latest/health_monitor.csv` 与 `health_monitor_summary.json`，用于判断定位抖动是否和热/负载正相关，同时避免把真实行驶位移直接当成静态漂移。
+   - 默认 0.2 秒记录一次，也就是 5Hz，记录温度、`load1/load5/load15`、CPU 频率、`/robot/pose`、`/robot/pose_filtered`、`/map_lidar/quality`、`/lidar/pose_filter/status`、运动状态和静止窗口 XY 峰峰值。
+   - 输出 `logs/autostart/latest/health_monitor.csv`、`health_monitor_summary.json`、`health_monitor_run.json`、`health_monitor_stop.json` 与 `health_events.jsonl`，用于判断定位抖动是否和热/负载/地图匹配质量正相关。
+   - 增加 `spike_candidate`、`sustained_motion` 和 `static_context_*` 字段，避免静止时单帧尖峰被误判成持续运动后把证据清掉。
+   - `health_events.jsonl` 在 raw/filter/map/filter-status 出现跳变、拒绝、恢复或 bad fitness 时写入事件前后窗口摘要；`RC_HEALTH_MONITOR_EVENT_CONTEXT_CSV=1` 可额外保存逐点上下文。
    - `stop_all.sh` 和 CAN 重启脚本已同步清理该监测进程。
+
+23. `autostart/cleanup_autostart_logs.sh`、`autostart/start_all_terminals.sh`
+   - 新增原始运行日志保守清理：每次一键启动时清理超过 `RC_AUTOSTART_LOG_RETENTION_DAYS=30` 天的 `logs/autostart/run_*` 目录。
+   - 永远保留最近 `RC_AUTOSTART_LOG_KEEP_RECENT=10` 次、`latest` 当前运行和 `latest_restart` 最近重启目录；清理结果写到当前运行目录的 `log_cleanup.log`。
+   - 只清理 `logs/autostart/run_*`，不会删除 `maps/`、`logs/calibration/`、`report_assets/`、PCD 地图或校准报告。`RC_AUTOSTART_LOG_CLEANUP=0` 可关闭，`RC_AUTOSTART_LOG_CLEANUP_DRY_RUN=1` 可只预览。
+
+24. `src/lidar_map_localization`
+   - `/map_lidar/quality` 保留前 10 个字段兼容不变，并追加 reason_code、align_ms、raw_scan_points、scan_age_sec、odom_age_sec、output_jump_yaw、map_to_odom 修正量和 overlap_ratio。
+   - `RC_MAP_QUALITY_OVERLAP=1` 时才低频计算 scan/map 近邻重合率；默认关闭，避免增加常态 CPU 负载。
 
 ## 注意事项
 

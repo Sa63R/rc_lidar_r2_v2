@@ -37,3 +37,7 @@ map_localizer:
     icp_transformation_epsilon: 0.0005
     icp_euclidean_fitness_epsilon: 0.001
     icp_max_iterations: 80
+    quality_overlap_enabled: false
+    quality_overlap_distance: 0.20
+    quality_overlap_period_sec: 1.0
+    quality_overlap_max_points: 1000

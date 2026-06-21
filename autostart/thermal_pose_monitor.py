@@ -9,6 +9,7 @@ import json
 import math
 import os
 import signal
+import socket
 import statistics
 import time
 from collections import deque
@@ -65,15 +66,38 @@ CSV_FIELDS = [
     "stationary_filtered_window_x_p2p_m",
     "stationary_filtered_window_y_p2p_m",
     "stationary_filtered_window_xy_p2p_m",
+    "spike_candidate",
+    "sustained_motion",
+    "static_context_raw_xy_p2p_m",
+    "static_context_filtered_xy_p2p_m",
     "map_quality_accepted",
     "map_quality_converged",
     "map_quality_fitness",
     "map_quality_jump_xy_m",
     "map_quality_scan_points",
     "map_quality_map_points",
+    "map_quality_reason_code",
+    "map_quality_align_ms",
+    "map_quality_raw_scan_points",
+    "map_quality_scan_age_sec",
+    "map_quality_odom_age_sec",
+    "map_quality_output_jump_yaw_deg",
+    "map_quality_map_to_odom_delta_xy_m",
+    "map_quality_map_to_odom_delta_yaw_deg",
+    "map_quality_overlap_ratio",
+    "filter_status_accepted",
+    "filter_status_raw_step_xy_m",
+    "filter_status_speed_xy_mps",
+    "filter_status_alpha",
+    "filter_status_reject_count",
+    "filter_status_consecutive_rejects",
+    "filter_status_recovered",
+    "filter_status_motion_factor",
+    "filter_status_yaw_rate_degps",
     "raw_age_sec",
     "filtered_age_sec",
     "quality_age_sec",
+    "filter_status_age_sec",
 ]
 
 
@@ -196,6 +220,29 @@ def json_safe(value: Any) -> Any:
     return value
 
 
+def fsync_directory(path: Path) -> None:
+    try:
+        fd = os.open(str(path), os.O_RDONLY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f".{path.name}.tmp.{os.getpid()}")
+    with tmp_path.open("w", encoding="utf-8") as handle:
+        json.dump(json_safe(payload), handle, indent=2, ensure_ascii=False, allow_nan=False)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(tmp_path, path)
+    fsync_directory(path.parent)
+
+
 class ThermalPoseMonitor(Node):
     def __init__(self, args: argparse.Namespace):
         super().__init__("thermal_pose_monitor")
@@ -203,47 +250,367 @@ class ThermalPoseMonitor(Node):
         self.start_time = time.monotonic()
         self.rows: list[dict[str, float | str]] = []
         self.last_summary_elapsed = 0.0
+        self.last_csv_fsync = self.start_time
 
         self.raw_pose: PoseSample | None = None
         self.filtered_pose: PoseSample | None = None
         self.quality: tuple[float, list[float]] | None = None
+        self.filter_status: tuple[float, list[float]] | None = None
         self.previous_raw_pose: PoseSample | None = None
         self.previous_filtered_pose: PoseSample | None = None
+        self.callback_previous_raw_pose: PoseSample | None = None
+        self.callback_previous_filtered_pose: PoseSample | None = None
 
         self.raw_window: Deque[PoseSample] = deque()
         self.filtered_window: Deque[PoseSample] = deque()
         self.stationary_raw_window: Deque[PoseSample] = deque()
         self.stationary_filtered_window: Deque[PoseSample] = deque()
+        self.static_context_raw_window: Deque[PoseSample] = deque()
+        self.static_context_filtered_window: Deque[PoseSample] = deque()
+        self.event_buffer: Deque[dict[str, float | str]] = deque()
+        self.open_events: list[dict[str, Any]] = []
+        self.event_count = 0
+        self.last_event_by_reason: dict[str, float] = {}
+        self.motion_started_at: float | None = None
 
         self.output_dir = Path(args.output_dir).expanduser().resolve()
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.csv_path = Path(args.csv_path or self.output_dir / "health_monitor.csv")
         self.summary_path = Path(args.summary_path or self.output_dir / "health_monitor_summary.json")
+        self.event_path = Path(args.event_path or self.output_dir / "health_events.jsonl")
+        self.event_context_path = Path(
+            args.event_context_path or self.output_dir / "health_event_context.csv"
+        )
+        self.run_marker_path = Path(
+            args.run_marker_path or self.output_dir / "health_monitor_run.json"
+        )
+        self.stop_marker_path = Path(
+            args.stop_marker_path or self.output_dir / "health_monitor_stop.json"
+        )
 
         self.csv_file = self.csv_path.open("w", newline="", encoding="utf-8")
         self.writer = csv.DictWriter(self.csv_file, fieldnames=CSV_FIELDS)
         self.writer.writeheader()
+        self.csv_file.flush()
+        self.sync_csv(force=True)
+        self.event_file = self.event_path.open("a", encoding="utf-8")
+        self.event_context_file = None
+        self.event_context_writer = None
+        if args.event_context_csv:
+            context_fields = ["event_id", "context_phase"] + CSV_FIELDS
+            self.event_context_file = self.event_context_path.open(
+                "w", newline="", encoding="utf-8"
+            )
+            self.event_context_writer = csv.DictWriter(
+                self.event_context_file, fieldnames=context_fields
+            )
+            self.event_context_writer.writeheader()
+            self.event_context_file.flush()
+        self.write_run_marker()
 
         self.create_subscription(PoseStamped, args.raw_topic, self.on_raw_pose, 20)
         self.create_subscription(PoseStamped, args.filtered_topic, self.on_filtered_pose, 20)
         self.create_subscription(Float32MultiArray, args.quality_topic, self.on_quality, 20)
+        self.create_subscription(Float32MultiArray, args.filter_status_topic, self.on_filter_status, 20)
         self.timer = self.create_timer(args.interval, self.sample)
 
         self.get_logger().info(
             f"health monitor logging csv={self.csv_path} summary={self.summary_path} "
-            f"raw={args.raw_topic} filtered={args.filtered_topic} quality={args.quality_topic}"
+            f"events={self.event_path} raw={args.raw_topic} filtered={args.filtered_topic} "
+            f"quality={args.quality_topic} filter_status={args.filter_status_topic}"
+        )
+        self.get_logger().info(
+            f"health monitor markers run={self.run_marker_path} stop={self.stop_marker_path} "
+            f"fsync_interval={args.fsync_interval:.1f}s"
+        )
+
+    def sync_csv(self, force: bool = False) -> None:
+        if self.args.fsync_interval <= 0.0 and not force:
+            return
+        now = time.monotonic()
+        if force or now - self.last_csv_fsync >= self.args.fsync_interval:
+            os.fsync(self.csv_file.fileno())
+            self.last_csv_fsync = now
+
+    def write_run_marker(self) -> None:
+        atomic_write_json(
+            self.run_marker_path,
+            {
+                "event": "health_monitor_started",
+                "started_at": datetime.now().isoformat(timespec="seconds"),
+                "run_id": os.environ.get("RUN_ID", ""),
+                "run_reason": os.environ.get("RUN_REASON", ""),
+                "pid": os.getpid(),
+                "hostname": socket.gethostname(),
+                "output_dir": str(self.output_dir),
+                "csv_path": str(self.csv_path),
+                "summary_path": str(self.summary_path),
+                "event_path": str(self.event_path),
+                "event_context_path": (
+                    str(self.event_context_path) if self.args.event_context_csv else ""
+                ),
+                "stop_marker_path": str(self.stop_marker_path),
+                "raw_topic": self.args.raw_topic,
+                "filtered_topic": self.args.filtered_topic,
+                "quality_topic": self.args.quality_topic,
+                "filter_status_topic": self.args.filter_status_topic,
+                "interval_sec": self.args.interval,
+                "window_sec": self.args.window,
+                "summary_interval_sec": self.args.summary_interval,
+                "fsync_interval_sec": self.args.fsync_interval,
+                "event_pre_sec": self.args.event_pre_sec,
+                "event_post_sec": self.args.event_post_sec,
+                "spike_raw_step_m": self.args.spike_raw_step,
+                "spike_filtered_step_m": self.args.spike_filtered_step,
+                "spike_map_jump_m": self.args.spike_map_jump,
+                "spike_fitness": self.args.spike_fitness,
+                "sustained_motion_sec": self.args.sustained_motion_sec,
+            },
+        )
+
+    def write_stop_marker(self, reason: str) -> None:
+        atomic_write_json(
+            self.stop_marker_path,
+            {
+                "event": "health_monitor_stopped",
+                "stopped_at": datetime.now().isoformat(timespec="seconds"),
+                "run_id": os.environ.get("RUN_ID", ""),
+                "run_reason": os.environ.get("RUN_REASON", ""),
+                "pid": os.getpid(),
+                "reason": reason,
+                "sample_count": len(self.rows),
+                "event_count": self.event_count,
+                "duration_sec": time.monotonic() - self.start_time,
+                "csv_path": str(self.csv_path),
+                "summary_path": str(self.summary_path),
+                "event_path": str(self.event_path),
+            },
         )
 
     def on_raw_pose(self, msg: PoseStamped) -> None:
         p = msg.pose.position
-        self.raw_pose = (time.monotonic(), float(p.x), float(p.y), float(p.z), yaw_from_pose(msg))
+        pose = (time.monotonic(), float(p.x), float(p.y), float(p.z), yaw_from_pose(msg))
+        step_xy, speed_xy, yaw_rate = pose_step(self.callback_previous_raw_pose, pose)
+        self.raw_pose = pose
+        self.callback_previous_raw_pose = pose
+        if math.isfinite(step_xy) and step_xy >= self.args.spike_raw_step:
+            self.start_event(
+                "raw_pose_step",
+                pose[0],
+                {
+                    "raw_step_xy_m": step_xy,
+                    "raw_speed_xy_mps": speed_xy,
+                    "raw_yaw_rate_degps": yaw_rate,
+                    "threshold_m": self.args.spike_raw_step,
+                },
+            )
 
     def on_filtered_pose(self, msg: PoseStamped) -> None:
         p = msg.pose.position
-        self.filtered_pose = (time.monotonic(), float(p.x), float(p.y), float(p.z), yaw_from_pose(msg))
+        pose = (time.monotonic(), float(p.x), float(p.y), float(p.z), yaw_from_pose(msg))
+        step_xy, speed_xy, yaw_rate = pose_step(self.callback_previous_filtered_pose, pose)
+        self.filtered_pose = pose
+        self.callback_previous_filtered_pose = pose
+        if math.isfinite(step_xy) and step_xy >= self.args.spike_filtered_step:
+            self.start_event(
+                "filtered_pose_step",
+                pose[0],
+                {
+                    "filtered_step_xy_m": step_xy,
+                    "filtered_speed_xy_mps": speed_xy,
+                    "filtered_yaw_rate_degps": yaw_rate,
+                    "threshold_m": self.args.spike_filtered_step,
+                },
+            )
 
     def on_quality(self, msg: Float32MultiArray) -> None:
-        self.quality = (time.monotonic(), [float(value) for value in msg.data])
+        now = time.monotonic()
+        values = [float(value) for value in msg.data]
+        self.quality = (now, values)
+        accepted = values[0] if len(values) > 0 else math.nan
+        fitness = values[2] if len(values) > 2 else math.nan
+        quality_jump = values[7] if len(values) > 7 else math.nan
+        reason_code = values[10] if len(values) > 10 else math.nan
+        if math.isfinite(quality_jump) and quality_jump >= self.args.spike_map_jump:
+            self.start_event(
+                "map_output_jump",
+                now,
+                {
+                    "map_quality_jump_xy_m": quality_jump,
+                    "threshold_m": self.args.spike_map_jump,
+                    "fitness": fitness,
+                    "reason_code": reason_code,
+                },
+            )
+        if math.isfinite(fitness) and fitness >= self.args.spike_fitness:
+            self.start_event(
+                "map_bad_fitness",
+                now,
+                {
+                    "fitness": fitness,
+                    "threshold": self.args.spike_fitness,
+                    "accepted": accepted,
+                    "reason_code": reason_code,
+                },
+            )
+        if math.isfinite(accepted) and accepted < 0.5:
+            self.start_event(
+                "map_rejected",
+                now,
+                {
+                    "fitness": fitness,
+                    "reason_code": reason_code,
+                    "scan_points": values[5] if len(values) > 5 else math.nan,
+                },
+            )
+
+    def on_filter_status(self, msg: Float32MultiArray) -> None:
+        now = time.monotonic()
+        values = [float(value) for value in msg.data]
+        self.filter_status = (now, values)
+        accepted = values[0] if len(values) > 0 else math.nan
+        raw_step = values[5] if len(values) > 5 else math.nan
+        recovered = values[13] if len(values) > 13 else math.nan
+        motion_factor = values[14] if len(values) > 14 else math.nan
+        if math.isfinite(accepted) and accepted < 0.5:
+            self.start_event(
+                "filter_rejected",
+                now,
+                {
+                    "filter_raw_step_xy_m": raw_step,
+                    "filter_motion_factor": motion_factor,
+                    "consecutive_rejects": values[12] if len(values) > 12 else math.nan,
+                },
+            )
+        if math.isfinite(recovered) and recovered > 0.5:
+            self.start_event(
+                "filter_recovered",
+                now,
+                {
+                    "filter_raw_step_xy_m": raw_step,
+                    "filter_motion_factor": motion_factor,
+                    "consecutive_rejects": values[12] if len(values) > 12 else math.nan,
+                },
+            )
+
+    def start_event(self, reason: str, stamp: float, trigger: dict[str, Any]) -> None:
+        last_stamp = self.last_event_by_reason.get(reason)
+        if last_stamp is not None and stamp - last_stamp < self.args.event_cooldown_sec:
+            return
+        self.last_event_by_reason[reason] = stamp
+        self.event_count += 1
+        trigger_elapsed = stamp - self.start_time
+        event = {
+            "event_id": self.event_count,
+            "reason": reason,
+            "trigger_monotonic": stamp,
+            "trigger_elapsed_sec": trigger_elapsed,
+            "trigger_wall_time": datetime.now().isoformat(timespec="milliseconds"),
+            "trigger": trigger,
+            "pre_rows": [
+                row
+                for row in self.event_buffer
+                if 0.0 <= trigger_elapsed - float(row.get("elapsed_sec", 0.0))
+                <= self.args.event_pre_sec
+            ],
+        }
+        self.open_events.append(event)
+
+    def summarize_event_rows(self, rows: list[dict[str, float | str]]) -> dict[str, Any]:
+        numeric_rows: list[dict[str, float]] = []
+        for row in rows:
+            numeric_rows.append(
+                {
+                    key: float(value)
+                    for key, value in row.items()
+                    if key != "time_iso" and isinstance(value, (int, float))
+                }
+            )
+        if not numeric_rows:
+            return {"sample_count": 0}
+        first = numeric_rows[0]
+        last = numeric_rows[-1]
+        return {
+            "sample_count": len(numeric_rows),
+            "elapsed_start_sec": first.get("elapsed_sec", math.nan),
+            "elapsed_end_sec": last.get("elapsed_sec", math.nan),
+            "max_temp_c": series_stats(numeric_rows, "max_temp_c"),
+            "load1": series_stats(numeric_rows, "load1"),
+            "cpu_freq_avg_mhz": series_stats(numeric_rows, "cpu_freq_avg_mhz"),
+            "raw_step_xy_m": series_stats(numeric_rows, "raw_step_xy_m"),
+            "filtered_step_xy_m": series_stats(numeric_rows, "filtered_step_xy_m"),
+            "raw_window_xy_p2p_m": series_stats(numeric_rows, "raw_window_xy_p2p_m"),
+            "filtered_window_xy_p2p_m": series_stats(numeric_rows, "filtered_window_xy_p2p_m"),
+            "static_context_raw_xy_p2p_m": series_stats(
+                numeric_rows, "static_context_raw_xy_p2p_m"
+            ),
+            "static_context_filtered_xy_p2p_m": series_stats(
+                numeric_rows, "static_context_filtered_xy_p2p_m"
+            ),
+            "map_quality_fitness": series_stats(numeric_rows, "map_quality_fitness"),
+            "map_quality_jump_xy_m": series_stats(numeric_rows, "map_quality_jump_xy_m"),
+            "map_quality_align_ms": series_stats(numeric_rows, "map_quality_align_ms"),
+            "map_quality_scan_age_sec": series_stats(numeric_rows, "map_quality_scan_age_sec"),
+            "map_quality_odom_age_sec": series_stats(numeric_rows, "map_quality_odom_age_sec"),
+            "filter_status_alpha": series_stats(numeric_rows, "filter_status_alpha"),
+            "filter_status_motion_factor": series_stats(
+                numeric_rows, "filter_status_motion_factor"
+            ),
+            "spike_candidate_count": sum(
+                1 for row in numeric_rows if row.get("spike_candidate", 0.0) > 0.5
+            ),
+            "sustained_motion_count": sum(
+                1 for row in numeric_rows if row.get("sustained_motion", 0.0) > 0.5
+            ),
+        }
+
+    def close_finished_events(self, now: float) -> None:
+        remaining: list[dict[str, Any]] = []
+        for event in self.open_events:
+            trigger_elapsed = float(event["trigger_elapsed_sec"])
+            if now - self.start_time < trigger_elapsed + self.args.event_post_sec:
+                remaining.append(event)
+                continue
+
+            all_rows = [
+                row
+                for row in self.event_buffer
+                if trigger_elapsed - self.args.event_pre_sec
+                <= float(row.get("elapsed_sec", math.nan))
+                <= trigger_elapsed + self.args.event_post_sec
+            ]
+            pre_rows = [
+                row
+                for row in all_rows
+                if float(row.get("elapsed_sec", math.nan)) <= trigger_elapsed
+            ]
+            post_rows = [
+                row
+                for row in all_rows
+                if float(row.get("elapsed_sec", math.nan)) > trigger_elapsed
+            ]
+            payload = {
+                "event_id": event["event_id"],
+                "reason": event["reason"],
+                "trigger_wall_time": event["trigger_wall_time"],
+                "trigger_elapsed_sec": trigger_elapsed,
+                "trigger": event["trigger"],
+                "pre_summary": self.summarize_event_rows(pre_rows),
+                "post_summary": self.summarize_event_rows(post_rows),
+                "window_summary": self.summarize_event_rows(all_rows),
+            }
+            self.event_file.write(json.dumps(json_safe(payload), ensure_ascii=False, allow_nan=False))
+            self.event_file.write("\n")
+            self.event_file.flush()
+            os.fsync(self.event_file.fileno())
+            if self.event_context_writer:
+                for phase, rows in (("pre", pre_rows), ("post", post_rows)):
+                    for row in rows:
+                        context_row = {"event_id": event["event_id"], "context_phase": phase}
+                        context_row.update(row)
+                        self.event_context_writer.writerow(context_row)
+                self.event_context_file.flush()
+        self.open_events = remaining
 
     def trim_window(self, window: Deque[PoseSample], now: float) -> None:
         cutoff = now - self.args.window
@@ -258,7 +625,13 @@ class ThermalPoseMonitor(Node):
         factors = [value for value in (speed_factor, yaw_factor) if math.isfinite(value)]
         return max(factors) if factors else math.nan
 
-    def append_windows(self, now: float, is_stationary: bool) -> None:
+    def append_windows(
+        self,
+        now: float,
+        is_stationary: bool,
+        sustained_motion: bool,
+        spike_candidate: bool,
+    ) -> None:
         if self.raw_pose:
             self.raw_window.append(self.raw_pose)
         if self.filtered_pose:
@@ -273,10 +646,21 @@ class ThermalPoseMonitor(Node):
             self.stationary_raw_window.clear()
             self.stationary_filtered_window.clear()
 
+        if not sustained_motion:
+            if self.raw_pose:
+                self.static_context_raw_window.append(self.raw_pose)
+            if self.filtered_pose:
+                self.static_context_filtered_window.append(self.filtered_pose)
+        else:
+            self.static_context_raw_window.clear()
+            self.static_context_filtered_window.clear()
+
         self.trim_window(self.raw_window, now)
         self.trim_window(self.filtered_window, now)
         self.trim_window(self.stationary_raw_window, now)
         self.trim_window(self.stationary_filtered_window, now)
+        self.trim_window(self.static_context_raw_window, now)
+        self.trim_window(self.static_context_filtered_window, now)
 
     def sample(self) -> None:
         now = time.monotonic()
@@ -295,13 +679,94 @@ class ThermalPoseMonitor(Node):
             filtered_speed,
             filtered_yaw_rate,
         )
+
+        accepted = converged = fitness = quality_jump = scan_points = map_points = math.nan
+        reason_code = align_ms = raw_scan_points = quality_scan_age = math.nan
+        quality_odom_age = output_jump_yaw = map_to_odom_delta_xy = math.nan
+        map_to_odom_delta_yaw = overlap_ratio = math.nan
+        quality_age = math.nan
+        if self.quality:
+            stamp, values = self.quality
+            quality_age = now - stamp
+            accepted = values[0] if len(values) > 0 else math.nan
+            converged = values[1] if len(values) > 1 else math.nan
+            fitness = values[2] if len(values) > 2 else math.nan
+            scan_points = values[5] if len(values) > 5 else math.nan
+            map_points = values[6] if len(values) > 6 else math.nan
+            quality_jump = values[7] if len(values) > 7 else math.nan
+            reason_code = values[10] if len(values) > 10 else math.nan
+            align_ms = values[11] if len(values) > 11 else math.nan
+            raw_scan_points = values[12] if len(values) > 12 else math.nan
+            quality_scan_age = values[13] if len(values) > 13 else math.nan
+            quality_odom_age = values[14] if len(values) > 14 else math.nan
+            output_jump_yaw = values[15] if len(values) > 15 else math.nan
+            map_to_odom_delta_xy = values[16] if len(values) > 16 else math.nan
+            map_to_odom_delta_yaw = values[17] if len(values) > 17 else math.nan
+            overlap_ratio = values[18] if len(values) > 18 else math.nan
+
+        (
+            filter_accepted,
+            filter_raw_step,
+            filter_speed,
+            filter_alpha,
+            filter_reject_count,
+            filter_consecutive_rejects,
+            filter_recovered,
+            filter_motion_factor,
+            filter_yaw_rate,
+            filter_status_age,
+        ) = (math.nan,) * 10
+        if self.filter_status:
+            stamp, values = self.filter_status
+            filter_status_age = now - stamp
+            filter_accepted = values[0] if len(values) > 0 else math.nan
+            filter_raw_step = values[5] if len(values) > 5 else math.nan
+            filter_speed = values[6] if len(values) > 6 else math.nan
+            filter_alpha = values[7] if len(values) > 7 else math.nan
+            filter_reject_count = values[10] if len(values) > 10 else math.nan
+            filter_consecutive_rejects = values[12] if len(values) > 12 else math.nan
+            filter_recovered = values[13] if len(values) > 13 else math.nan
+            filter_motion_factor = values[14] if len(values) > 14 else math.nan
+            filter_yaw_rate = values[15] if len(values) > 15 else math.nan
+
+        spike_candidate = bool(
+            (math.isfinite(raw_step) and raw_step >= self.args.spike_raw_step)
+            or (
+                math.isfinite(filtered_step)
+                and filtered_step >= self.args.spike_filtered_step
+            )
+            or (
+                math.isfinite(quality_jump)
+                and quality_jump >= self.args.spike_map_jump
+            )
+            or (
+                math.isfinite(fitness)
+                and fitness >= self.args.spike_fitness
+            )
+            or (math.isfinite(filter_accepted) and filter_accepted < 0.5)
+            or (math.isfinite(filter_recovered) and filter_recovered > 0.5)
+        )
+
+        motion_now = bool(
+            math.isfinite(motion_factor)
+            and motion_factor > self.args.stationary_factor
+        )
+        if motion_now:
+            if self.motion_started_at is None:
+                self.motion_started_at = now
+        else:
+            self.motion_started_at = None
+        sustained_motion = bool(
+            self.motion_started_at is not None
+            and now - self.motion_started_at >= self.args.sustained_motion_sec
+        )
         is_stationary = bool(
             math.isfinite(motion_factor)
             and motion_factor <= self.args.stationary_factor
             and (not self.filtered_pose or now - self.filtered_pose[0] <= self.args.max_pose_age)
         )
 
-        self.append_windows(now, is_stationary)
+        self.append_windows(now, is_stationary, sustained_motion, spike_candidate)
 
         raw_x = raw_y = raw_z = raw_yaw = math.nan
         raw_age = math.nan
@@ -332,18 +797,10 @@ class ThermalPoseMonitor(Node):
             stationary_filtered_y_p2p,
             stationary_filtered_xy_p2p,
         ) = window_p2p(self.stationary_filtered_window)
-
-        accepted = converged = fitness = quality_jump = scan_points = map_points = math.nan
-        quality_age = math.nan
-        if self.quality:
-            stamp, values = self.quality
-            quality_age = now - stamp
-            accepted = values[0] if len(values) > 0 else math.nan
-            converged = values[1] if len(values) > 1 else math.nan
-            fitness = values[2] if len(values) > 2 else math.nan
-            scan_points = values[5] if len(values) > 5 else math.nan
-            map_points = values[6] if len(values) > 6 else math.nan
-            quality_jump = values[7] if len(values) > 7 else math.nan
+        _, _, static_context_raw_xy_p2p = window_p2p(self.static_context_raw_window)
+        _, _, static_context_filtered_xy_p2p = window_p2p(
+            self.static_context_filtered_window
+        )
 
         row = {
             "time_iso": datetime.now().isoformat(timespec="seconds"),
@@ -385,20 +842,49 @@ class ThermalPoseMonitor(Node):
             "stationary_filtered_window_x_p2p_m": stationary_filtered_x_p2p,
             "stationary_filtered_window_y_p2p_m": stationary_filtered_y_p2p,
             "stationary_filtered_window_xy_p2p_m": stationary_filtered_xy_p2p,
+            "spike_candidate": 1.0 if spike_candidate else 0.0,
+            "sustained_motion": 1.0 if sustained_motion else 0.0,
+            "static_context_raw_xy_p2p_m": static_context_raw_xy_p2p,
+            "static_context_filtered_xy_p2p_m": static_context_filtered_xy_p2p,
             "map_quality_accepted": accepted,
             "map_quality_converged": converged,
             "map_quality_fitness": fitness,
             "map_quality_jump_xy_m": quality_jump,
             "map_quality_scan_points": scan_points,
             "map_quality_map_points": map_points,
+            "map_quality_reason_code": reason_code,
+            "map_quality_align_ms": align_ms,
+            "map_quality_raw_scan_points": raw_scan_points,
+            "map_quality_scan_age_sec": quality_scan_age,
+            "map_quality_odom_age_sec": quality_odom_age,
+            "map_quality_output_jump_yaw_deg": output_jump_yaw,
+            "map_quality_map_to_odom_delta_xy_m": map_to_odom_delta_xy,
+            "map_quality_map_to_odom_delta_yaw_deg": map_to_odom_delta_yaw,
+            "map_quality_overlap_ratio": overlap_ratio,
+            "filter_status_accepted": filter_accepted,
+            "filter_status_raw_step_xy_m": filter_raw_step,
+            "filter_status_speed_xy_mps": filter_speed,
+            "filter_status_alpha": filter_alpha,
+            "filter_status_reject_count": filter_reject_count,
+            "filter_status_consecutive_rejects": filter_consecutive_rejects,
+            "filter_status_recovered": filter_recovered,
+            "filter_status_motion_factor": filter_motion_factor,
+            "filter_status_yaw_rate_degps": filter_yaw_rate,
             "raw_age_sec": raw_age,
             "filtered_age_sec": filtered_age,
             "quality_age_sec": quality_age,
+            "filter_status_age_sec": filter_status_age,
         }
 
         self.rows.append(row)
+        self.event_buffer.append(row)
+        cutoff_elapsed = (now - self.start_time) - self.args.event_pre_sec - self.args.event_post_sec - 1.0
+        while self.event_buffer and float(self.event_buffer[0].get("elapsed_sec", 0.0)) < cutoff_elapsed:
+            self.event_buffer.popleft()
         self.writer.writerow(row)
         self.csv_file.flush()
+        self.sync_csv()
+        self.close_finished_events(now)
 
         self.previous_raw_pose = self.raw_pose
         self.previous_filtered_pose = self.filtered_pose
@@ -432,11 +918,19 @@ class ThermalPoseMonitor(Node):
             stationary_filtered_p2p = [
                 row["stationary_filtered_window_xy_p2p_m"] for row in numeric_rows
             ]
+            static_context_raw_p2p = [
+                row["static_context_raw_xy_p2p_m"] for row in numeric_rows
+            ]
+            static_context_filtered_p2p = [
+                row["static_context_filtered_xy_p2p_m"] for row in numeric_rows
+            ]
             quality_jump = [row["map_quality_jump_xy_m"] for row in numeric_rows]
             summary = {
                 "sample_count": len(numeric_rows),
                 "duration_sec": numeric_rows[-1]["elapsed_sec"],
                 "csv_path": str(self.csv_path),
+                "event_path": str(self.event_path),
+                "event_count": self.event_count,
                 "temperature_c": series_stats(numeric_rows, "max_temp_c"),
                 "load1": series_stats(numeric_rows, "load1"),
                 "load5": series_stats(numeric_rows, "load5"),
@@ -452,12 +946,32 @@ class ThermalPoseMonitor(Node):
                     numeric_rows,
                     "stationary_filtered_window_xy_p2p_m",
                 ),
+                "static_context_raw_xy_p2p_m": series_stats(
+                    numeric_rows,
+                    "static_context_raw_xy_p2p_m",
+                ),
+                "static_context_filtered_xy_p2p_m": series_stats(
+                    numeric_rows,
+                    "static_context_filtered_xy_p2p_m",
+                ),
+                "spike_candidate": series_stats(numeric_rows, "spike_candidate"),
+                "sustained_motion": series_stats(numeric_rows, "sustained_motion"),
                 "raw_filtered_delta_xy_m": series_stats(
                     numeric_rows,
                     "raw_filtered_delta_xy_m",
                 ),
                 "map_quality_fitness": series_stats(numeric_rows, "map_quality_fitness"),
                 "map_quality_jump_xy_m": series_stats(numeric_rows, "map_quality_jump_xy_m"),
+                "map_quality_align_ms": series_stats(numeric_rows, "map_quality_align_ms"),
+                "map_quality_overlap_ratio": series_stats(
+                    numeric_rows,
+                    "map_quality_overlap_ratio",
+                ),
+                "filter_status_alpha": series_stats(numeric_rows, "filter_status_alpha"),
+                "filter_status_motion_factor": series_stats(
+                    numeric_rows,
+                    "filter_status_motion_factor",
+                ),
                 "correlation": {
                     "temp_vs_raw_window_xy_p2p": pearson(temps, raw_p2p),
                     "temp_vs_filtered_window_xy_p2p": pearson(temps, filtered_p2p),
@@ -472,20 +986,45 @@ class ThermalPoseMonitor(Node):
                         loads,
                         stationary_filtered_p2p,
                     ),
+                    "temp_vs_static_context_raw_xy_p2p": pearson(
+                        temps,
+                        static_context_raw_p2p,
+                    ),
+                    "temp_vs_static_context_filtered_xy_p2p": pearson(
+                        temps,
+                        static_context_filtered_p2p,
+                    ),
+                    "load1_vs_static_context_raw_xy_p2p": pearson(
+                        loads,
+                        static_context_raw_p2p,
+                    ),
+                    "load1_vs_static_context_filtered_xy_p2p": pearson(
+                        loads,
+                        static_context_filtered_p2p,
+                    ),
                     "load1_vs_map_quality_jump_xy": pearson(loads, quality_jump),
                 },
             }
 
-        self.summary_path.write_text(
-            json.dumps(json_safe(summary), indent=2, ensure_ascii=False, allow_nan=False) + "\n",
-            encoding="utf-8",
-        )
+        atomic_write_json(self.summary_path, summary)
 
-    def close(self) -> None:
+    def close(self, reason: str = "normal") -> None:
         try:
+            self.close_finished_events(time.monotonic() + self.args.event_post_sec + 1.0)
             self.write_summary()
+            self.csv_file.flush()
+            self.sync_csv(force=True)
+            self.event_file.flush()
+            os.fsync(self.event_file.fileno())
+            if self.event_context_file:
+                self.event_context_file.flush()
+                os.fsync(self.event_context_file.fileno())
+            self.write_stop_marker(reason)
         finally:
             self.csv_file.close()
+            self.event_file.close()
+            if self.event_context_file:
+                self.event_context_file.close()
 
 
 def parse_args() -> argparse.Namespace:
@@ -495,18 +1034,33 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", default=os.environ.get("LOG_DIR", "."))
     parser.add_argument("--csv-path", default="")
     parser.add_argument("--summary-path", default="")
-    parser.add_argument("--interval", type=float, default=1.0)
+    parser.add_argument("--event-path", default="")
+    parser.add_argument("--event-context-path", default="")
+    parser.add_argument("--event-context-csv", action="store_true")
+    parser.add_argument("--run-marker-path", default="")
+    parser.add_argument("--stop-marker-path", default="")
+    parser.add_argument("--interval", type=float, default=0.2)
     parser.add_argument("--window", type=float, default=10.0)
     parser.add_argument("--summary-interval", type=float, default=30.0)
+    parser.add_argument("--fsync-interval", type=float, default=5.0)
     parser.add_argument("--raw-topic", default="/robot/pose")
     parser.add_argument("--filtered-topic", default="/robot/pose_filtered")
     parser.add_argument("--quality-topic", default="/map_lidar/quality")
+    parser.add_argument("--filter-status-topic", default="/lidar/pose_filter/status")
     parser.add_argument("--static-speed", type=float, default=0.015)
     parser.add_argument("--full-speed", type=float, default=0.12)
     parser.add_argument("--static-yaw-rate-deg", type=float, default=5.0)
     parser.add_argument("--full-yaw-rate-deg", type=float, default=35.0)
     parser.add_argument("--stationary-factor", type=float, default=0.25)
     parser.add_argument("--max-pose-age", type=float, default=2.0)
+    parser.add_argument("--event-pre-sec", type=float, default=3.0)
+    parser.add_argument("--event-post-sec", type=float, default=3.0)
+    parser.add_argument("--event-cooldown-sec", type=float, default=2.0)
+    parser.add_argument("--spike-raw-step", type=float, default=0.02)
+    parser.add_argument("--spike-filtered-step", type=float, default=0.015)
+    parser.add_argument("--spike-map-jump", type=float, default=0.02)
+    parser.add_argument("--spike-fitness", type=float, default=0.02)
+    parser.add_argument("--sustained-motion-sec", type=float, default=2.0)
     return parser.parse_args()
 
 
@@ -515,10 +1069,11 @@ def main() -> None:
     rclpy.init()
     node = ThermalPoseMonitor(args)
 
-    stop = {"requested": False}
+    stop = {"requested": False, "reason": "normal"}
 
     def request_stop(signum, _frame):
         stop["requested"] = True
+        stop["reason"] = f"signal_{signum}"
         node.get_logger().info(f"signal {signum} received; writing summary and exiting")
 
     signal.signal(signal.SIGTERM, request_stop)
@@ -528,7 +1083,7 @@ def main() -> None:
         while rclpy.ok() and not stop["requested"]:
             rclpy.spin_once(node, timeout_sec=0.2)
     finally:
-        node.close()
+        node.close(stop["reason"])
         node.destroy_node()
         rclpy.shutdown()
 
