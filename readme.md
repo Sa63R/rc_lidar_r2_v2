@@ -513,13 +513,15 @@ FASTLIO_RVIZ=true RC_LIDAR_MODE=mapping ./autostart/start_all_terminals.sh
 FASTLIO_RVIZ=true RC_LIDAR_MODE=relocalization ./autostart/start_all_terminals.sh
 ```
 
-如果使用 headless 模式，仍建议同时关闭 PlotJuggler：
+当前默认策略是：核心雷达/定位/CAN/健康日志节点都用 headless 后台方式启动，不再给每个节点单独弹终端窗口；手动启动时默认只额外打开 PlotJuggler，方便看 `/robot/pose`、`/robot/pose_filtered` 和 `/map_lidar/quality`。这样“正常启动”和“低负载启动”的核心链路几乎完全一致，差别主要是是否打开 PlotJuggler。
+
+如果想要最低负载，关闭 PlotJuggler：
 
 ```bash
 RC_AUTOSTART_HEADLESS=1 RC_AUTOSTART_PLOTJUGGLER=0 ./autostart/start_all_terminals.sh
 ```
 
-PlotJuggler 默认在手动启动时打开，开机自启和 CAN 自动重启时默认不打开，避免反复弹 GUI 或占用香橙派 CPU。可以用下面的环境变量覆盖：
+PlotJuggler 默认在手动启动时打开，开机自启和 CAN 自动重启时默认不打开，避免反复弹 GUI 或占用香橙派 CPU。PlotJuggler 本身通常比 RViz、VS Code、浏览器轻很多，但订阅高频曲线和较长 buffer 时仍会消耗一些 CPU/内存；实车比赛/电控调车建议用低负载启动，调试观察时再打开 PlotJuggler。可以用下面的环境变量覆盖：
 
 ```bash
 RC_AUTOSTART_PLOTJUGGLER=0 ./autostart/start_all_terminals.sh
@@ -527,7 +529,13 @@ RC_AUTOSTART_PLOTJUGGLER=1 RUN_REASON=boot ./autostart/start_all_terminals.sh
 RC_AUTOSTART_PLOTJUGGLER=1 RUN_REASON=can_restart ./autostart/start_all_terminals.sh
 ```
 
-TF 对比发布节点默认只在 PlotJuggler 会启动时自动启动；`LIDAR_XYZR` 点云调试打印默认只在非 headless 模式启动。性能测试或实车调车时建议保持默认低负载策略。需要单独打开调试节点时：
+TF 对比发布节点默认只在 PlotJuggler 会启动时自动启动；`LIDAR_XYZR` 点云调试打印默认只在显式非 headless 模式启动。需要恢复旧的“每个节点一个终端窗口”的重调试模式时：
+
+```bash
+RC_AUTOSTART_HEADLESS=0 ./autostart/start_all_terminals.sh
+```
+
+需要单独打开调试节点时：
 
 ```bash
 RC_AUTOSTART_TF_COMPARE=1 RC_AUTOSTART_LIDAR_XYZR=1 \
@@ -846,10 +854,19 @@ RC_READY_NOTIFY_WINDOW_SECONDS=20    # 提示窗口自动关闭时间
 
 CAN 报文触发的自动重启默认不弹 ready 窗口，避免电控反复重启时刷屏；如确实需要，重启环境里设置 `RC_READY_NOTIFY=1`。
 
-如果想打开图形窗口调试，默认会打开 PlotJuggler，但不会打开 RViz：
+如果想打开图形窗口调试，默认会打开 PlotJuggler，但不会打开 RViz，也不会给每个节点单独弹终端窗口：
 
 ```bash
 RC_LIDAR_MODE=relocalization ./autostart/start_all_terminals.sh
+```
+
+如果想完全贴近开机/比赛低负载状态，只是不看 PlotJuggler：
+
+```bash
+RC_LIDAR_MODE=relocalization \
+RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
+RC_AUTOSTART_PLOTJUGGLER=0 \
+./autostart/start_all_terminals.sh
 ```
 
 如果重定位调试时也需要 RViz：
@@ -1289,6 +1306,7 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
    - 只清理 `logs/autostart/run_*`，不会删除 `maps/`、`logs/calibration/`、`report_assets/`、PCD 地图或校准报告。`RC_AUTOSTART_LOG_CLEANUP=0` 可关闭，`RC_AUTOSTART_LOG_CLEANUP_DRY_RUN=1` 可只预览。
    - run 目录名追加 `boot_id` 短码和启动脚本 PID，格式类似 `run_20260621_172000_boot_517066fa_1234`，避免系统时间跳变或连续强制重启时复用同一个日志目录。
    - `start_summary.txt` 的关键事件增加 `uptime_sec` 和 `elapsed_sec`，分析开机早期日志时优先看这两个字段，不要只看墙上时间。
+   - `RC_AUTOSTART_HEADLESS=auto` 现在默认使用 headless 后台启动核心节点；手动启动时 `RC_AUTOSTART_PLOTJUGGLER=auto` 仍会打开 PlotJuggler，因此正常调试启动和低负载启动的核心链路一致，只差 PlotJuggler。
 
 24. `src/lidar_map_localization`
    - `/map_lidar/quality` 保留前 10 个字段兼容不变，并追加 reason_code、align_ms、raw_scan_points、scan_age_sec、odom_age_sec、output_jump_yaw、map_to_odom 修正量和 overlap_ratio。

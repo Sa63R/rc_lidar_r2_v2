@@ -317,6 +317,12 @@ HEALTH_MONITOR
 CAN_SERIAL
 ```
 
+当前 Orange Pi 策略里，`RC_AUTOSTART_HEADLESS=auto` 默认让核心雷达/定位/CAN/健康日志节点都用后台 headless 方式启动；手动启动时 `RC_AUTOSTART_PLOTJUGGLER=auto` 仍会打开 PlotJuggler。迁移到 R2 时也建议采用这个策略：正常调试启动和低负载启动保持同一条核心链路，只用 `RC_AUTOSTART_PLOTJUGGLER=0/1` 决定是否打开 PlotJuggler。若需要旧式“每个节点一个终端窗口”调试，再显式设置：
+
+```bash
+RC_AUTOSTART_HEADLESS=0 ./autostart/start_all_terminals.sh
+```
+
 停止所有残留进程：
 
 ```bash

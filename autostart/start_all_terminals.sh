@@ -142,19 +142,11 @@ resolve_headless_mode() {
       echo 0
       ;;
     auto)
-      if [ "$RUN_REASON" = "can_restart" ]; then
-        echo 1
-      else
-        echo 0
-      fi
+      echo 1
       ;;
     *)
       echo "[WARN] Unknown RC_AUTOSTART_HEADLESS=${RC_AUTOSTART_HEADLESS}; using auto." | tee -a "$LOG_DIR/start_summary.txt" >&2
-      if [ "$RUN_REASON" = "can_restart" ]; then
-        echo 1
-      else
-        echo 0
-      fi
+      echo 1
       ;;
   esac
 }
@@ -387,12 +379,12 @@ should_start_plotjuggler() {
       return 1
       ;;
     auto)
-      [ "$RUN_REASON" != "can_restart" ] && [ "$RUN_HEADLESS" != "1" ]
+      [ "$RUN_REASON" = "manual" ] && [ -n "${DISPLAY:-}" ]
       return
       ;;
     *)
       echo "[WARN] Unknown RC_AUTOSTART_PLOTJUGGLER=${RC_AUTOSTART_PLOTJUGGLER}; using auto." | tee -a "$LOG_DIR/start_summary.txt"
-      [ "$RUN_REASON" != "can_restart" ] && [ "$RUN_HEADLESS" != "1" ]
+      [ "$RUN_REASON" = "manual" ] && [ -n "${DISPLAY:-}" ]
       return
       ;;
   esac
