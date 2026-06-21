@@ -201,7 +201,9 @@ logs/autostart/boot_attempts.log
 logs/autostart/boot_start_state.env
 ```
 
-`boot_attempts.log` 只记录“自启入口有没有被调用”和跳过原因；`start_summary.txt`、`health_monitor.csv` 等仍然在每次实际运行的 `logs/autostart/run_<时间>_boot/` 目录里。由于香橙派开机后可能先用错误系统时间启动，随后被 NTP/chrony 校时，判断日志先后时不要只看文件名时间；优先看 `start_summary.txt` 里的 `boot_id`、`uptime_sec`、`epoch_sec`，以及 `boot_attempts.log`。
+`boot_attempts.log` 只记录“自启入口有没有被调用”和跳过原因；`start_summary.txt`、`health_monitor.csv` 等仍然在每次实际运行的 `logs/autostart/run_<时间>_<原因>_<boot_id短码>_<pid>/` 目录里。目录名仍保留墙上时间方便人工查看，但真正用于区分强制重启的是 `boot_id短码 + pid`，避免开机初期系统时间未校准或连续强关重启时多个 run 落到同一秒而互相混日志。
+
+由于香橙派开机后可能先用错误系统时间启动，随后被 NTP/chrony 校时，判断日志先后时不要只看文件名时间；优先看 `start_summary.txt` 里的 `boot_id`、`uptime_sec`、`elapsed_sec`，以及 `boot_attempts.log`。`uptime_sec` 是系统从本次开机以来经过的秒数，比墙上时间更可靠。
 
 开机自启默认使用低负载重定位模式，并假设机器人从建图原点附近启动：
 
@@ -1285,6 +1287,8 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
    - 新增原始运行日志保守清理：每次一键启动时清理超过 `RC_AUTOSTART_LOG_RETENTION_DAYS=30` 天的 `logs/autostart/run_*` 目录。
    - 永远保留最近 `RC_AUTOSTART_LOG_KEEP_RECENT=10` 次、`latest` 当前运行和 `latest_restart` 最近重启目录；清理结果写到当前运行目录的 `log_cleanup.log`。
    - 只清理 `logs/autostart/run_*`，不会删除 `maps/`、`logs/calibration/`、`report_assets/`、PCD 地图或校准报告。`RC_AUTOSTART_LOG_CLEANUP=0` 可关闭，`RC_AUTOSTART_LOG_CLEANUP_DRY_RUN=1` 可只预览。
+   - run 目录名追加 `boot_id` 短码和启动脚本 PID，格式类似 `run_20260621_172000_boot_517066fa_1234`，避免系统时间跳变或连续强制重启时复用同一个日志目录。
+   - `start_summary.txt` 的关键事件增加 `uptime_sec` 和 `elapsed_sec`，分析开机早期日志时优先看这两个字段，不要只看墙上时间。
 
 24. `src/lidar_map_localization`
    - `/map_lidar/quality` 保留前 10 个字段兼容不变，并追加 reason_code、align_ms、raw_scan_points、scan_age_sec、odom_age_sec、output_jump_yaw、map_to_odom 修正量和 overlap_ratio。

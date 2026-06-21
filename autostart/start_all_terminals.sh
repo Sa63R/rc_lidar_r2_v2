@@ -21,14 +21,32 @@ esac
 RC_LIDAR_MAP_PATH="${RC_LIDAR_MAP_PATH:-$WORKSPACE_DIR/maps/mid360_map.pcd}"
 RC_HEALTH_MONITOR="${RC_HEALTH_MONITOR:-${RC_THERMAL_POSE_MONITOR:-1}}"
 
-RUN_ID="$(date +%Y%m%d_%H%M%S)_${RUN_REASON}"
-LOG_DIR="$LOG_ROOT/run_$RUN_ID"
 BOOT_ID="$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo unknown)"
-UPTIME_SEC="$(awk '{print int($1)}' /proc/uptime 2>/dev/null || echo 0)"
+BOOT_ID_SHORT="$(printf '%s' "$BOOT_ID" | cut -c1-8)"
+
+current_uptime_sec() {
+  awk '{printf "%.3f", $1}' /proc/uptime 2>/dev/null || printf "0.000"
+}
+
+START_UPTIME_SEC="$(current_uptime_sec)"
+RUN_ID="$(date +%Y%m%d_%H%M%S)_${RUN_REASON}_${BOOT_ID_SHORT}_$$"
+LOG_DIR="$LOG_ROOT/run_$RUN_ID"
 
 sync_file() {
   local path="$1"
   sync -f "$path" >/dev/null 2>&1 || sync >/dev/null 2>&1 || true
+}
+
+elapsed_since_start() {
+  local now
+  now="$(current_uptime_sec)"
+  awk -v now="$now" -v start="$START_UPTIME_SEC" 'BEGIN { printf "%.3f", now - start }'
+}
+
+summary_event() {
+  local message="$1"
+  echo "[$(date -Iseconds) uptime_sec=$(current_uptime_sec) elapsed_sec=$(elapsed_since_start)] $message" | tee -a "$LOG_DIR/start_summary.txt"
+  sync_file "$LOG_DIR/start_summary.txt"
 }
 
 mkdir -p "$LOG_DIR"
@@ -55,8 +73,10 @@ mkdir -p "$ROS_LOG_DIR"
   echo "run_id: $RUN_ID"
   echo "run_reason: $RUN_REASON"
   echo "boot_id: $BOOT_ID"
-  echo "uptime_sec: $UPTIME_SEC"
+  echo "boot_id_short: $BOOT_ID_SHORT"
+  echo "uptime_sec: $START_UPTIME_SEC"
   echo "epoch_sec: $(date +%s)"
+  echo "pid: $$"
   echo "runtime_mode: $RC_LIDAR_MODE"
   echo "map_path: $RC_LIDAR_MAP_PATH"
   echo "health_monitor: $RC_HEALTH_MONITOR"
@@ -94,16 +114,15 @@ if [ -n "${RESTART_LOG:-}" ]; then
 fi
 
 if [ "${RC_AUTOSTART_DRY_RUN:-0}" = "1" ]; then
-  echo "prestop: skipped for dry-run" >> "$LOG_DIR/start_summary.txt"
+  summary_event "prestop: skipped for dry-run"
 elif [ "${RC_AUTOSTART_SKIP_PRESTOP:-0}" = "1" ]; then
-  echo "prestop: skipped by RC_AUTOSTART_SKIP_PRESTOP=1" >> "$LOG_DIR/start_summary.txt"
+  summary_event "prestop: skipped by RC_AUTOSTART_SKIP_PRESTOP=1"
 elif [ -x "$DIR/stop_all.sh" ]; then
-  echo "prestop: running $DIR/stop_all.sh --quiet" >> "$LOG_DIR/start_summary.txt"
-  sync_file "$LOG_DIR/start_summary.txt"
+  summary_event "prestop: running $DIR/stop_all.sh --quiet"
   "$DIR/stop_all.sh" --quiet > "$LOG_DIR/prestop.log" 2>&1 || true
   sync_file "$LOG_DIR/prestop.log"
 else
-  echo "prestop: stop_all.sh not found or not executable, skipped" >> "$LOG_DIR/start_summary.txt"
+  summary_event "prestop: stop_all.sh not found or not executable, skipped"
 fi
 sync_file "$LOG_DIR/start_summary.txt"
 
@@ -206,8 +225,7 @@ else
   START_DELAY="${RC_AUTOSTART_START_DELAY:-3}"
 fi
 sleep "$START_DELAY"
-echo "post_start_delay: $(date -Iseconds)" >> "$LOG_DIR/start_summary.txt"
-sync_file "$LOG_DIR/start_summary.txt"
+summary_event "post_start_delay"
 
 # 可选后台健康检查：没有这个脚本也不影响启动
 if [ -x "$DIR/diagnose_logger.sh" ]; then
@@ -225,7 +243,7 @@ start_one() {
   local statusfile="$LOG_DIR/${title}.status"
 
   {
-    echo "[$(date -Iseconds)] launching $title -> $script"
+    echo "[$(date -Iseconds) uptime_sec=$(current_uptime_sec) elapsed_sec=$(elapsed_since_start)] launching $title -> $script"
     echo "logfile: $logfile"
     echo "pidfile: $pidfile"
   } >> "$LOG_DIR/start_summary.txt"
@@ -474,52 +492,52 @@ elif [ "$RC_LIDAR_MODE" = "relocalization" ]; then
   start_one "MAP_LOCALIZER" "map_localizer.sh"
   start_one "POSE_INTERFACE" "pose_interface_relocalization.sh"
   if [ "${RC_POSE_FILTER:-1}" = "0" ]; then
-    echo "[$(date -Iseconds)] skipped POSE_FILTER because RC_POSE_FILTER=0" | tee -a "$LOG_DIR/start_summary.txt"
+    summary_event "skipped POSE_FILTER because RC_POSE_FILTER=0"
   else
     start_one "POSE_FILTER" "pose_stability_filter.sh"
   fi
   if should_start_ready_notify; then
     start_one "READY_NOTIFY" "relocalization_ready_notify.sh"
   else
-    echo "[$(date -Iseconds)] skipped READY_NOTIFY" | tee -a "$LOG_DIR/start_summary.txt"
+    summary_event "skipped READY_NOTIFY"
   fi
 else
-  echo "[$(date -Iseconds)] tracking mode: skipped MAP_LOCALIZER and POSE_INTERFACE" | tee -a "$LOG_DIR/start_summary.txt"
+  summary_event "tracking mode: skipped MAP_LOCALIZER and POSE_INTERFACE"
 fi
 if should_start_thermal_pose_monitor; then
   start_one "HEALTH_MONITOR" "thermal_pose_monitor.sh"
 else
-  echo "[$(date -Iseconds)] skipped HEALTH_MONITOR because RC_HEALTH_MONITOR is not enabled" | tee -a "$LOG_DIR/start_summary.txt"
+  summary_event "skipped HEALTH_MONITOR because RC_HEALTH_MONITOR is not enabled"
 fi
 if should_start_tf_compare; then
   start_one "TF_ROBOT_OFFSET" "robot_tf_offsets.sh"
   start_one "TF_LIDAR_OFFSET" "lidar_tf_offset.sh"
 else
-  echo "[$(date -Iseconds)] skipped TF compare publishers" | tee -a "$LOG_DIR/start_summary.txt"
+  summary_event "skipped TF compare publishers"
 fi
 if [ "$RC_LIDAR_MODE" = "mapping" ] && [ "${RC_AUTOSTART_CAN_DURING_MAPPING:-0}" != "1" ]; then
-  echo "[$(date -Iseconds)] skipped CAN_SERIAL in mapping mode" | tee -a "$LOG_DIR/start_summary.txt"
+  summary_event "skipped CAN_SERIAL in mapping mode"
 else
   start_one "CAN_SERIAL" "serial_driver.sh"
 fi
 if should_start_lidar_xyzr; then
   start_one "LIDAR_XYZR" "lidar_xyzr.sh"
 else
-  echo "[$(date -Iseconds)] skipped LIDAR_XYZR debug printer" | tee -a "$LOG_DIR/start_summary.txt"
+  summary_event "skipped LIDAR_XYZR debug printer"
 fi
 
 if [ "$START_PLOTJUGGLER" = "1" ]; then
   start_one "PLOTJUGGLER" "plotjuggler_tf_compare.sh"
 else
-  echo "[$(date -Iseconds)] skipped PLOTJUGGLER for run_reason=$RUN_REASON" | tee -a "$LOG_DIR/start_summary.txt"
+  summary_event "skipped PLOTJUGGLER for run_reason=$RUN_REASON"
 fi
 
 if [ -n "$(jobs -p)" ]; then
   disown
 fi
 
+summary_event "Started all terminals."
 {
-  echo "[$(date -Iseconds)] Started all terminals."
   echo "Log dir: $LOG_DIR"
   echo "Latest: $LOG_ROOT/latest"
 } | tee -a "$LOG_DIR/start_summary.txt"

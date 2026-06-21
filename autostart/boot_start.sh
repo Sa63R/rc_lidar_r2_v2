@@ -11,9 +11,12 @@ STATE_FILE="$LOG_DIR/boot_start_state.env"
 mkdir -p "$LOG_DIR"
 
 BOOT_ID="$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo unknown)"
-UPTIME_SEC="$(awk '{print int($1)}' /proc/uptime 2>/dev/null || echo 0)"
 DRY_RUN="${RC_AUTOSTART_DRY_RUN:-0}"
 FORCE_BOOT_START="${RC_LIDAR_FORCE_BOOT_START:-0}"
+
+current_uptime_sec() {
+  awk '{printf "%.3f", $1}' /proc/uptime 2>/dev/null || printf "0.000"
+}
 
 sync_file() {
   local path="$1"
@@ -22,17 +25,19 @@ sync_file() {
 
 log_boot_event() {
   local message="$1"
+  local uptime_sec
+  uptime_sec="$(current_uptime_sec)"
   {
     echo "[$(date -Iseconds)] $message"
     echo "  boot_id: $BOOT_ID"
-    echo "  uptime_sec: $UPTIME_SEC"
+    echo "  uptime_sec: $uptime_sec"
     echo "  pid: $$"
     echo "  ppid: $PPID"
     echo "  display: ${DISPLAY:-}"
     echo "  xdg_session_type: ${XDG_SESSION_TYPE:-}"
   } >> "$BOOT_LOG" 2>&1
   {
-    echo "$(date -Iseconds),boot_id=$BOOT_ID,uptime_sec=$UPTIME_SEC,pid=$$,ppid=$PPID,message=$message"
+    echo "$(date -Iseconds),boot_id=$BOOT_ID,uptime_sec=$uptime_sec,pid=$$,ppid=$PPID,message=$message"
   } >> "$ATTEMPT_LOG" 2>&1
   sync_file "$BOOT_LOG"
   sync_file "$ATTEMPT_LOG"
@@ -48,12 +53,14 @@ state_value() {
 
 write_state() {
   local status="$1"
+  local uptime_sec
+  uptime_sec="$(current_uptime_sec)"
   local tmp="$STATE_FILE.tmp.$$"
   {
     echo "boot_id=$BOOT_ID"
     echo "status=$status"
     echo "updated_at=$(date -Iseconds)"
-    echo "uptime_sec=$UPTIME_SEC"
+    echo "uptime_sec=$uptime_sec"
     echo "pid=$$"
     echo "workspace=$WORKSPACE_DIR"
     echo "latest_log_dir=$(readlink -f "$LOG_DIR/latest" 2>/dev/null || true)"
@@ -67,7 +74,7 @@ write_state() {
   echo "========== XDG AUTOSTART =========="
   echo "time: $(date -Iseconds)"
   echo "boot_id: $BOOT_ID"
-  echo "uptime_sec: $UPTIME_SEC"
+  echo "uptime_sec: $(current_uptime_sec)"
   echo "pid: $$"
   echo "user: $(whoami)"
   echo "display: ${DISPLAY:-}"

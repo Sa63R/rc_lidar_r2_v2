@@ -267,7 +267,7 @@ cat logs/autostart/boot_start_state.env
 find logs/autostart -maxdepth 1 -type d -name 'run_*' -printf '%TY-%Tm-%Td %TH:%TM:%TS %f\n' | sort -r | head
 ```
 
-注意：开机后系统时间可能先不准，之后被 NTP/chrony 校正。排查日志先后时，不要只看 `run_YYYYMMDD_HHMMSS` 文件名；同时看 `start_summary.txt` 里的 `boot_id`、`uptime_sec` 和 `epoch_sec`。
+注意：开机后系统时间可能先不准，之后被 NTP/chrony 校正。排查日志先后时，不要只看 `run_YYYYMMDD_HHMMSS` 这一段文件名；当前 run 目录会追加 `boot_id` 短码和启动脚本 PID，例如 `run_20260621_172000_boot_517066fa_1234`，用来避免连续强关重启时日志目录碰撞。同时看 `start_summary.txt` 里的 `boot_id`、`uptime_sec`、`elapsed_sec` 和 `epoch_sec`。
 
 当前 Orange Pi 工程还有一个重定位 ready 提示节点 `READY_NOTIFY`。迁移到 R2 时也建议保留：它订阅 `/robot/pose_filtered` 和 `/map_lidar/quality`，当重定位连续 accepted/converged 且 `fitness` 达标后写：
 
