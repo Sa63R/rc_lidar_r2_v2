@@ -595,10 +595,12 @@ RC_AUTOSTART_PLOTJUGGLER=1 \
 当前 PlotJuggler 自动启动策略不是“强行画好所有曲线”，而是做三件低风险自动化：
 
 ```text
-1. 等待关键 ROS topic 出现。
+1. 最多等待关键 ROS topic 出现 16 秒。
 2. 写入 PlotJuggler 用户配置里的 DataStreamROS2/default_topics。
 3. 用 xdotool 自动确认 Warning、Start Streaming?、Topic Selector 等弹窗。
 ```
+
+等待时间可用 `PLOTJUGGLER_WAIT_SECONDS` 覆盖。如果日志里持续显示一整组 topic 都在等待，先看是否有 `ros2 topic list failed`；这通常是 ROS graph 查询暂时失败或 daemon 状态异常，不等于每个 topic 都真的未发布。
 
 r2 上需要安装：
 

@@ -5,7 +5,7 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common_env.sh"
 
 LAYOUT_FILE="${PLOTJUGGLER_LAYOUT:-${PLOTJUGGLER_TF_LAYOUT:-}}"
-WAIT_SECONDS="${PLOTJUGGLER_WAIT_SECONDS:-90}"
+WAIT_SECONDS="${PLOTJUGGLER_WAIT_SECONDS:-16}"
 BUFFER_SIZE="${PLOTJUGGLER_BUFFER_SIZE:-300}"
 PLOTJUGGLER_CONFIG="${PLOTJUGGLER_CONFIG:-$HOME/.config/PlotJuggler/io.plotjuggler.PlotJuggler.ini}"
 
@@ -118,10 +118,18 @@ fi
 wait_for_topics() {
   local deadline=$((SECONDS + WAIT_SECONDS))
   local topics
+  local topic_output
   local missing
 
   while [ "$SECONDS" -lt "$deadline" ]; do
-    topics="$(ros2 topic list 2>/dev/null || true)"
+    if ! topic_output="$(ros2 topic list 2>&1)"; then
+      echo "[plotjuggler] WARN: ros2 topic list failed while waiting for topics:"
+      echo "$topic_output" | sed 's/^/[plotjuggler]   /'
+      sleep 1
+      continue
+    fi
+
+    topics="$topic_output"
     missing=()
 
     for topic in "${TOPICS[@]}"; do

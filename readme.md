@@ -559,6 +559,8 @@ default_topics=...
 
 这样 Topic Selector 里会默认选中 `/robot/pose`、`/robot/pose_filtered`、`/map_lidar/quality`、`/lidar/pose_filter/status` 和三个 `/tf_compare/...` topic。之前出现“只选中了 body/body_highrate 对比 topic”的原因，就是这个 `default_topics` 还保留着旧值；XML 里的 `selected_topics` 不一定会覆盖 ROS2 插件的用户配置。
 
+PlotJuggler 启动前默认最多等待关键 topic `16s`，可用 `PLOTJUGGLER_WAIT_SECONDS` 覆盖。日志里如果看到 `Waiting for topics:` 后面列出一整组 topic，不一定代表这些 topic 永久不存在；启动早期也可能是 `ros2 topic list`/ROS graph 查询暂时失败。Rc 3.1 起脚本会把 `ros2 topic list failed` 单独写进日志，便于区分“topic 真的没发布”和“ROS graph 查询失败”。
+
 如果确实想恢复旧的自动分屏布局，可以手动指定：
 
 ```bash
