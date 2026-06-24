@@ -20,6 +20,33 @@ case "$RC_LIDAR_MODE" in
 esac
 RC_LIDAR_MAP_PATH="${RC_LIDAR_MAP_PATH:-$WORKSPACE_DIR/maps/mid360_map.pcd}"
 RC_HEALTH_MONITOR="${RC_HEALTH_MONITOR:-${RC_THERMAL_POSE_MONITOR:-1}}"
+RC_POSE_FILTER_SELECTED="${RC_POSE_FILTER_SELECTED:-normal}"
+RC_POSE_FILTER_BETA="${RC_POSE_FILTER_BETA:-0}"
+RC_BETA_FILTERED_POSE_TOPIC="${RC_BETA_FILTERED_POSE_TOPIC:-/robot/pose_filtered_beta}"
+case "$RC_POSE_FILTER_SELECTED" in
+  normal|beta)
+    ;;
+  *)
+    echo "[ERROR] Unknown RC_POSE_FILTER_SELECTED=$RC_POSE_FILTER_SELECTED. Use normal or beta." >&2
+    exit 2
+    ;;
+esac
+case "$RC_POSE_FILTER_BETA" in
+  1|true|TRUE|yes|YES|on|ON)
+    RC_POSE_FILTER_BETA_ENABLED=1
+    ;;
+  0|false|FALSE|no|NO|off|OFF|"")
+    RC_POSE_FILTER_BETA_ENABLED=0
+    ;;
+  *)
+    echo "[ERROR] Unknown RC_POSE_FILTER_BETA=$RC_POSE_FILTER_BETA. Use 0 or 1." >&2
+    exit 2
+    ;;
+esac
+if [ "$RC_POSE_FILTER_SELECTED" = "beta" ] && [ "$RC_POSE_FILTER_BETA_ENABLED" != "1" ]; then
+  echo "[ERROR] RC_POSE_FILTER_SELECTED=beta requires RC_POSE_FILTER_BETA=1." >&2
+  exit 2
+fi
 
 BOOT_ID="$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo unknown)"
 BOOT_ID_SHORT="$(printf '%s' "$BOOT_ID" | cut -c1-8)"
@@ -58,6 +85,9 @@ export RUN_REASON
 export RC_LIDAR_MODE
 export RC_LIDAR_MAP_PATH
 export RC_HEALTH_MONITOR
+export RC_POSE_FILTER_SELECTED
+export RC_POSE_FILTER_BETA
+export RC_BETA_FILTERED_POSE_TOPIC
 export RC_LIDAR_BOOT_ID="${RC_LIDAR_BOOT_ID:-$BOOT_ID}"
 
 # ROS2 自己的日志目录
@@ -80,6 +110,9 @@ mkdir -p "$ROS_LOG_DIR"
   echo "runtime_mode: $RC_LIDAR_MODE"
   echo "map_path: $RC_LIDAR_MAP_PATH"
   echo "health_monitor: $RC_HEALTH_MONITOR"
+  echo "pose_filter_selected: $RC_POSE_FILTER_SELECTED"
+  echo "pose_filter_beta: $RC_POSE_FILTER_BETA"
+  echo "beta_filtered_pose_topic: $RC_BETA_FILTERED_POSE_TOPIC"
   echo "log_dir: $LOG_DIR"
   echo "dir: $DIR"
   echo "user: $(whoami)"
@@ -487,6 +520,11 @@ elif [ "$RC_LIDAR_MODE" = "relocalization" ]; then
     summary_event "skipped POSE_FILTER because RC_POSE_FILTER=0"
   else
     start_one "POSE_FILTER" "pose_stability_filter.sh"
+    if [ "$RC_POSE_FILTER_BETA_ENABLED" = "1" ]; then
+      start_one "POSE_FILTER_BETA" "pose_stability_filter_beta.sh"
+    else
+      summary_event "skipped POSE_FILTER_BETA because RC_POSE_FILTER_BETA=0"
+    fi
   fi
   if should_start_ready_notify; then
     start_one "READY_NOTIFY" "relocalization_ready_notify.sh"

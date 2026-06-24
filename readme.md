@@ -914,6 +914,26 @@ RC_CAN_POSE_SOURCE=tf ./autostart/start_all_terminals.sh
 
 `/robot/pose_filtered` 是低延迟自适应滤波后的机器人中心点位姿，主要用于观察是否能降低地图重定位输出的毫米到厘米级抖动，以及拒绝少数硬离群点。它不会让原始点云匹配本身变得更准；判断原始定位质量仍要看 `/robot/pose`、`/map_lidar/quality` 和现场地图质量。
 
+Rc 2.9 起，滤波核心参考 r2 仓库的 normal/beta 方案：
+
+- normal 仍是默认生产链路，输出 `/robot/pose_filtered`，CAN 默认继续发这个 topic。
+- beta 是尖峰确认滤波，输出 `/robot/pose_filtered_beta` 和 `/lidar/pose_filter_beta/status`。它在静止时遇到疑似尖峰会先 hold，若后续回落则拒绝，若连续同方向运动达到确认次数才释放为真实运动。
+- beta 默认不启动，目的是保护低负载开机和 CAN 调车链路；需要观察时手动打开。
+
+打开 beta 对比，但 CAN 仍发 normal：
+
+```bash
+RC_POSE_FILTER_BETA=1 ./autostart/start_all_terminals.sh
+```
+
+确认 beta 更适合现场后，才显式让 CAN 发 beta：
+
+```bash
+RC_POSE_FILTER_BETA=1 \
+RC_POSE_FILTER_SELECTED=beta \
+./autostart/start_all_terminals.sh
+```
+
 普通 tracking 模式默认仍是：
 
 ```text
@@ -932,16 +952,20 @@ PlotJuggler 里看机器人中心点滤波前后抖动，优先选这些曲线�
 ```text
 /robot/pose/pose/position/x
 /robot/pose_filtered/pose/position/x
+/robot/pose_filtered_beta/pose/position/x
 /robot/pose/pose/position/y
 /robot/pose_filtered/pose/position/y
+/robot/pose_filtered_beta/pose/position/y
 /robot/pose/pose/position/z
 /robot/pose_filtered/pose/position/z
+/robot/pose_filtered_beta/pose/position/z
 ```
 
 滤波观察要区分几件事：
 
 - `/robot/pose` 是滤波前的地图重定位观察值，来源仍然是 `/map_lidar/odom -> pose_from_odom`。Rc 2.4 没有修改 `/robot/pose` 的生成算法、地图匹配参数或坐标转换逻辑。如果重启后看到 `/robot/pose` 比之前稳定，通常不是代码直接调稳了它，而是这次运行的状态更干净、地图匹配收敛更好、现场动态干扰更少，或者 PlotJuggler 里选到的曲线和之前不同。
-- `/robot/pose_filtered` 是滤波后的观察值。滤波目标是静止时压住小抖动，运动时尽量保留连续轨迹；绕点转圈时，连续的正弦/余弦曲线通常比台阶或锯齿更符合真实运动。
+- `/robot/pose_filtered` 是默认滤波后的观察值。滤波目标是静止时压住小抖动，运动时尽量保留连续轨迹；绕点转圈时，连续的正弦/余弦曲线通常比台阶或锯齿更符合真实运动。
+- `/robot/pose_filtered_beta` 只有 `RC_POSE_FILTER_BETA=1` 时发布，主要用于和 normal 对比静止尖峰抑制效果；PlotJuggler 也只会在 beta 打开时自动等待/订阅 beta topic。
 - 当前滤波用 `xy_speed` 和 `yaw_rate` 计算运动因子：静止时使用较强平滑，明显运动时快速跟随原始曲线，中间状态平滑过渡。
 - 硬离群点仍会被短暂拒绝并保持旧输出；但如果连续拒绝超过默认 10 次，或持续超过默认 1 秒，会认为这已经不是单帧异常，而是位姿发生了真实变化，于是重新捕获当前位姿，避免输出永久停成水平线。
 - 当前生产策略是：重定位模式下 CAN 默认使用 `/robot/pose_filtered`，tracking 模式下才继续使用 TF 的 `init -> base_link_highrate/base_link`。因此调车时如果启用 `RC_LIDAR_MODE=relocalization`，滤波表现会直接影响电控收到的坐标。
@@ -958,6 +982,10 @@ RC_POSE_FILTER_FULL_YAW_RATE_DEG=45.0
 RC_POSE_FILTER_MAX_XY_JUMP=0.50
 RC_POSE_FILTER_MAX_XY_SPEED=5.0
 RC_POSE_FILTER_MAX_YAW_JUMP_DEG=90.0
+RC_POSE_FILTER_SPIKE_STEP=0.05
+RC_POSE_FILTER_BETA_SPIKE_STEP=0.012
+RC_POSE_FILTER_BETA_CONFIRM_SAMPLES=3
+RC_POSE_FILTER_BETA_RETURN_TOLERANCE=0.006
 ```
 
 `/lidar/pose_filter/status` 使用 `std_msgs/Float32MultiArray`，字段含义：
@@ -979,6 +1007,11 @@ data[12] consecutive_rejects
 data[13] recovered，1 表示连续拒绝后重新捕获当前位姿，避免滤波输出永久卡死
 data[14] motion_factor，0 表示按静止强滤波，1 表示按运动快速跟随
 data[15] yaw_rate_deg，当前原始 yaw 变化速率，单位 deg/s
+data[16] filter_mode_code，0=normal，1=beta
+data[17] reason_code，0=initial，1=accepted，2=stationary_spike，3=hard_reject，4=recovered，5=beta_hold，6=beta_spike_rejected，7=beta_confirmed_motion
+data[18] hold_state_code，0=idle，1=holding，2=rejected，3=released
+data[19] confirm_count，beta 连续确认计数
+data[20] spike_candidate，1 表示本帧被视为疑似尖峰或硬离群
 ```
 
 `/map_lidar/quality` 使用 `std_msgs/Float32MultiArray`，字段含义：
@@ -1285,16 +1318,17 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
    - 建图模式下可把 `/Odometry` 转成相对启动点的 `/robot/pose`，同时保留旧兼容名 `/lidar/pose`。
    - 重定位模式下把 `/map_lidar/odom` 转成业务坐标 `init -> base_link` 的 `/robot/pose`，坐标语义为 `X右/Y前/Z上`。
    - 新增 `pose_stability_filter`，将 `/robot/pose` 平滑为 `/robot/pose_filtered`，同时保留旧兼容名 `/lidar/pose_filtered`；`RC_POSE_FILTER=0` 可关闭。滤波器按 `xy_speed` 和 `yaw_rate` 自适应调整强度，静止时压抖动，运动时快速跟随，并带连续拒绝后的恢复机制，避免机器人移动后滤波输出永久停在旧值。
+   - Rc 2.9 参考 r2 的 `pose_filter.py` 增加 `filter_mode=normal|beta`。normal 仍是默认生产链路；beta 输出 `/robot/pose_filtered_beta` 和 `/lidar/pose_filter_beta/status`，通过短时 hold/确认抑制静止尖峰。beta 默认不启动，需要 `RC_POSE_FILTER_BETA=1` 手动开启对比。
 
 21. `autostart/start_mapping_terminals.sh`、`autostart/save_fast_lio_map.sh`、`autostart/map_localizer.sh`、`autostart/pose_interface_mapping.sh`、`autostart/pose_interface_relocalization.sh`、`autostart/pose_stability_filter.sh`
    - 新增建图保存和地图重定位的一键脚本。
    - `RC_LIDAR_MODE=mapping` 用于建图保存；`RC_LIDAR_MODE=relocalization` 用于基于地图的高精度重定位。
    - 未设置 `RC_FASTLIO_MAP_SAVE_PATH` 时，若默认 `maps/mid360_map.pcd` 已存在，会自动保存为带时间戳的新 PCD，避免覆盖旧地图。
-   - 重定位模式默认启动位姿滤波，并默认把 `/robot/pose_filtered` 作为 CAN 发送来源；`stop_all.sh` 和 CAN 重启脚本已同步清理新增节点，避免模式切换后残留旧进程。
+   - 重定位模式默认启动 normal 位姿滤波，并默认把 `/robot/pose_filtered` 作为 CAN 发送来源；`RC_POSE_FILTER_BETA=1` 可额外启动 beta 对比，`RC_POSE_FILTER_SELECTED=beta` 才会把 CAN 来源切到 `/robot/pose_filtered_beta`。`stop_all.sh` 和 CAN 重启脚本已同步清理 normal/beta 滤波节点，避免模式切换后残留旧进程。
 
 22. `autostart/thermal_pose_monitor.py`、`autostart/thermal_pose_monitor.sh`
    - 新增默认启动的轻量健康日志；`RC_HEALTH_MONITOR=0` 可关闭，旧变量 `RC_THERMAL_POSE_MONITOR` 仍兼容。
-   - 默认 0.2 秒记录一次，也就是 5Hz，记录温度、`load1/load5/load15`、CPU 频率、`/robot/pose`、`/robot/pose_filtered`、`/map_lidar/quality`、`/lidar/pose_filter/status`、运动状态和静止窗口 XY 峰峰值。
+   - 默认 0.2 秒记录一次，也就是 5Hz，记录温度、`load1/load5/load15`、CPU 频率、`/robot/pose`、`/robot/pose_filtered`、可选 `/robot/pose_filtered_beta`、`/map_lidar/quality`、normal/beta 滤波状态、运动状态和静止窗口 XY 峰峰值。
    - 输出 `logs/autostart/latest/health_monitor.csv`、`health_monitor_summary.json`、`health_monitor_run.json`、`health_monitor_stop.json` 与 `health_events.jsonl`，用于判断定位抖动是否和热/负载/地图匹配质量正相关。
    - 增加 `spike_candidate`、`sustained_motion` 和 `static_context_*` 字段，避免静止时单帧尖峰被误判成持续运动后把证据清掉。
    - `health_events.jsonl` 在 raw/filter/map/filter-status 出现跳变、拒绝、恢复或 bad fitness 时写入事件前后窗口摘要；`RC_HEALTH_MONITOR_EVENT_CONTEXT_CSV=1` 可额外保存逐点上下文。

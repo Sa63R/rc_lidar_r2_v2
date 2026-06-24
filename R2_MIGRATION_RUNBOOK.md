@@ -467,6 +467,23 @@ tail -n 120 logs/autostart/latest/CAN_SERIAL.log
 - `/robot/pose_filtered` 跟随 `/robot/pose`，静止时更稳，运动时不长时间卡死。
 - `CAN_SERIAL.log` 显示 `pose_source=pose_topic pose_topic=/robot/pose_filtered`。
 
+当前 Orange Pi Rc 2.9 滤波已参考 r2 normal/beta 方案，但默认采用更保守的生产策略：
+
+```bash
+# 默认：只启动 normal，CAN 发 /robot/pose_filtered
+./autostart/start_all_terminals.sh
+
+# 手动对比 beta，但 CAN 仍发 normal
+RC_POSE_FILTER_BETA=1 ./autostart/start_all_terminals.sh
+
+# 确认 beta 更适合现场后，才让 CAN 发 beta
+RC_POSE_FILTER_BETA=1 \
+RC_POSE_FILTER_SELECTED=beta \
+./autostart/start_all_terminals.sh
+```
+
+迁移到 R2 时优先保留这个保守策略：beta 先用于 PlotJuggler 和健康日志对比，不默认进入电控生产链路。`RC_POSE_FILTER_SELECTED=beta` 必须和 `RC_POSE_FILTER_BETA=1` 同时设置，否则启动脚本应直接报错，避免 CAN 读取不存在的 `/robot/pose_filtered_beta`。
+
 ## 8. TF、外参和自转校准
 
 当前静态 TF 结构：
@@ -860,6 +877,8 @@ RC_AUTOSTART_PLOTJUGGLER=0 \
 sleep 30
 ros2 topic echo /robot/pose --once
 ros2 topic echo /robot/pose_filtered --once
+# 如果手动启用了 RC_POSE_FILTER_BETA=1：
+ros2 topic echo /robot/pose_filtered_beta --once
 ros2 topic echo /map_lidar/quality --once
 ros2 topic echo /lidar/pose_filter/status --once
 tail -n 120 logs/autostart/latest/CAN_SERIAL.log
@@ -872,6 +891,7 @@ ls -lh logs/autostart/latest/health_monitor.*
 - Livox topic、FAST-LIO odometry、`camera_init -> body` TF 正常。
 - `MAP_LOCALIZER` 发布质量 topic，且没有持续 rejected。
 - `/robot/pose_filtered` 连续刷新。
+- 如果启用 beta，对比 `/robot/pose_filtered_beta`，确认静止尖峰更少且真实连续运动不会长期 hold。
 - CAN 使用 `/robot/pose_filtered`，有接收端时 TX 计数增长。
 - 健康日志存在，能记录温度、load、CPU 频率、地图质量和静止漂移。
 - `./autostart/stop_all.sh` 能清掉残留雷达、定位、滤波、CAN 和 GUI 调试进程。

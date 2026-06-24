@@ -55,7 +55,13 @@ if [ -z "${RC_CAN_POSE_SOURCE:-}" ]; then
 fi
 if [ -z "${RC_CAN_POSE_TOPIC:-}" ]; then
   if [ "$RC_CAN_POSE_SOURCE" != "tf" ] && [ "${RC_LIDAR_MODE:-tracking}" = "relocalization" ]; then
-    RC_CAN_POSE_TOPIC="${RC_POSE_FILTER_CAN_TOPIC:-/robot/pose_filtered}"
+    if [ "${RC_POSE_FILTER:-1}" = "0" ]; then
+      RC_CAN_POSE_TOPIC="${RC_RAW_POSE_TOPIC:-/robot/pose}"
+    elif [ "${RC_POSE_FILTER_SELECTED:-normal}" = "beta" ]; then
+      RC_CAN_POSE_TOPIC="${RC_BETA_FILTERED_POSE_TOPIC:-/robot/pose_filtered_beta}"
+    else
+      RC_CAN_POSE_TOPIC="${RC_POSE_FILTER_CAN_TOPIC:-/robot/pose_filtered}"
+    fi
   else
     RC_CAN_POSE_TOPIC="/lidar/pose"
   fi

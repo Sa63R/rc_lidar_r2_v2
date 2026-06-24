@@ -44,14 +44,23 @@ CSV_FIELDS = [
     "filtered_y",
     "filtered_z",
     "filtered_yaw_deg",
+    "beta_x",
+    "beta_y",
+    "beta_z",
+    "beta_yaw_deg",
     "raw_filtered_delta_xy_m",
     "raw_filtered_delta_yaw_deg",
+    "raw_beta_delta_xy_m",
+    "filtered_beta_delta_xy_m",
     "raw_step_xy_m",
     "raw_speed_xy_mps",
     "raw_yaw_rate_degps",
     "filtered_step_xy_m",
     "filtered_speed_xy_mps",
     "filtered_yaw_rate_degps",
+    "beta_step_xy_m",
+    "beta_speed_xy_mps",
+    "beta_yaw_rate_degps",
     "motion_factor",
     "is_stationary",
     "raw_window_x_p2p_m",
@@ -60,6 +69,9 @@ CSV_FIELDS = [
     "filtered_window_x_p2p_m",
     "filtered_window_y_p2p_m",
     "filtered_window_xy_p2p_m",
+    "beta_window_x_p2p_m",
+    "beta_window_y_p2p_m",
+    "beta_window_xy_p2p_m",
     "stationary_raw_window_x_p2p_m",
     "stationary_raw_window_y_p2p_m",
     "stationary_raw_window_xy_p2p_m",
@@ -94,10 +106,27 @@ CSV_FIELDS = [
     "filter_status_recovered",
     "filter_status_motion_factor",
     "filter_status_yaw_rate_degps",
+    "filter_status_reason_code",
+    "filter_status_hold_state_code",
+    "filter_status_confirm_count",
+    "beta_filter_status_accepted",
+    "beta_filter_status_raw_step_xy_m",
+    "beta_filter_status_speed_xy_mps",
+    "beta_filter_status_alpha",
+    "beta_filter_status_reject_count",
+    "beta_filter_status_consecutive_rejects",
+    "beta_filter_status_recovered",
+    "beta_filter_status_motion_factor",
+    "beta_filter_status_yaw_rate_degps",
+    "beta_filter_status_reason_code",
+    "beta_filter_status_hold_state_code",
+    "beta_filter_status_confirm_count",
     "raw_age_sec",
     "filtered_age_sec",
+    "beta_age_sec",
     "quality_age_sec",
     "filter_status_age_sec",
+    "beta_filter_status_age_sec",
 ]
 
 
@@ -254,15 +283,20 @@ class ThermalPoseMonitor(Node):
 
         self.raw_pose: PoseSample | None = None
         self.filtered_pose: PoseSample | None = None
+        self.beta_pose: PoseSample | None = None
         self.quality: tuple[float, list[float]] | None = None
         self.filter_status: tuple[float, list[float]] | None = None
+        self.beta_filter_status: tuple[float, list[float]] | None = None
         self.previous_raw_pose: PoseSample | None = None
         self.previous_filtered_pose: PoseSample | None = None
+        self.previous_beta_pose: PoseSample | None = None
         self.callback_previous_raw_pose: PoseSample | None = None
         self.callback_previous_filtered_pose: PoseSample | None = None
+        self.callback_previous_beta_pose: PoseSample | None = None
 
         self.raw_window: Deque[PoseSample] = deque()
         self.filtered_window: Deque[PoseSample] = deque()
+        self.beta_window: Deque[PoseSample] = deque()
         self.stationary_raw_window: Deque[PoseSample] = deque()
         self.stationary_filtered_window: Deque[PoseSample] = deque()
         self.static_context_raw_window: Deque[PoseSample] = deque()
@@ -310,14 +344,17 @@ class ThermalPoseMonitor(Node):
 
         self.create_subscription(PoseStamped, args.raw_topic, self.on_raw_pose, 20)
         self.create_subscription(PoseStamped, args.filtered_topic, self.on_filtered_pose, 20)
+        self.create_subscription(PoseStamped, args.beta_topic, self.on_beta_pose, 20)
         self.create_subscription(Float32MultiArray, args.quality_topic, self.on_quality, 20)
         self.create_subscription(Float32MultiArray, args.filter_status_topic, self.on_filter_status, 20)
+        self.create_subscription(Float32MultiArray, args.beta_filter_status_topic, self.on_beta_filter_status, 20)
         self.timer = self.create_timer(args.interval, self.sample)
 
         self.get_logger().info(
             f"health monitor logging csv={self.csv_path} summary={self.summary_path} "
             f"events={self.event_path} raw={args.raw_topic} filtered={args.filtered_topic} "
-            f"quality={args.quality_topic} filter_status={args.filter_status_topic}"
+            f"beta={args.beta_topic} quality={args.quality_topic} "
+            f"filter_status={args.filter_status_topic} beta_status={args.beta_filter_status_topic}"
         )
         self.get_logger().info(
             f"health monitor markers run={self.run_marker_path} stop={self.stop_marker_path} "
@@ -352,8 +389,10 @@ class ThermalPoseMonitor(Node):
                 "stop_marker_path": str(self.stop_marker_path),
                 "raw_topic": self.args.raw_topic,
                 "filtered_topic": self.args.filtered_topic,
+                "beta_topic": self.args.beta_topic,
                 "quality_topic": self.args.quality_topic,
                 "filter_status_topic": self.args.filter_status_topic,
+                "beta_filter_status_topic": self.args.beta_filter_status_topic,
                 "interval_sec": self.args.interval,
                 "window_sec": self.args.window,
                 "summary_interval_sec": self.args.summary_interval,
@@ -419,6 +458,24 @@ class ThermalPoseMonitor(Node):
                     "filtered_step_xy_m": step_xy,
                     "filtered_speed_xy_mps": speed_xy,
                     "filtered_yaw_rate_degps": yaw_rate,
+                    "threshold_m": self.args.spike_filtered_step,
+                },
+            )
+
+    def on_beta_pose(self, msg: PoseStamped) -> None:
+        p = msg.pose.position
+        pose = (time.monotonic(), float(p.x), float(p.y), float(p.z), yaw_from_pose(msg))
+        step_xy, speed_xy, yaw_rate = pose_step(self.callback_previous_beta_pose, pose)
+        self.beta_pose = pose
+        self.callback_previous_beta_pose = pose
+        if math.isfinite(step_xy) and step_xy >= self.args.spike_filtered_step:
+            self.start_event(
+                "beta_pose_step",
+                pose[0],
+                {
+                    "beta_step_xy_m": step_xy,
+                    "beta_speed_xy_mps": speed_xy,
+                    "beta_yaw_rate_degps": yaw_rate,
                     "threshold_m": self.args.spike_filtered_step,
                 },
             )
@@ -490,6 +547,41 @@ class ThermalPoseMonitor(Node):
                     "filter_raw_step_xy_m": raw_step,
                     "filter_motion_factor": motion_factor,
                     "consecutive_rejects": values[12] if len(values) > 12 else math.nan,
+                },
+            )
+
+    def on_beta_filter_status(self, msg: Float32MultiArray) -> None:
+        now = time.monotonic()
+        values = [float(value) for value in msg.data]
+        self.beta_filter_status = (now, values)
+        accepted = values[0] if len(values) > 0 else math.nan
+        raw_step = values[5] if len(values) > 5 else math.nan
+        recovered = values[13] if len(values) > 13 else math.nan
+        motion_factor = values[14] if len(values) > 14 else math.nan
+        reason_code = values[17] if len(values) > 17 else math.nan
+        hold_state = values[18] if len(values) > 18 else math.nan
+        confirm_count = values[19] if len(values) > 19 else math.nan
+        if math.isfinite(accepted) and accepted < 0.5:
+            self.start_event(
+                "beta_filter_rejected",
+                now,
+                {
+                    "beta_filter_raw_step_xy_m": raw_step,
+                    "beta_filter_motion_factor": motion_factor,
+                    "beta_filter_reason_code": reason_code,
+                    "beta_filter_hold_state_code": hold_state,
+                    "beta_filter_confirm_count": confirm_count,
+                },
+            )
+        if math.isfinite(recovered) and recovered > 0.5:
+            self.start_event(
+                "beta_filter_recovered",
+                now,
+                {
+                    "beta_filter_raw_step_xy_m": raw_step,
+                    "beta_filter_motion_factor": motion_factor,
+                    "beta_filter_reason_code": reason_code,
+                    "beta_filter_hold_state_code": hold_state,
                 },
             )
 
@@ -636,6 +728,8 @@ class ThermalPoseMonitor(Node):
             self.raw_window.append(self.raw_pose)
         if self.filtered_pose:
             self.filtered_window.append(self.filtered_pose)
+        if self.beta_pose:
+            self.beta_window.append(self.beta_pose)
 
         if is_stationary:
             if self.raw_pose:
@@ -657,6 +751,7 @@ class ThermalPoseMonitor(Node):
 
         self.trim_window(self.raw_window, now)
         self.trim_window(self.filtered_window, now)
+        self.trim_window(self.beta_window, now)
         self.trim_window(self.stationary_raw_window, now)
         self.trim_window(self.stationary_filtered_window, now)
         self.trim_window(self.static_context_raw_window, now)
@@ -672,6 +767,10 @@ class ThermalPoseMonitor(Node):
         filtered_step, filtered_speed, filtered_yaw_rate = pose_step(
             self.previous_filtered_pose,
             self.filtered_pose,
+        )
+        beta_step, beta_speed, beta_yaw_rate = pose_step(
+            self.previous_beta_pose,
+            self.beta_pose,
         )
         motion_factor = self.compute_motion_factor(
             raw_speed,
@@ -714,8 +813,11 @@ class ThermalPoseMonitor(Node):
             filter_recovered,
             filter_motion_factor,
             filter_yaw_rate,
+            filter_reason_code,
+            filter_hold_state,
+            filter_confirm_count,
             filter_status_age,
-        ) = (math.nan,) * 10
+        ) = (math.nan,) * 13
         if self.filter_status:
             stamp, values = self.filter_status
             filter_status_age = now - stamp
@@ -728,12 +830,50 @@ class ThermalPoseMonitor(Node):
             filter_recovered = values[13] if len(values) > 13 else math.nan
             filter_motion_factor = values[14] if len(values) > 14 else math.nan
             filter_yaw_rate = values[15] if len(values) > 15 else math.nan
+            filter_reason_code = values[17] if len(values) > 17 else math.nan
+            filter_hold_state = values[18] if len(values) > 18 else math.nan
+            filter_confirm_count = values[19] if len(values) > 19 else math.nan
+
+        (
+            beta_filter_accepted,
+            beta_filter_raw_step,
+            beta_filter_speed,
+            beta_filter_alpha,
+            beta_filter_reject_count,
+            beta_filter_consecutive_rejects,
+            beta_filter_recovered,
+            beta_filter_motion_factor,
+            beta_filter_yaw_rate,
+            beta_filter_reason_code,
+            beta_filter_hold_state,
+            beta_filter_confirm_count,
+            beta_filter_status_age,
+        ) = (math.nan,) * 13
+        if self.beta_filter_status:
+            stamp, values = self.beta_filter_status
+            beta_filter_status_age = now - stamp
+            beta_filter_accepted = values[0] if len(values) > 0 else math.nan
+            beta_filter_raw_step = values[5] if len(values) > 5 else math.nan
+            beta_filter_speed = values[6] if len(values) > 6 else math.nan
+            beta_filter_alpha = values[7] if len(values) > 7 else math.nan
+            beta_filter_reject_count = values[10] if len(values) > 10 else math.nan
+            beta_filter_consecutive_rejects = values[12] if len(values) > 12 else math.nan
+            beta_filter_recovered = values[13] if len(values) > 13 else math.nan
+            beta_filter_motion_factor = values[14] if len(values) > 14 else math.nan
+            beta_filter_yaw_rate = values[15] if len(values) > 15 else math.nan
+            beta_filter_reason_code = values[17] if len(values) > 17 else math.nan
+            beta_filter_hold_state = values[18] if len(values) > 18 else math.nan
+            beta_filter_confirm_count = values[19] if len(values) > 19 else math.nan
 
         spike_candidate = bool(
             (math.isfinite(raw_step) and raw_step >= self.args.spike_raw_step)
             or (
                 math.isfinite(filtered_step)
                 and filtered_step >= self.args.spike_filtered_step
+            )
+            or (
+                math.isfinite(beta_step)
+                and beta_step >= self.args.spike_filtered_step
             )
             or (
                 math.isfinite(quality_jump)
@@ -780,15 +920,28 @@ class ThermalPoseMonitor(Node):
             stamp, filtered_x, filtered_y, filtered_z, filtered_yaw = self.filtered_pose
             filtered_age = now - stamp
 
+        beta_x = beta_y = beta_z = beta_yaw = math.nan
+        beta_age = math.nan
+        if self.beta_pose:
+            stamp, beta_x, beta_y, beta_z, beta_yaw = self.beta_pose
+            beta_age = now - stamp
+
         delta_xy = math.nan
         delta_yaw = math.nan
+        raw_beta_delta_xy = math.nan
+        filtered_beta_delta_xy = math.nan
         if all(math.isfinite(value) for value in (raw_x, raw_y, filtered_x, filtered_y)):
             delta_xy = math.hypot(raw_x - filtered_x, raw_y - filtered_y)
         if math.isfinite(raw_yaw) and math.isfinite(filtered_yaw):
             delta_yaw = math.degrees(abs(shortest_angle_rad(raw_yaw - filtered_yaw)))
+        if all(math.isfinite(value) for value in (raw_x, raw_y, beta_x, beta_y)):
+            raw_beta_delta_xy = math.hypot(raw_x - beta_x, raw_y - beta_y)
+        if all(math.isfinite(value) for value in (filtered_x, filtered_y, beta_x, beta_y)):
+            filtered_beta_delta_xy = math.hypot(filtered_x - beta_x, filtered_y - beta_y)
 
         raw_x_p2p, raw_y_p2p, raw_xy_p2p = window_p2p(self.raw_window)
         filtered_x_p2p, filtered_y_p2p, filtered_xy_p2p = window_p2p(self.filtered_window)
+        beta_x_p2p, beta_y_p2p, beta_xy_p2p = window_p2p(self.beta_window)
         stationary_raw_x_p2p, stationary_raw_y_p2p, stationary_raw_xy_p2p = window_p2p(
             self.stationary_raw_window
         )
@@ -820,14 +973,23 @@ class ThermalPoseMonitor(Node):
             "filtered_y": filtered_y,
             "filtered_z": filtered_z,
             "filtered_yaw_deg": math.degrees(filtered_yaw) if math.isfinite(filtered_yaw) else math.nan,
+            "beta_x": beta_x,
+            "beta_y": beta_y,
+            "beta_z": beta_z,
+            "beta_yaw_deg": math.degrees(beta_yaw) if math.isfinite(beta_yaw) else math.nan,
             "raw_filtered_delta_xy_m": delta_xy,
             "raw_filtered_delta_yaw_deg": delta_yaw,
+            "raw_beta_delta_xy_m": raw_beta_delta_xy,
+            "filtered_beta_delta_xy_m": filtered_beta_delta_xy,
             "raw_step_xy_m": raw_step,
             "raw_speed_xy_mps": raw_speed,
             "raw_yaw_rate_degps": raw_yaw_rate,
             "filtered_step_xy_m": filtered_step,
             "filtered_speed_xy_mps": filtered_speed,
             "filtered_yaw_rate_degps": filtered_yaw_rate,
+            "beta_step_xy_m": beta_step,
+            "beta_speed_xy_mps": beta_speed,
+            "beta_yaw_rate_degps": beta_yaw_rate,
             "motion_factor": motion_factor,
             "is_stationary": 1.0 if is_stationary else 0.0,
             "raw_window_x_p2p_m": raw_x_p2p,
@@ -836,6 +998,9 @@ class ThermalPoseMonitor(Node):
             "filtered_window_x_p2p_m": filtered_x_p2p,
             "filtered_window_y_p2p_m": filtered_y_p2p,
             "filtered_window_xy_p2p_m": filtered_xy_p2p,
+            "beta_window_x_p2p_m": beta_x_p2p,
+            "beta_window_y_p2p_m": beta_y_p2p,
+            "beta_window_xy_p2p_m": beta_xy_p2p,
             "stationary_raw_window_x_p2p_m": stationary_raw_x_p2p,
             "stationary_raw_window_y_p2p_m": stationary_raw_y_p2p,
             "stationary_raw_window_xy_p2p_m": stationary_raw_xy_p2p,
@@ -870,10 +1035,27 @@ class ThermalPoseMonitor(Node):
             "filter_status_recovered": filter_recovered,
             "filter_status_motion_factor": filter_motion_factor,
             "filter_status_yaw_rate_degps": filter_yaw_rate,
+            "filter_status_reason_code": filter_reason_code,
+            "filter_status_hold_state_code": filter_hold_state,
+            "filter_status_confirm_count": filter_confirm_count,
+            "beta_filter_status_accepted": beta_filter_accepted,
+            "beta_filter_status_raw_step_xy_m": beta_filter_raw_step,
+            "beta_filter_status_speed_xy_mps": beta_filter_speed,
+            "beta_filter_status_alpha": beta_filter_alpha,
+            "beta_filter_status_reject_count": beta_filter_reject_count,
+            "beta_filter_status_consecutive_rejects": beta_filter_consecutive_rejects,
+            "beta_filter_status_recovered": beta_filter_recovered,
+            "beta_filter_status_motion_factor": beta_filter_motion_factor,
+            "beta_filter_status_yaw_rate_degps": beta_filter_yaw_rate,
+            "beta_filter_status_reason_code": beta_filter_reason_code,
+            "beta_filter_status_hold_state_code": beta_filter_hold_state,
+            "beta_filter_status_confirm_count": beta_filter_confirm_count,
             "raw_age_sec": raw_age,
             "filtered_age_sec": filtered_age,
+            "beta_age_sec": beta_age,
             "quality_age_sec": quality_age,
             "filter_status_age_sec": filter_status_age,
+            "beta_filter_status_age_sec": beta_filter_status_age,
         }
 
         self.rows.append(row)
@@ -888,6 +1070,7 @@ class ThermalPoseMonitor(Node):
 
         self.previous_raw_pose = self.raw_pose
         self.previous_filtered_pose = self.filtered_pose
+        self.previous_beta_pose = self.beta_pose
 
         elapsed = now - self.start_time
         if (
@@ -915,6 +1098,7 @@ class ThermalPoseMonitor(Node):
             loads = [row["load1"] for row in numeric_rows]
             raw_p2p = [row["raw_window_xy_p2p_m"] for row in numeric_rows]
             filtered_p2p = [row["filtered_window_xy_p2p_m"] for row in numeric_rows]
+            beta_p2p = [row["beta_window_xy_p2p_m"] for row in numeric_rows]
             stationary_filtered_p2p = [
                 row["stationary_filtered_window_xy_p2p_m"] for row in numeric_rows
             ]
@@ -942,6 +1126,10 @@ class ThermalPoseMonitor(Node):
                     numeric_rows,
                     "filtered_window_xy_p2p_m",
                 ),
+                "beta_window_xy_p2p_m": series_stats(
+                    numeric_rows,
+                    "beta_window_xy_p2p_m",
+                ),
                 "stationary_filtered_window_xy_p2p_m": series_stats(
                     numeric_rows,
                     "stationary_filtered_window_xy_p2p_m",
@@ -960,6 +1148,14 @@ class ThermalPoseMonitor(Node):
                     numeric_rows,
                     "raw_filtered_delta_xy_m",
                 ),
+                "raw_beta_delta_xy_m": series_stats(
+                    numeric_rows,
+                    "raw_beta_delta_xy_m",
+                ),
+                "filtered_beta_delta_xy_m": series_stats(
+                    numeric_rows,
+                    "filtered_beta_delta_xy_m",
+                ),
                 "map_quality_fitness": series_stats(numeric_rows, "map_quality_fitness"),
                 "map_quality_jump_xy_m": series_stats(numeric_rows, "map_quality_jump_xy_m"),
                 "map_quality_align_ms": series_stats(numeric_rows, "map_quality_align_ms"),
@@ -972,9 +1168,18 @@ class ThermalPoseMonitor(Node):
                     numeric_rows,
                     "filter_status_motion_factor",
                 ),
+                "beta_filter_status_alpha": series_stats(
+                    numeric_rows,
+                    "beta_filter_status_alpha",
+                ),
+                "beta_filter_status_motion_factor": series_stats(
+                    numeric_rows,
+                    "beta_filter_status_motion_factor",
+                ),
                 "correlation": {
                     "temp_vs_raw_window_xy_p2p": pearson(temps, raw_p2p),
                     "temp_vs_filtered_window_xy_p2p": pearson(temps, filtered_p2p),
+                    "temp_vs_beta_window_xy_p2p": pearson(temps, beta_p2p),
                     "temp_vs_stationary_filtered_window_xy_p2p": pearson(
                         temps,
                         stationary_filtered_p2p,
@@ -982,6 +1187,7 @@ class ThermalPoseMonitor(Node):
                     "temp_vs_map_quality_jump_xy": pearson(temps, quality_jump),
                     "load1_vs_raw_window_xy_p2p": pearson(loads, raw_p2p),
                     "load1_vs_filtered_window_xy_p2p": pearson(loads, filtered_p2p),
+                    "load1_vs_beta_window_xy_p2p": pearson(loads, beta_p2p),
                     "load1_vs_stationary_filtered_window_xy_p2p": pearson(
                         loads,
                         stationary_filtered_p2p,
@@ -1045,8 +1251,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fsync-interval", type=float, default=5.0)
     parser.add_argument("--raw-topic", default="/robot/pose")
     parser.add_argument("--filtered-topic", default="/robot/pose_filtered")
+    parser.add_argument("--beta-topic", default="/robot/pose_filtered_beta")
     parser.add_argument("--quality-topic", default="/map_lidar/quality")
     parser.add_argument("--filter-status-topic", default="/lidar/pose_filter/status")
+    parser.add_argument("--beta-filter-status-topic", default="/lidar/pose_filter_beta/status")
     parser.add_argument("--static-speed", type=float, default=0.015)
     parser.add_argument("--full-speed", type=float, default=0.12)
     parser.add_argument("--static-yaw-rate-deg", type=float, default=5.0)

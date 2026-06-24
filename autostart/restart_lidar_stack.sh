@@ -90,6 +90,7 @@ close_terminal_windows_by_title() {
     "MAP_LOCALIZER"
     "POSE_INTERFACE"
     "POSE_FILTER"
+    "POSE_FILTER_BETA"
     "HEALTH_MONITOR"
     "THERMAL_MONITOR"
     "READY_NOTIFY"
@@ -146,6 +147,7 @@ close_terminal_windows_by_title() {
     "$DIR/pose_interface_mapping.sh"
     "$DIR/pose_interface_relocalization.sh"
     "$DIR/pose_stability_filter.sh"
+    "$DIR/pose_stability_filter_beta.sh"
     "$DIR/thermal_pose_monitor.sh"
     "$DIR/relocalization_ready_notify.sh"
     "ros2 launch rc_serial_driver serial_driver.launch.py"
@@ -190,8 +192,10 @@ close_terminal_windows_by_title() {
     RC_RELOCALIZATION_ASSUME_MAP_ORIGIN="${RC_RELOCALIZATION_ASSUME_MAP_ORIGIN:-1}" \
     RC_AUTOSTART_HEADLESS="${RC_AUTOSTART_HEADLESS:-1}" \
     RC_AUTOSTART_PLOTJUGGLER="${RC_AUTOSTART_PLOTJUGGLER:-0}" \
+    RC_POSE_FILTER_SELECTED="${RC_POSE_FILTER_SELECTED:-normal}" \
+    RC_POSE_FILTER_BETA="${RC_POSE_FILTER_BETA:-0}" \
+    RC_BETA_FILTERED_POSE_TOPIC="${RC_BETA_FILTERED_POSE_TOPIC:-/robot/pose_filtered_beta}" \
     RC_CAN_POSE_SOURCE="${RC_CAN_POSE_SOURCE:-pose_topic}" \
-    RC_CAN_POSE_TOPIC="${RC_CAN_POSE_TOPIC:-/robot/pose_filtered}" \
     RC_HEALTH_MONITOR="${RC_HEALTH_MONITOR:-1}" \
     RESTART_LOG="$LOG" \
     nohup "$DIR/start_all_terminals.sh" >> "$LOG" 2>&1 &

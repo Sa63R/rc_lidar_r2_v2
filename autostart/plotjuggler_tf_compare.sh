@@ -21,6 +21,15 @@ if [ "${RC_LIDAR_MODE:-tracking}" = "relocalization" ]; then
   if [ "${RC_POSE_FILTER:-1}" != "0" ]; then
     TOPICS+=("/robot/pose_filtered")
   fi
+
+  case "${RC_POSE_FILTER_BETA:-0}" in
+    1|true|TRUE|yes|YES|on|ON)
+      TOPICS+=(
+        "${RC_BETA_FILTERED_POSE_TOPIC:-/robot/pose_filtered_beta}"
+        "/lidar/pose_filter_beta/status"
+      )
+      ;;
+  esac
 fi
 
 TOPICS+=(
