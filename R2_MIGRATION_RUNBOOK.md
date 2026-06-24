@@ -413,7 +413,18 @@ ros2 run lidar_map_localization pcd_quality_report --map maps/mid360_map.pcd
 - Z 结构太弱、地图过于稀疏、动态物体太多，会增加重定位抖动。
 - 多次建图后保留评分更好、现场重复性更好的 PCD。
 
-如果 R2 的比赛区域只是大场馆的一小块，不要直接拿整张大场馆 PCD 做生产重定位。建议先裁出比赛区及少量缓冲区的局部地图：
+如果 R2 的比赛区域只是大场馆的一小块，不要直接拿整张大场馆 PCD 做生产重定位。当前 Orange Pi 已验证的可用方案是：只绕比赛小场地建一张小 PCD 地图，不裁剪，然后从建图原点附近启动。迁移到 R2 时优先复刻这个流程。
+
+Orange Pi 可用检查点：
+
+```text
+map: /home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260624_190419.pcd
+mode: RC_LIDAR_MODE=relocalization
+initialization: RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1
+note: 小场地直接建图，不使用 pcd_prepare_local_map 裁剪
+```
+
+如果 R2 只有一整张大场馆 PCD，且暂时无法重新绕小场地建图，才考虑裁剪出比赛区及少量缓冲区：
 
 ```bash
 source /opt/ros/humble/setup.bash
@@ -440,6 +451,8 @@ ros2 run lidar_map_localization pcd_prepare_local_map \
 ```
 
 裁剪坐标必须按 R2 实际 PCD 的 FAST-LIO map 坐标确认，不要照搬 Orange Pi 的示例数值。工具不会覆盖已有输出；路径冲突时会自动加时间戳，并写出 `*.report.json` 记录点数和裁剪范围。
+
+注意：裁剪工具保留为备用，但本次 Orange Pi 可用版本没有用到它。R2 同步时优先验证“小场直接建图”的链路。
 
 ## 7. 重定位验证
 
@@ -897,6 +910,7 @@ git push origin main
 - 以后在当前仓库更新 README 的同时，也要同步维护 `R2_MIGRATION_RUNBOOK.md`。
 - 如果改的是运行默认值、启动命令、PlotJuggler topic、CAN 坐标来源、滤波参数、健康日志字段、地图路径或自启策略，必须把 r2 的复制步骤也写进本文档。
 - 如果改的是地图准备、局部地图裁剪、重定位初值策略或 CAN READY 门控，也必须同步到本文档；这些是 R2 在大场地复刻时最容易踩坑的部分。
+- 如果后续确认了某个现场可用地图/启动组合，也要写清楚它是否真的用了裁剪；Rc 3.2 的结论是小场直接建图可用，裁剪没用到。
 - 如果某次修改只影响实验报告、临时日志或本机私有笔记，可以不写进本文档。
 
 ## 13. 最终验收清单

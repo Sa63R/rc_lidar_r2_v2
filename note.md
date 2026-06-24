@@ -49,12 +49,16 @@ RC_AUTOSTART_PLOTJUGGLER=0 \
 ./autostart/start_all_terminals.sh
 
 
+# 当前可用版本 rc3.2：小场地直接建图，不裁剪，使用这张地图重定位
+# 地图：/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260624_190419.pcd
+# 启动前提：车放在建图原点附近，所以使用 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1
 # 重定位调试启动：核心仍然低负载，不开 RViz，但自动打开 PlotJuggler
 cd "/home/orangepi/RC_LIDAR_NOW"
 RC_LIDAR_MODE=relocalization \
 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
 RC_AUTOSTART_HEADLESS=1 \
 RC_AUTOSTART_PLOTJUGGLER=1 \
+RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260624_190419.pcd" \
 ./autostart/start_all_terminals.sh
 
 
@@ -73,7 +77,8 @@ RC_RELOCALIZATION_INITIAL_YAW=0.0 \
 ./autostart/start_all_terminals.sh
 
 
-# 大场地建议先裁比赛局部地图，不要直接拿整张大场馆 PCD 当全局重定位用
+# 备用方案：如果只有大场馆 PCD、没法重新绕小场建图，再裁比赛局部地图
+# rc3.2 这次可用方案没有用到裁剪，R2 同步时优先复刻上面“小场直接建图”的流程
 cd "/home/orangepi/RC_LIDAR_NOW"
 source /opt/ros/humble/setup.bash
 source install/setup.bash
