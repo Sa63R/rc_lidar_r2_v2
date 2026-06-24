@@ -2,6 +2,7 @@
 import time
 
 import rclpy
+from rcl_interfaces.msg import ParameterDescriptor
 from geometry_msgs.msg import PointStamped, PoseStamped
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
@@ -24,9 +25,10 @@ class PoseFromTf(Node):
         self.declare_parameter("output_pose_alias_topic", "/lidar/pose")
         self.declare_parameter("output_point_topic", "/lidar/point")
         self.declare_parameter("output_odom_topic", "/lidar/odom")
-        self.declare_parameter("publish_rate", 50.0)
+        numeric_parameter = ParameterDescriptor(dynamic_typing=True)
+        self.declare_parameter("publish_rate", 50.0, numeric_parameter)
         self.declare_parameter("warn_period_sec", 2.0)
-        self.declare_parameter("max_tf_age_sec", 1.0)
+        self.declare_parameter("max_tf_age_sec", 1.0, numeric_parameter)
 
         self.target_frame = self.get_parameter("target_frame").value
         self.source_frame = self.get_parameter("source_frame").value

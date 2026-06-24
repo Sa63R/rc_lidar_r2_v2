@@ -401,6 +401,20 @@ cat logs/autostart/latest/fastlio_map_save_path.txt 2>/dev/null || true
 ls -lh maps/*.pcd
 ```
 
+如果保存脚本长时间停在 `waiting for /map_save service`，不要先改保存脚本，按下面顺序查：
+
+```bash
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+ros2 node list | grep laser_mapping
+ros2 service type /map_save
+tail -n 80 logs/autostart/latest/FASTLIO.log
+tail -n 80 logs/autostart/latest/LIVOX.log
+tail -n 80 logs/autostart/latest/POSE_INTERFACE.log
+```
+
+正常时 `/laser_mapping` 应存在，`/map_save` 应返回 `std_srvs/srv/Trigger`。如果 R2 的 `POSE_INTERFACE.log` 报 `publish_rate` 参数类型错误，检查 `pose_from_tf` 是否已经同步当前 Orange Pi 的兼容修复：`publish_rate` 要允许整数/小数，启动脚本默认传 `50.0`。如果 FAST-LIO 或 Livox 已退出，先用 `./autostart/stop_all.sh` 清理后重新启动建图，再检查服务。
+
 检查地图质量：
 
 ```bash

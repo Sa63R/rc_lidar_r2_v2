@@ -782,6 +782,19 @@ logs/autostart/latest/fastlio_map_save_path.txt
 
 `autostart/save_fast_lio_map.sh` 会优先读取正在运行的 FAST-LIO 参数；如果 `/map_save` 自动重命名，脚本会从服务返回信息里打印真实保存路径。
 
+如果保存脚本长时间停在 `waiting for /map_save service`，先确认建图节点和服务是否真的存在：
+
+```bash
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+ros2 node list | grep laser_mapping
+ros2 service type /map_save
+tail -n 80 logs/autostart/latest/FASTLIO.log
+tail -n 80 logs/autostart/latest/POSE_INTERFACE.log
+```
+
+正常时应看到 `/laser_mapping`，且 `/map_save` 类型为 `std_srvs/srv/Trigger`。如果 `POSE_INTERFACE.log` 里出现 `publish_rate` 参数类型错误，说明 `/robot/pose` 节点启动失败；当前版本已把 `pose_from_tf` 改为兼容整数和小数参数，并把默认启动参数改为 `50.0`。如果 FAST-LIO/Livox 日志里显示 `Terminated` 或没有对应 ROS 节点，先用 `./autostart/stop_all.sh` 清理后重新启动建图。
+
 `*.pcd` 默认不会提交到 GitHub，现场地图建议单独备份。
 
 ### 重定位
@@ -1409,6 +1422,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
    - 新增建图保存和地图重定位的一键脚本。
    - `RC_LIDAR_MODE=mapping` 用于建图保存；`RC_LIDAR_MODE=relocalization` 用于基于地图的高精度重定位。
    - 未设置 `RC_FASTLIO_MAP_SAVE_PATH` 时，若默认 `maps/mid360_map.pcd` 已存在，会自动保存为带时间戳的新 PCD，避免覆盖旧地图。
+   - 建图保存依赖 FAST-LIO 的 `/map_save` 服务。如果保存脚本一直等待，优先检查 `/laser_mapping` 节点、`/map_save` 服务和 `POSE_INTERFACE.log`。当前版本修复了 `pose_from_tf` 对 `publish_rate:=50` 这类整数参数不兼容导致节点退出的问题。
    - 重定位模式默认启动 normal 位姿滤波，并默认把 `/robot/pose_filtered` 作为 CAN 发送来源；`RC_POSE_FILTER_BETA=1` 可额外启动 beta 对比，`RC_POSE_FILTER_SELECTED=beta` 才会把 CAN 来源切到 `/robot/pose_filtered_beta`。`stop_all.sh` 和 CAN 重启脚本已同步清理 normal/beta 滤波节点，避免模式切换后残留旧进程。
    - Rc 3.0 起，重定位模式下 CAN 默认启用 `RC_CAN_REQUIRE_READY=1`，等待 `/map_lidar/quality` 连续稳定后才发送 `/robot/pose_filtered`，避免开机早期或匹配失败时把假坐标发给电控。
 
