@@ -14,4 +14,4 @@ exec ros2 run lidar_localization pose_from_tf --ros-args \
   -p source_frame:="$SOURCE_FRAME" \
   -p z_source_frame:="$Z_SOURCE_FRAME" \
   -p publish_rate:="${RC_ROBOT_POSE_HZ:-50.0}" \
-  -p max_tf_age_sec:="${RC_ROBOT_POSE_MAX_TF_AGE:-1.0}"
+  -p max_tf_age_sec:="${RC_ROBOT_POSE_MAX_TF_AGE:-0.0}"

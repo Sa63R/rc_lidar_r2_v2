@@ -560,9 +560,15 @@ default_topics=...
 selected_topics=...
 ```
 
-这样 Topic Selector 里会默认选中 `/robot/pose`、`/robot/pose_filtered`、`/map_lidar/quality`、`/lidar/pose_filter/status` 和三个 `/tf_compare/...` topic。之前出现“只能看到 `/tf_compare/...`，看不到 `/robot/pose_filtered`”的原因，是 PlotJuggler ROS2 插件没有可靠吃到用户配置里的 topic，且启动时 `ros2 topic list` 被 ROS daemon 状态干扰。当前脚本会同时写 `default_topics` 和 `selected_topics`，并用 `ros2 topic list --no-daemon --spin-time 2` 等待 topic。
+这样 Topic Selector 里会默认选中 `/robot/pose`、`/robot/pose_filtered`、`/map_lidar/quality`、`/lidar/pose_filter/status` 和三个 `/tf_compare/...` topic。之前出现“只能看到 `/tf_compare/...`，看不到 `/robot/pose_filtered`”的原因，可能有两类：一类是 PlotJuggler ROS2 插件没有可靠吃到用户配置里的 topic，且启动时 `ros2 topic list` 被 ROS daemon 状态干扰；另一类是 `/robot/pose` 自己没有发布，滤波节点没有输入，所以 PlotJuggler 即使订阅了 `/robot/pose_filtered` 也没有曲线。当前脚本会同时写 `default_topics` 和 `selected_topics`，并用 `ros2 topic list --no-daemon --spin-time 2` 等待 topic。
 
 PlotJuggler 启动前默认最多等待关键 topic `16s`，可用 `PLOTJUGGLER_WAIT_SECONDS` 覆盖；每次 discovery 默认等待 `2s`，可用 `PLOTJUGGLER_TOPIC_SPIN_TIME` 覆盖。日志里如果看到 `Waiting for topics:` 后面列出一整组 topic，不一定代表这些 topic 永久不存在；启动早期也可能是 ROS graph 查询暂时失败。当前脚本会把 `ros2 topic list failed` 单独写进日志，便于区分“topic 真的没发布”和“ROS graph 查询失败”。
+
+Rc 3.7 起，`POSE_INTERFACE` 默认不再因为组合 TF 时间戳超过 1 秒而丢弃 `robot_origin -> robot_base_highrate`。重定位链路里的 `map -> camera_init` 更新频率可能低于高频车体 TF，组合 TF 的 stamp 经常会老于 1 秒；旧默认 `RC_ROBOT_POSE_MAX_TF_AGE=1.0` 会导致 `/robot/pose` publisher 为 0 或长期没有数据，进而让 `/robot/pose_filtered` 在 PlotJuggler 里消失。当前默认 `RC_ROBOT_POSE_MAX_TF_AGE=0.0` 表示接受 TF buffer 的最新可用变换。只有在明确需要严格丢弃旧 TF 时，再手动设置：
+
+```bash
+RC_ROBOT_POSE_MAX_TF_AGE=1.0 ./autostart/start_all_terminals.sh
+```
 
 默认不加载 XML 布局，因为当前 Orange Pi 上 PlotJuggler 3.15 在加载该轻量 XML 后出现过 Qt/PlotJuggler 内部崩溃。保留 XML 只是手动备用；如果确实想手动指定其它布局：
 
@@ -930,6 +936,8 @@ pose_topic=/robot/pose_filtered
 ```
 
 这条链路经过 `map -> camera_init` 重定位 TF 和 `robot_origin -> robot_base_highrate` 查询，得到 `/robot/pose -> /robot/pose_filtered`。电控收到的是地图重定位后的滤波机器人中心点坐标。如果 `/robot/pose_filtered` 没有刷新或 topic 不存在，CAN 会暂停发送，不会自动退回 TF。
+
+`/robot/pose` 由 `pose_from_tf` 查询组合 TF 得到。由于 `map -> camera_init` 是地图重定位修正，频率可能低于 `body_highrate`，组合 TF 的时间戳可能看起来比较旧；当前默认 `RC_ROBOT_POSE_MAX_TF_AGE=0.0`，不按 1 秒时间戳门限丢弃最新可用 TF。若日志里看到 `TF robot_origin->robot_base_highrate is stale` 并且 `/robot/pose` 没有 publisher，说明当前启动环境仍使用了旧门限或手动设置了过小的 `RC_ROBOT_POSE_MAX_TF_AGE`。
 
 Rc 3.0 起，重定位模式下 CAN 还会默认等待 `/map_lidar/quality` 连续稳定后才发送。判据和 READY 提示保持同一方向：本帧 accepted/converged、`fitness <= 0.05`、连续 accepted 数达到阈值，并且质量 topic 没有超时。这样即使 `/robot/pose_filtered` 已经存在，只要地图匹配还没真正稳定，电控也不会收到早期的假定位坐标。
 
@@ -1417,6 +1425,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
    - 新增 `pose_from_odom` 位姿接口。
    - 建图模式下可把 `/Odometry` 转成相对启动点的 `/robot/pose`，同时保留旧兼容名 `/lidar/pose`。
    - Rc 3.4 后重定位模式下从 TF 查询 `robot_origin -> robot_base_highrate` 生成 `/robot/pose`，坐标语义为 `X右/Y前/Z上`。
+   - Rc 3.7 起，`pose_from_tf` 默认 `max_tf_age_sec=0.0`，也就是接受 TF buffer 最新可用变换，不再按 1 秒 stamp 门限丢弃组合 TF。原因是 `map -> camera_init` 重定位修正频率可能较低，旧门限会让 `/robot/pose` 停止发布，导致 PlotJuggler 和 `/robot/pose_filtered` 看不到机器人业务位姿。
    - 新增 `pose_stability_filter`，将 `/robot/pose` 平滑为 `/robot/pose_filtered`，同时保留旧兼容名 `/lidar/pose_filtered`；`RC_POSE_FILTER=0` 可关闭。滤波器按 `xy_speed` 和 `yaw_rate` 自适应调整强度，静止时压抖动，运动时快速跟随，并带连续拒绝后的恢复机制，避免机器人移动后滤波输出永久停在旧值。
    - Rc 2.9 参考 r2 的 `pose_filter.py` 增加 `filter_mode=normal|beta`。normal 仍是默认生产链路；beta 输出 `/robot/pose_filtered_beta` 和 `/lidar/pose_filter_beta/status`，通过短时 hold/确认抑制静止尖峰。beta 默认不启动，需要 `RC_POSE_FILTER_BETA=1` 手动开启对比。
 

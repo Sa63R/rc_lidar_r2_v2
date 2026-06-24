@@ -688,6 +688,19 @@ ros2 topic info /robot/pose_filtered --verbose --no-daemon
 tail -n 120 logs/autostart/latest/PLOTJUGGLER.log
 ```
 
+如果 PlotJuggler 已经订阅 `/robot/pose_filtered`，但左侧没有 `/robot/pose` 或 `/robot/pose_filtered` 曲线，继续检查位姿接口本身，而不是只重启 PlotJuggler：
+
+```bash
+ros2 topic info /robot/pose --verbose --no-daemon
+tail -n 120 logs/autostart/latest/POSE_INTERFACE.log
+```
+
+R2 也应沿用当前 Orange Pi 的默认值：`RC_ROBOT_POSE_MAX_TF_AGE=0.0`。原因是重定位链路里的 `map -> camera_init` 可能低频更新，组合 TF 的 stamp 经常老于 1 秒；如果仍使用旧的 `1.0s` 严格门限，`pose_from_tf` 会反复输出 `TF robot_origin->robot_base_highrate is stale`，从而不发布 `/robot/pose`，滤波和 PlotJuggler 也就没有机器人位姿数据。只有明确想诊断旧 TF 丢弃策略时，才临时设置：
+
+```bash
+RC_ROBOT_POSE_MAX_TF_AGE=1.0 ./autostart/start_all_terminals.sh
+```
+
 如果 PlotJuggler 仍然要求手点确认，检查：
 
 ```bash
@@ -978,6 +991,7 @@ ls -lh logs/autostart/latest/health_monitor.*
 - Livox topic、FAST-LIO odometry、`camera_init -> body` TF 正常。
 - `MAP_LOCALIZER` 发布质量 topic，且没有持续 rejected。
 - `/robot/pose_filtered` 连续刷新。
+- `POSE_INTERFACE.log` 不应持续刷 `TF robot_origin->robot_base_highrate is stale` 后完全不发 `/robot/pose`；默认 `RC_ROBOT_POSE_MAX_TF_AGE=0.0` 是为了接受低频 `map -> camera_init` 修正参与后的最新可用组合 TF。
 - 如果启用 beta，对比 `/robot/pose_filtered_beta`，确认静止尖峰更少且真实连续运动不会长期 hold。
 - CAN 使用 `/robot/pose_filtered`，有接收端时 TX 计数增长。
 - 健康日志存在，能记录温度、load、CPU 频率、地图质量和静止漂移。

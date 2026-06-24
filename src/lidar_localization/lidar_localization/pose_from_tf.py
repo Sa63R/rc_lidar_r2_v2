@@ -28,7 +28,7 @@ class PoseFromTf(Node):
         numeric_parameter = ParameterDescriptor(dynamic_typing=True)
         self.declare_parameter("publish_rate", 50.0, numeric_parameter)
         self.declare_parameter("warn_period_sec", 2.0)
-        self.declare_parameter("max_tf_age_sec", 1.0, numeric_parameter)
+        self.declare_parameter("max_tf_age_sec", 0.0, numeric_parameter)
 
         self.target_frame = self.get_parameter("target_frame").value
         self.source_frame = self.get_parameter("source_frame").value
@@ -62,6 +62,7 @@ class PoseFromTf(Node):
             f"publishing {self.target_frame} -> {self.source_frame} as "
             f"{self.output_pose_topic}"
             f"{f' and {self.output_pose_alias_topic}' if self.output_pose_alias_topic else ''}"
+            f"; max_tf_age_sec={self.max_tf_age_sec:.3f}"
         )
 
     def _warn_throttled(self, message: str) -> None:
