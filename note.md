@@ -16,8 +16,10 @@ RC_AUTOSTART_HEADLESS=1 RC_AUTOSTART_PLOTJUGGLER=0 ./autostart/start_all_termina
 
 # 关残余雷达进程
 
-cd '/home/orangepi/RC_LIDAR_NOW'
+   cd '/home/orangepi/RC_LIDAR_NOW'
 ./autostart/stop_all.sh
+
+
 <!-- 旋转自校正脚本 -->
 
 cd '/home/orangepi/RC_LIDAR_NOW'
@@ -27,7 +29,7 @@ source install/setup.bash
 ros2 run fastlio_world_init rotation_extrinsic_calibrator \
   --duration 40 \
   --rate 50
-
+   
 # Rc 3.4 无头车 TF 树验证：
 # map 是 PCD 地图坐标，Y 正方向是无头车世界正方向。
 # robot_origin 是机器人业务原点，robot_base_highrate 是机器人当前高频中心。
@@ -68,7 +70,7 @@ RC_LIDAR_MODE=relocalization \
 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
 RC_AUTOSTART_HEADLESS=1 \
 RC_AUTOSTART_PLOTJUGGLER=1 \
-RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260624_190419.pcd" \
+RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd" \
 ./autostart/start_all_terminals.sh
 
 
