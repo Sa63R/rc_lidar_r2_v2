@@ -9,6 +9,7 @@ Type=oneshot
 WorkingDirectory=/home/orangepi/RC_LIDAR_NOW
 Environment=RUN_REASON=boot
 Environment=RC_LIDAR_MODE=relocalization
+Environment=RC_LIDAR_MAP_PATH=/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260624_190419.pcd
 Environment=RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1
 Environment=RC_AUTOSTART_HEADLESS=1
 Environment=RC_AUTOSTART_PLOTJUGGLER=0

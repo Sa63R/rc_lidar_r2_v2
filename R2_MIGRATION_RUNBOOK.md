@@ -356,6 +356,7 @@ grep -R "RC_LIDAR" "$HOME/.config/autostart" -n
 
 ```text
 RC_LIDAR_MODE=relocalization
+RC_LIDAR_MAP_PATH=<R2 verified small-field map path>
 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1
 RC_AUTOSTART_HEADLESS=1
 RC_AUTOSTART_PLOTJUGGLER=0
@@ -369,6 +370,8 @@ CAN 重启脚本也应保持同样默认策略：
 ```bash
 grep -n "RC_LIDAR_MODE\\|RC_CAN_POSE_TOPIC\\|RC_HEALTH_MONITOR" autostart/restart_lidar_stack.sh
 ```
+
+Orange Pi Rc 3.3 的生产默认已经固定为小场地图 `/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260624_190419.pcd`，且不开 PlotJuggler。R2 不能照搬这个绝对路径，但应该采用同样策略：把 `boot_start.sh`、`rc-lidar-autostart.service` 和 `restart_lidar_stack.sh` 的默认 `RC_LIDAR_MAP_PATH` 都指向 R2 自己验证过的小场 PCD。
 
 ## 6. 建图、保存地图和地图质量
 
@@ -467,7 +470,7 @@ ls -lh maps/mid360_map.pcd
 ```bash
 cd "$R2_WS"
 RC_LIDAR_MODE=relocalization \
-RC_LIDAR_MAP_PATH="$R2_WS/maps/competition_local.pcd" \
+RC_LIDAR_MAP_PATH="$R2_WS/maps/<r2_verified_small_field_map>.pcd" \
 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
 RC_AUTOSTART_HEADLESS=1 \
 RC_AUTOSTART_PLOTJUGGLER=0 \

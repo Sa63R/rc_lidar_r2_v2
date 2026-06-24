@@ -44,8 +44,10 @@ maps/mid360_map.pcd
 # 重定位低负载启动：
 cd "/home/orangepi/RC_LIDAR_NOW"
 RC_LIDAR_MODE=relocalization \
+RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
 RC_AUTOSTART_HEADLESS=1 \
 RC_AUTOSTART_PLOTJUGGLER=0 \
+RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260624_190419.pcd" \
 ./autostart/start_all_terminals.sh
 
 
