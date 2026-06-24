@@ -49,6 +49,15 @@ RC_AUTOSTART_PLOTJUGGLER=0 \
 ./autostart/start_all_terminals.sh
 
 
+# 重定位调试启动：核心仍然低负载，不开 RViz，但自动打开 PlotJuggler
+cd "/home/orangepi/RC_LIDAR_NOW"
+RC_LIDAR_MODE=relocalization \
+RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
+RC_AUTOSTART_HEADLESS=1 \
+RC_AUTOSTART_PLOTJUGGLER=1 \
+./autostart/start_all_terminals.sh
+
+
 # 如果车确实放回建图开始原点附近：
 cd "/home/orangepi/RC_LIDAR_NOW"
 RC_LIDAR_MODE=relocalization \
