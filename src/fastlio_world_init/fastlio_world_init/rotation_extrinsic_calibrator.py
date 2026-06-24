@@ -30,10 +30,10 @@ DEFAULT_STATIC_Z = -0.760
 DEFAULT_STATIC_YAW = math.pi / 2.0
 
 FIT_YAW_SOURCES = (
-    'init_body_highrate',
-    'init_base_link_highrate',
+    'robot_origin_body_highrate',
+    'robot_origin_robot_base_highrate',
     'camera_init_body',
-    'world_body',
+    'map_body',
     'odom',
 )
 
@@ -169,12 +169,12 @@ def yaw_source_map(samples):
     """Return yaw sequences used to diagnose where rotation is lost."""
 
     return {
-        'init_body_highrate': [sample.body_yaw for sample in samples],
-        'init_base_link_highrate': [sample.base_yaw for sample in samples],
+        'robot_origin_body_highrate': [sample.body_yaw for sample in samples],
+        'robot_origin_robot_base_highrate': [sample.base_yaw for sample in samples],
         'camera_init_body': [
             sample.camera_init_body_yaw for sample in samples
         ],
-        'world_body': [sample.world_body_yaw for sample in samples],
+        'map_body': [sample.world_body_yaw for sample in samples],
         'odom': [sample.odom_yaw for sample in samples],
     }
 
@@ -788,14 +788,14 @@ class RotationExtrinsicCalibrator(Node):
         ) = self._xy_yaw_from_tf(world_body_tf)
         odom_x, odom_y, odom_yaw, odom_age_sec = self._latest_odom_xy_yaw()
         yaw_values = {
-            'init_body_highrate': quaternion_to_yaw(
+            'robot_origin_body_highrate': quaternion_to_yaw(
                 body_tf.transform.rotation
             ),
-            'init_base_link_highrate': quaternion_to_yaw(
+            'robot_origin_robot_base_highrate': quaternion_to_yaw(
                 base_tf.transform.rotation
             ),
             'camera_init_body': camera_init_body_yaw,
-            'world_body': world_body_yaw,
+            'map_body': world_body_yaw,
             'odom': odom_yaw,
         }
 
@@ -805,10 +805,10 @@ class RotationExtrinsicCalibrator(Node):
             fit_yaw=self._choose_fit_yaw(self.args, yaw_values),
             body_x=float(body_t.x),
             body_y=float(body_t.y),
-            body_yaw=yaw_values['init_body_highrate'],
+            body_yaw=yaw_values['robot_origin_body_highrate'],
             base_x=float(base_t.x),
             base_y=float(base_t.y),
-            base_yaw=yaw_values['init_base_link_highrate'],
+            base_yaw=yaw_values['robot_origin_robot_base_highrate'],
             static_x=float(static_t.x),
             static_y=float(static_t.y),
             static_yaw=quaternion_to_yaw(static_tf.transform.rotation),
@@ -941,16 +941,16 @@ def parse_args(argv=None):
     parser.add_argument('--duration', type=float, default=40.0)
     parser.add_argument('--rate', type=float, default=50.0)
     parser.add_argument('--warn-period', type=float, default=2.0)
-    parser.add_argument('--target-frame', default='init')
+    parser.add_argument('--target-frame', default='robot_origin')
     parser.add_argument('--body-frame', default='body_highrate')
-    parser.add_argument('--base-frame', default='base_link_highrate')
+    parser.add_argument('--base-frame', default='robot_base_highrate')
     parser.add_argument('--fastlio-parent-frame', default='camera_init')
     parser.add_argument('--fastlio-body-frame', default='body')
-    parser.add_argument('--world-frame', default='world')
+    parser.add_argument('--world-frame', default='map')
     parser.add_argument('--odometry-topic', default='/Odometry')
     parser.add_argument(
         '--fit-yaw-source',
-        default='init_body_highrate',
+        default='robot_origin_body_highrate',
         choices=FIT_YAW_SOURCES,
         help=(
             'Yaw source used for fitting. All sources are still recorded '

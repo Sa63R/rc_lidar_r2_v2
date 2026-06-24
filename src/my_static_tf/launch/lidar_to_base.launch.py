@@ -17,7 +17,7 @@ def generate_launch_description():
                 "--pitch", "0",
                 "--yaw", ROBOT_AXES_YAW_RAD,
                 "--frame-id", "body",
-                "--child-frame-id", "base_link",
+                "--child-frame-id", "robot_base",
             ],
             output="screen",
         )

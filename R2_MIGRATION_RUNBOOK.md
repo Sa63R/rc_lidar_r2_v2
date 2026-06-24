@@ -315,7 +315,7 @@ TF_STATIC1/2/3
 LIVOX
 FASTLIO
 HIGHRATE_BODY
-world_tf
+TF_MAP_CAMERA_INIT 或 MAP_LOCALIZER 发布的 map -> camera_init
 MAP_LOCALIZER
 POSE_INTERFACE
 POSE_FILTER
@@ -543,10 +543,12 @@ RC_POSE_FILTER_SELECTED=beta \
 当前静态 TF 结构：
 
 ```text
-world -> init
-body -> base_link
-body_highrate -> base_link_highrate
+map -> robot_origin
+body -> robot_base
+body_highrate -> robot_base_highrate
 ```
+
+重定位模式下 `map_localizer` 发布 `map -> camera_init`；mapping/tracking 模式需要发布 identity `map -> camera_init`。`map` 是 PCD 地图坐标，Y 正方向作为无头车世界正方向；`robot_origin` 是机器人业务原点。
 
 当前模板外参：
 
@@ -570,10 +572,10 @@ grep -R "ROBOT_AXES_YAW_RAD\\|--x\\|--y\\|--z\\|--frame-id\\|--child-frame-id" s
 启动后验证：
 
 ```bash
-ros2 run tf2_ros tf2_echo world init
-ros2 run tf2_ros tf2_echo body base_link
-ros2 run tf2_ros tf2_echo body_highrate base_link_highrate
-ros2 run tf2_ros tf2_echo init base_link_highrate
+ros2 run tf2_ros tf2_echo map robot_origin
+ros2 run tf2_ros tf2_echo body robot_base
+ros2 run tf2_ros tf2_echo body_highrate robot_base_highrate
+ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
 ```
 
 如果原地旋转时机器人中心在 XY 上画小圆，运行自转校准：
@@ -590,7 +592,7 @@ ros2 run fastlio_world_init rotation_extrinsic_calibrator \
 操作要求：
 
 - 先启动低负载定位栈。
-- 等 `world_tf` 初始化完成。
+- 等重定位 ready，或确认 `robot_origin -> robot_base_highrate` 能被查询。
 - 让机器人尽量原地慢速自转，至少一圈，推荐 1.5 到 2 圈。
 - 脚本结束后读取 `logs/calibration/rotation_extrinsic_<时间>/summary.json` 和 `report.md`。
 - 只按可信报告修改 XY 外参；`z`、roll、pitch 和业务 yaw 不通过这次平面自转校准修改。
@@ -640,9 +642,9 @@ default_topics=...
 /robot/pose_filtered
 /map_lidar/quality
 /lidar/pose_filter/status
-/tf_compare/robot_init_to_base_link
-/tf_compare/robot_init_to_base_link_highrate
-/tf_compare/lidar_world_to_body
+/tf_compare/robot_origin_to_robot_base
+/tf_compare/robot_origin_to_robot_base_highrate
+/tf_compare/map_to_body
 ```
 
 如果 Topic Selector 只选中了旧的 body/body_highrate，或者没有看到 `/robot/pose_filtered`，先只刷新 PlotJuggler 配置，不启动 GUI：

@@ -16,8 +16,8 @@ def generate_launch_description():
                 "--roll", "0",
                 "--pitch", "0",
                 "--yaw", ROBOT_AXES_YAW_RAD,
-                "--frame-id", "world",
-                "--child-frame-id", "init",
+                "--frame-id", "map",
+                "--child-frame-id", "robot_origin",
             ],
             output="screen",
         )

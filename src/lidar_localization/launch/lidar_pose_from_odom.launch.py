@@ -30,9 +30,9 @@ def generate_launch_description():
             DeclareLaunchArgument("input_odom_topic", default_value="/Odometry"),
             DeclareLaunchArgument("zero_on_first_pose", default_value="true"),
             DeclareLaunchArgument("zero_delay_sec", default_value="5.0"),
-            DeclareLaunchArgument("zero_frame_id", default_value="init"),
+            DeclareLaunchArgument("zero_frame_id", default_value="robot_origin"),
             DeclareLaunchArgument("reference_pose_enabled", default_value="true"),
-            DeclareLaunchArgument("reference_frame_id", default_value="init"),
+            DeclareLaunchArgument("reference_frame_id", default_value="robot_origin"),
             Node(
                 package="lidar_localization",
                 executable="pose_from_odom",

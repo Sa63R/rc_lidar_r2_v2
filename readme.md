@@ -273,7 +273,7 @@ z_tf = 上方
 yaw_tf = 左转为正，0 表示初始化朝向
 ```
 
-FAST-LIO / Livox 的原始 `camera_init`、`body`、`body_highrate` 帧仍保持雷达和算法原始坐标；通过静态 TF 生成机器人业务帧 `init`、`base_link`、`base_link_highrate`。
+FAST-LIO / Livox 的原始 `camera_init`、`body`、`body_highrate` 帧仍保持雷达和算法原始坐标；机器人业务帧改为 `robot_origin`、`robot_base`、`robot_base_highrate`。其中 `map` 是 PCD 地图坐标，Y 正方向就是无头车的世界正方向；`map_localizer` 在重定位模式下发布 `map -> camera_init`。
 
 发到 CAN 的业务坐标语义是：
 
@@ -300,7 +300,7 @@ RC_CAN_POSE_SOURCE=pose_topic
 RC_CAN_POSE_TOPIC=/robot/pose_filtered
 ```
 
-也就是说，电控收到的是“机器人当前中心点相对于地图/启动原点的滤波后坐标”。如果 `/robot/pose_filtered` 没有刷新，CAN 会暂停发送，不会悄悄退回旧 TF 链路，避免坐标来源混乱。
+也就是说，电控收到的是“机器人当前中心点相对于 `robot_origin` 的滤波后坐标”。如果 `/robot/pose_filtered` 没有刷新，CAN 会暂停发送，不会悄悄退回旧 TF 链路，避免坐标来源混乱。
 
 CAN 帧格式保持不变：
 
@@ -309,7 +309,7 @@ CAN 帧格式保持不变：
 0x13: float z_can, float yaw_can
 ```
 
-CAN 帧 ID 和 float 打包格式不变。需要临时回到旧 TF 链路时，可以手动设置 `RC_CAN_POSE_SOURCE=tf`。
+CAN 帧 ID 和 float 打包格式不变。需要临时回到 TF 链路时，可以手动设置 `RC_CAN_POSE_SOURCE=tf`，此时读取 `robot_origin -> robot_base_highrate`。
 
 一键启动会先运行 `autostart/can_setup.sh`。如果没有指定 `CAN_INTERFACE`，它会自动寻找系统里第一个 `can*` 或 `slcan*` SocketCAN 接口；找到后会在免密 `sudo` 可用时自动配置：
 
@@ -467,15 +467,16 @@ RC_AUTOSTART_SKIP_PRESTOP=1 ./autostart/start_all_terminals.sh
 默认会打开这些终端：
 
 ```text
-TF_STATIC1       body -> base_link
-TF_STATIC2       world -> init
-TF_STATIC3       body_highrate -> base_link_highrate
+TF_STATIC1       body -> robot_base
+TF_STATIC2       map -> robot_origin
+TF_STATIC3       body_highrate -> robot_base_highrate
+TF_MAP_CAMERA_INIT
+                 mapping/tracking 模式发布 map -> camera_init identity；relocalization 模式跳过，由 MAP_LOCALIZER 发布
 LIVOX            Livox MID360 driver
 FASTLIO          FAST-LIO mapping, RViz 默认不启动
 HIGHRATE_BODY    robot_localization EKF；未安装时降级为 body -> body_highrate 静态 TF
-world_tf         fastlio_world_init
-TF_ROBOT_OFFSET  发布 init -> base_link / base_link_highrate 的 XYZ 对比 topic
-TF_LIDAR_OFFSET  发布 world -> body 的 XYZ 对比 topic
+TF_ROBOT_OFFSET  发布 robot_origin -> robot_base / robot_base_highrate 的 XYZ 对比 topic
+TF_LIDAR_OFFSET  发布 map -> body 的 XYZ 对比 topic
 CAN_SERIAL       rc_serial_driver
 LIDAR_XYZR       点云调试打印
 PLOTJUGGLER      打开 TF Compare 布局并订阅 /tf_compare topic
@@ -494,7 +495,7 @@ RC_HEALTH_MONITOR=0 ./autostart/start_all_terminals.sh
 RC_LIDAR_MODE=tracking
 ```
 
-这个模式保持原来的 FAST-LIO + world/init TF + CAN 输出链路，不依赖地图文件。新增的模式有：
+这个模式保持 FAST-LIO + `map -> camera_init` identity + 机器人业务 TF + CAN 输出链路，不依赖地图文件。新增的模式有：
 
 ```text
 RC_LIDAR_MODE=mapping          # 建图，用 /map_save 保存 PCD 地图
@@ -723,22 +724,22 @@ RC_AUTOSTART_LIDAR_XYZR=0 \
 ```text
 Livox MID360 -> FAST-LIO -> /cloud_registered + /Odometry
 建图模式：/map_save -> maps/mid360_map.pcd 或自动重命名后的 PCD
-重定位观察链路：lidar_map_localization -> /map_lidar/odom -> lidar_localization -> /robot/pose -> pose_stability_filter -> /robot/pose_filtered
+重定位观察链路：lidar_map_localization 发布 map -> camera_init；lidar_localization 查询 TF robot_origin -> robot_base_highrate，发布 /robot/pose -> pose_stability_filter -> /robot/pose_filtered
 relocalization CAN 默认链路：/robot/pose_filtered -> rc_serial_driver
-tracking CAN 默认链路：TF init -> base_link_highrate/base_link -> rc_serial_driver
+tracking CAN 默认链路：TF robot_origin -> robot_base_highrate/robot_base -> rc_serial_driver
 ```
 
 高精度来自保存地图后的 NDT/ICP 地图匹配，不是单纯调 FAST-LIO 参数。`/robot/pose` 已经转换成机器人业务坐标：
 
 ```text
-frame_id = init
+frame_id = robot_origin
 x = 右方
 y = 前方
 z = 上方
 yaw = 左转为正
 ```
 
-`/lidar/pose` 是历史兼容名，内容和 `/robot/pose` 相同，实际表示的也是机器人中心点，不是雷达原点。重定位模式下 CAN 默认严格发送 `/robot/pose_filtered`；普通 FAST-LIO tracking 模式下仍使用旧 TF 链路。正负 0.5 cm 的静态误差目标需要依赖足够好的现场地图、稳定的静态环境、正确外参、雷达安装刚性和足够点云结构；代码提供重定位链路，但不能单独保证所有现场都达到这个误差。
+`/lidar/pose` 是历史兼容名，内容和 `/robot/pose` 相同，实际表示的也是机器人中心点，不是雷达原点。重定位模式下 CAN 默认严格发送 `/robot/pose_filtered`；普通 FAST-LIO tracking 模式下可使用 `robot_origin -> robot_base_highrate` TF 链路。正负 0.5 cm 的静态误差目标需要依赖足够好的现场地图、稳定的静态环境、正确外参、雷达安装刚性和足够点云结构；代码提供重定位链路，但不能单独保证所有现场都达到这个误差。
 
 ### 建图
 
@@ -889,7 +890,7 @@ FASTLIO_RVIZ=true RC_LIDAR_MODE=relocalization ./autostart/start_all_terminals.s
 
 ```text
 MAP_LOCALIZER   lidar_map_localization，发布 /map_lidar/odom
-POSE_INTERFACE lidar_localization，发布 /robot/pose，同时保留兼容名 /lidar/pose
+POSE_INTERFACE lidar_localization，从 TF robot_origin -> robot_base_highrate 发布 /robot/pose，同时保留兼容名 /lidar/pose
 POSE_FILTER    lidar_localization，发布 /robot/pose_filtered，同时保留兼容名 /lidar/pose_filtered
 READY_NOTIFY   等待 /robot/pose_filtered 与 /map_lidar/quality 稳定后弹出就绪提示
 ```
@@ -914,7 +915,7 @@ pose_source=pose_topic
 pose_topic=/robot/pose_filtered
 ```
 
-这条链路经过 `/map_lidar/odom -> /robot/pose -> /robot/pose_filtered`，电控收到的是地图重定位后的滤波机器人中心点坐标。如果 `/robot/pose_filtered` 没有刷新或 topic 不存在，CAN 会暂停发送，不会自动退回 TF。
+这条链路经过 `map -> camera_init` 重定位 TF 和 `robot_origin -> robot_base_highrate` 查询，得到 `/robot/pose -> /robot/pose_filtered`。电控收到的是地图重定位后的滤波机器人中心点坐标。如果 `/robot/pose_filtered` 没有刷新或 topic 不存在，CAN 会暂停发送，不会自动退回 TF。
 
 Rc 3.0 起，重定位模式下 CAN 还会默认等待 `/map_lidar/quality` 连续稳定后才发送。判据和 READY 提示保持同一方向：本帧 accepted/converged、`fitness <= 0.05`、连续 accepted 数达到阈值，并且质量 topic 没有超时。这样即使 `/robot/pose_filtered` 已经存在，只要地图匹配还没真正稳定，电控也不会收到早期的假定位坐标。
 
@@ -992,7 +993,7 @@ PlotJuggler 里看机器人中心点滤波前后抖动，优先选这些曲线�
 - `/robot/pose_filtered_beta` 只有 `RC_POSE_FILTER_BETA=1` 时发布，主要用于和 normal 对比静止尖峰抑制效果；PlotJuggler 也只会在 beta 打开时自动等待/订阅 beta topic。
 - 当前滤波用 `xy_speed` 和 `yaw_rate` 计算运动因子：静止时使用较强平滑，明显运动时快速跟随原始曲线，中间状态平滑过渡。
 - 硬离群点仍会被短暂拒绝并保持旧输出；但如果连续拒绝超过默认 10 次，或持续超过默认 1 秒，会认为这已经不是单帧异常，而是位姿发生了真实变化，于是重新捕获当前位姿，避免输出永久停成水平线。
-- 当前生产策略是：重定位模式下 CAN 默认使用 `/robot/pose_filtered`，tracking 模式下才继续使用 TF 的 `init -> base_link_highrate/base_link`。因此调车时如果启用 `RC_LIDAR_MODE=relocalization`，滤波表现会直接影响电控收到的坐标。
+- 当前生产策略是：重定位模式下 CAN 默认使用 `/robot/pose_filtered`，tracking 模式下才继续使用 TF 的 `robot_origin -> robot_base_highrate/robot_base`。因此调车时如果启用 `RC_LIDAR_MODE=relocalization`，滤波表现会直接影响电控收到的坐标。
 
 滤波默认参数可以通过环境变量覆盖：
 
@@ -1166,9 +1167,9 @@ ros2 run lidar_map_localization pcd_quality_report \
 
 ## 自转外参校准
 
-如果机械给出的雷达相对底盘中心坐标存在微小偏差，机器人原地自转时，`init -> base_link_highrate` 的 XY 会出现本不该有的小圆波动。可以用自转校准工具记录这段数据并自动计算建议修正值。
+如果机械给出的雷达相对底盘中心坐标存在微小偏差，机器人原地自转时，`robot_origin -> robot_base_highrate` 的 XY 会出现本不该有的小圆波动。可以用自转校准工具记录这段数据并自动计算建议修正值。
 
-先正常启动低负载定位栈，等待 `world_tf` 初始化完成，然后运行：
+先正常启动低负载定位栈，等待重定位 ready 或确认 `robot_origin -> robot_base_highrate` 可查询，然后运行：
 
 ```bash
 cd "/home/orangepi/RC_LIDAR_NOW"
@@ -1189,9 +1190,9 @@ ros2 run fastlio_world_init rotation_extrinsic_calibrator \
 脚本默认记录：
 
 ```text
-init -> body_highrate
-init -> base_link_highrate
-body_highrate -> base_link_highrate
+robot_origin -> body_highrate
+robot_origin -> robot_base_highrate
+body_highrate -> robot_base_highrate
 ```
 
 输出目录默认是：
@@ -1245,12 +1246,12 @@ x=-0.240, y=0.315, z=-0.760, yaw=pi
 x=-0.240, y=0.287302, z=-0.760, yaw=pi/2
 ```
 
-其中 `x` 的拟合修正量约 `0.01 mm`，低于实际安装和定位噪声，因此保持 `-0.240` 不变；`y` 按建议值从 `0.315` 修正为 `0.287302`。之后为了满足电控坐标约定，机器人业务帧 yaw 从 `pi` 调整为 `pi/2`，使 `X=右方`、`Y=前方`。这组三处静态 TF 必须保持一致：
+其中 `x` 的拟合修正量约 `0.01 mm`，低于实际安装和定位噪声，因此保持 `-0.240` 不变；`y` 按建议值从 `0.315` 修正为 `0.287302`。之后为了满足电控坐标约定，机器人业务帧 yaw 从 `pi` 调整为 `pi/2`，使 `X=右方`、`Y=前方`。Rc 3.4 起这组三处静态 TF 必须保持一致：
 
 ```text
-world -> init
-body -> base_link
-body_highrate -> base_link_highrate
+map -> robot_origin
+body -> robot_base
+body_highrate -> robot_base_highrate
 ```
 
 默认只输出建议值，不会自动修改 TF。确认报告可信后，把 `summary.json` 和 `samples.csv` 发出来，再同步修改三处静态 TF：
@@ -1280,20 +1281,20 @@ ros2 topic list
 ros2 topic hz /livox/lidar
 ros2 topic hz /livox/imu
 ros2 topic echo /Odometry --once
-ros2 topic echo /tf_compare/robot_init_to_base_link --once
-ros2 topic echo /tf_compare/robot_init_to_base_link_highrate --once
-ros2 topic echo /tf_compare/lidar_world_to_body --once
+ros2 topic echo /tf_compare/robot_origin_to_robot_base --once
+ros2 topic echo /tf_compare/robot_origin_to_robot_base_highrate --once
+ros2 topic echo /tf_compare/map_to_body --once
 ```
 
 检查 TF：
 
 ```bash
 ros2 run tf2_ros tf2_echo camera_init body
-ros2 run tf2_ros tf2_echo world init
-ros2 run tf2_ros tf2_echo body base_link
-ros2 run tf2_ros tf2_echo body_highrate base_link_highrate
-ros2 run tf2_ros tf2_echo init base_link
-ros2 run tf2_ros tf2_echo init base_link_highrate
+ros2 run tf2_ros tf2_echo map robot_origin
+ros2 run tf2_ros tf2_echo body robot_base
+ros2 run tf2_ros tf2_echo body_highrate robot_base_highrate
+ros2 run tf2_ros tf2_echo robot_origin robot_base
+ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
 ```
 
 ## 本次修改
@@ -1319,26 +1320,31 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
 4. `src/my_static_tf/launch/lidar_to_base_highrate.launch.py`
    - 新增高频 base_link 静态 TF：`body_highrate -> base_link_highrate`，用于修复原脚本引用了不存在 launch 文件的问题。
 
+4a. Rc 3.4 无头车 TF 树重写
+   - 生产 TF 从旧 `world -> init`、`body -> base_link`、`body_highrate -> base_link_highrate` 改为 `map -> robot_origin`、`body -> robot_base`、`body_highrate -> robot_base_highrate`。
+   - `map` 表示 PCD 地图坐标，Y 正方向作为无头车世界正方向；重定位模式由 `map_localizer` 发布 `map -> camera_init`，mapping/tracking 模式发布 identity `map -> camera_init`。
+   - `/robot/pose` 不再由 `/map_lidar/odom` 手算相对位姿，而是从 TF 查询 `robot_origin -> robot_base_highrate`；滤波和 CAN 继续使用 `/robot/pose_filtered`。
+
 5. `src/my_static_tf/launch/map_to_init.launch.py`
-   - 把静态 TF 从 `lidar -> init` 调整为正常运行树需要的 `world -> init`，使 `init` 能连接到 `camera_init/world/body_highrate` 主树。
+   - 历史版本曾把静态 TF 从 `lidar -> init` 调整为 `world -> init`；Rc 3.4 后生产树改为 `map -> robot_origin`。
 
 6. `src/my_static_tf/launch/*.launch.py`
    - 按雷达安装位置更新机器人中心相对雷达坐标系的静态外参。
    - 根据 `logs/calibration/rotation_extrinsic_20260619_175422/` 的自转校准结果修正 Y 方向外参。
    - 将机器人业务帧改为 `X右/Y前/Z上`。
    - 当前统一参数为：`x=-0.240, y=0.287302, z=-0.760, roll=0, pitch=0, yaw=pi/2`。
-   - `world -> init`、`body -> base_link`、`body_highrate -> base_link_highrate` 三套 TF 使用同一组外参。
+   - Rc 3.4 后 `map -> robot_origin`、`body -> robot_base`、`body_highrate -> robot_base_highrate` 三套 TF 使用同一组外参。
 
 7. `autostart/world_tf.sh`
-   - `world` 初始化保持为“先等待 10 秒，再对 FAST-LIO 的 `camera_init -> body` 采样平均 3 秒”，用于避开刚启动时的不稳定状态。
+   - 这是旧 tracking 链路的初始化工具；Rc 3.4 后生产启动默认跳过，改用 `map` 和 `robot_origin` 业务树。
 
 8. `src/fastlio_world_init/fastlio_world_init/robot_tf_offsets.py`
-   - 新增 TF 对比 topic：`/tf_compare/robot_init_to_base_link` 和 `/tf_compare/robot_init_to_base_link_highrate`。
-   - 分别发布 `init -> base_link` 与 `init -> base_link_highrate` 的 XYZ 平移。
+   - TF 对比 topic 更新为 `/tf_compare/robot_origin_to_robot_base` 和 `/tf_compare/robot_origin_to_robot_base_highrate`。
+   - 分别发布 `robot_origin -> robot_base` 与 `robot_origin -> robot_base_highrate` 的 XYZ 平移。
 
 9. `src/fastlio_world_init/fastlio_world_init/lidar_tf_offset.py`
-   - 新增 TF 对比 topic：`/tf_compare/lidar_world_to_body`。
-   - 发布 `world -> body` 的 XYZ 平移，保持雷达原始坐标轴。
+   - TF 对比 topic 更新为 `/tf_compare/map_to_body`。
+   - 发布 `map -> body` 的 XYZ 平移，保持雷达原始坐标轴。
 
 10. `src/fastlio_world_init/config/tf_compare_plotjuggler.xml`
     - 保留 PlotJuggler ROS2 streamer 配置模板，包含 `/robot/pose`、`/robot/pose_filtered`、`/map_lidar/quality`、`/lidar/pose_filter/status` 和三个 `/tf_compare/...` topic。
@@ -1350,8 +1356,8 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
 
 12. `src/fastlio_world_init/fastlio_world_init/rotation_extrinsic_calibrator.py`
     - 新增自转外参校准工具。
-    - 原地自转时记录 `init -> body_highrate`、`init -> base_link_highrate`、`body_highrate -> base_link_highrate`。
-    - 额外记录 `camera_init -> body`、`world -> body` 和 `/Odometry` 的 yaw 诊断，避免只看单一路径时误判旋转圈数。
+    - 原地自转时记录 `robot_origin -> body_highrate`、`robot_origin -> robot_base_highrate`、`body_highrate -> robot_base_highrate`。
+    - 额外记录 `camera_init -> body`、`map -> body` 和 `/Odometry` 的 yaw 诊断，避免只看单一路径时误判旋转圈数。
     - 自动拟合 XY 小圆偏心，输出 `samples.csv`、`summary.json`、`report.md`，只给出建议值，不自动改 TF 文件。
 
 13. `autostart/livox.sh`、`autostart/setup_livox_net.sh`
@@ -1395,7 +1401,7 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
 20. `src/lidar_localization`
    - 新增 `pose_from_odom` 位姿接口。
    - 建图模式下可把 `/Odometry` 转成相对启动点的 `/robot/pose`，同时保留旧兼容名 `/lidar/pose`。
-   - 重定位模式下把 `/map_lidar/odom` 转成业务坐标 `init -> base_link` 的 `/robot/pose`，坐标语义为 `X右/Y前/Z上`。
+   - Rc 3.4 后重定位模式下从 TF 查询 `robot_origin -> robot_base_highrate` 生成 `/robot/pose`，坐标语义为 `X右/Y前/Z上`。
    - 新增 `pose_stability_filter`，将 `/robot/pose` 平滑为 `/robot/pose_filtered`，同时保留旧兼容名 `/lidar/pose_filtered`；`RC_POSE_FILTER=0` 可关闭。滤波器按 `xy_speed` 和 `yaw_rate` 自适应调整强度，静止时压抖动，运动时快速跟随，并带连续拒绝后的恢复机制，避免机器人移动后滤波输出永久停在旧值。
    - Rc 2.9 参考 r2 的 `pose_filter.py` 增加 `filter_mode=normal|beta`。normal 仍是默认生产链路；beta 输出 `/robot/pose_filtered_beta` 和 `/lidar/pose_filter_beta/status`，通过短时 hold/确认抑制静止尖峰。beta 默认不启动，需要 `RC_POSE_FILTER_BETA=1` 手动开启对比。
 

@@ -40,7 +40,7 @@ should_kill_cmd() {
     *"fastlio_mapping"*|*"livox_ros_driver2_node"*|*"rc_serial_driver_node"*|*"ekf_node"*)
       return 0
       ;;
-    *"world_from_fastlio_init"*|*"robot_tf_offsets"*|*"lidar_tf_offset"*|*"lidar_xyzr.py"*|*"map_localizer"*|*"pose_from_odom"*)
+    *"world_from_fastlio_init"*|*"robot_tf_offsets"*|*"lidar_tf_offset"*|*"lidar_xyzr.py"*|*"map_localizer"*|*"pose_from_odom"*|*"pose_from_tf"*)
       return 0
       ;;
     *"thermal_pose_monitor.sh"*|*"thermal_pose_monitor.py"*)
@@ -52,7 +52,7 @@ should_kill_cmd() {
     *"rotation_extrinsic_calibrator"*)
       return 0
       ;;
-    *"static_transform_publisher"*base_link*|*"static_transform_publisher"*body*|*"static_transform_publisher"*init*)
+    *"static_transform_publisher"*base_link*|*"static_transform_publisher"*robot_base*|*"static_transform_publisher"*body*|*"static_transform_publisher"*init*|*"static_transform_publisher"*robot_origin*|*"static_transform_publisher"*camera_init*)
       return 0
       ;;
     *"rviz2"*fast_lio*|*"plotjuggler"*"TF Compare"*)
@@ -131,6 +131,7 @@ close_terminal_windows_by_title() {
     "TF_STATIC1"
     "TF_STATIC2"
     "TF_STATIC3"
+    "TF_MAP_CAMERA_INIT"
     "HIGHRATE_BODY"
     "world_tf"
     "TF_ROBOT_OFFSET"
@@ -170,6 +171,7 @@ patterns=(
   "$DIR/lidar_xyzr.sh"
   "$DIR/lidar_to_base_tf.sh"
   "$DIR/map_to_init_tf.sh"
+  "$DIR/map_to_camera_init_tf.sh"
   "$DIR/lidar_to_base_highrate_tf.sh"
   "$DIR/highrate_body.sh"
   "$DIR/world_tf.sh"
@@ -204,6 +206,7 @@ patterns=(
   "lidar_xyzr.py"
   "map_localizer"
   "pose_from_odom"
+  "pose_from_tf"
   "pose_stability_filter"
   "thermal_pose_monitor.py"
   "relocalization_ready_notify.py"

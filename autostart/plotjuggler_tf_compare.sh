@@ -33,9 +33,9 @@ if [ "${RC_LIDAR_MODE:-tracking}" = "relocalization" ]; then
 fi
 
 TOPICS+=(
-  "/tf_compare/robot_init_to_base_link"
-  "/tf_compare/robot_init_to_base_link_highrate"
-  "/tf_compare/lidar_world_to_body"
+  "/tf_compare/robot_origin_to_robot_base"
+  "/tf_compare/robot_origin_to_robot_base_highrate"
+  "/tf_compare/map_to_body"
 )
 
 join_topics_for_qsettings() {

@@ -335,7 +335,7 @@ void RCSerialDriver::sendMapBodyPose()
 
     if (source_used.empty() && pose_source_ != "pose_topic") {
       if (readPoseFromTf(x_can, y_can, z_can, yaw_can)) {
-        source_used = "TF init->base_link_highrate";
+        source_used = "TF robot_origin->robot_base_highrate";
       }
     }
 
@@ -518,21 +518,21 @@ bool RCSerialDriver::readPoseFromTopic(float & x, float & y, float & z, float & 
 
 bool RCSerialDriver::readPoseFromTf(float & x, float & y, float & z, float & yaw)
 {
-    // 低频完整 3D 坐标: init -> base_link
+    // 低频完整 3D 坐标: robot_origin -> robot_base
     // 用它取 z
     geometry_msgs::msg::TransformStamped tf_low =
-      tf_buffer_->lookupTransform("init", "base_link", tf2::TimePointZero);
+      tf_buffer_->lookupTransform("robot_origin", "robot_base", tf2::TimePointZero);
 
-    // 高频平面坐标: init -> base_link_highrate
+    // 高频平面坐标: robot_origin -> robot_base_highrate
     // 用它取 x, y, yaw
     geometry_msgs::msg::TransformStamped tf_high =
-      tf_buffer_->lookupTransform("init", "base_link_highrate", tf2::TimePointZero);
+      tf_buffer_->lookupTransform("robot_origin", "robot_base_highrate", tf2::TimePointZero);
 
     // === 机器人业务 TF 坐标: x=右, y=前, z=上 ===
     x = static_cast<float>(tf_high.transform.translation.x);
     y = static_cast<float>(tf_high.transform.translation.y);
 
-    // === z 来自低频 base_link ===
+    // === z 来自低频 robot_base ===
     z = static_cast<float>(tf_low.transform.translation.z);
 
     yaw = yawFromQuaternion(tf_high.transform.rotation);

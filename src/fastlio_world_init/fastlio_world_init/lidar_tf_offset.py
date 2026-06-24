@@ -70,9 +70,9 @@ def parse_args(argv=None):
     )
     parser.add_argument('--publish-rate', type=float, default=30.0)
     parser.add_argument('--warn-period', type=float, default=2.0)
-    parser.add_argument('--target-frame', default='world')
+    parser.add_argument('--target-frame', default='map')
     parser.add_argument('--source-frame', default='body')
-    parser.add_argument('--topic', default='/tf_compare/lidar_world_to_body')
+    parser.add_argument('--topic', default='/tf_compare/map_to_body')
     return parser.parse_known_args(argv)
 
 

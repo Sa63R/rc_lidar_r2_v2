@@ -94,16 +94,16 @@ def parse_args(argv=None):
     )
     parser.add_argument('--publish-rate', type=float, default=30.0)
     parser.add_argument('--warn-period', type=float, default=2.0)
-    parser.add_argument('--target-frame', default='init')
-    parser.add_argument('--base-link-frame', default='base_link')
-    parser.add_argument('--base-link-highrate-frame', default='base_link_highrate')
+    parser.add_argument('--target-frame', default='robot_origin')
+    parser.add_argument('--base-link-frame', default='robot_base')
+    parser.add_argument('--base-link-highrate-frame', default='robot_base_highrate')
     parser.add_argument(
         '--low-topic',
-        default='/tf_compare/robot_init_to_base_link',
+        default='/tf_compare/robot_origin_to_robot_base',
     )
     parser.add_argument(
         '--highrate-topic',
-        default='/tf_compare/robot_init_to_base_link_highrate',
+        default='/tf_compare/robot_origin_to_robot_base_highrate',
     )
     return parser.parse_known_args(argv)
 

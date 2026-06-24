@@ -28,6 +28,14 @@ ros2 run fastlio_world_init rotation_extrinsic_calibrator \
   --duration 40 \
   --rate 50
 
+# Rc 3.4 无头车 TF 树验证：
+# map 是 PCD 地图坐标，Y 正方向是无头车世界正方向。
+# robot_origin 是机器人业务原点，robot_base_highrate 是机器人当前高频中心。
+ros2 run tf2_ros tf2_echo map robot_origin
+ros2 run tf2_ros tf2_echo body robot_base
+ros2 run tf2_ros tf2_echo body_highrate robot_base_highrate
+ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
+
 建图模块
 
 # 建图

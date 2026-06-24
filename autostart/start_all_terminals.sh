@@ -507,10 +507,15 @@ should_start_ready_notify() {
 start_one "TF_STATIC1" "lidar_to_base_tf.sh"
 start_one "TF_STATIC2" "map_to_init_tf.sh"
 start_one "TF_STATIC3" "lidar_to_base_highrate_tf.sh"
+if [ "$RC_LIDAR_MODE" = "relocalization" ]; then
+  summary_event "skipped TF_MAP_CAMERA_INIT because MAP_LOCALIZER publishes map -> camera_init"
+else
+  start_one "TF_MAP_CAMERA_INIT" "map_to_camera_init_tf.sh"
+fi
 start_one "LIVOX" "livox.sh"
 start_one "FASTLIO" "fastlio.sh"
 start_one "HIGHRATE_BODY" "highrate_body.sh"
-start_one "world_tf" "world_tf.sh"
+summary_event "skipped world_tf; production TF uses map -> robot_origin"
 if [ "$RC_LIDAR_MODE" = "mapping" ]; then
   start_one "POSE_INTERFACE" "pose_interface_mapping.sh"
 elif [ "$RC_LIDAR_MODE" = "relocalization" ]; then
