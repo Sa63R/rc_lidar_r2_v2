@@ -690,14 +690,17 @@ class PoseStabilityFilter(Node):
         if should_rate_limit and (now - self.last_log_time).nanoseconds / 1e9 < self.log_period_sec:
             return
         self.last_log_time = now
-        level = self.get_logger().info if result.accepted else self.get_logger().warn
-        level(
+        message = (
             f"pose filter {result.reason}: step={result.raw_step_m:.4f}m "
             f"speed={result.speed_xy_mps:.3f}m/s alpha={result.alpha:.2f} "
             f"motion={result.motion_factor:.2f} yaw_rate={math.degrees(result.yaw_rate_radps):.1f}deg/s "
             f"hold={result.hold_state} confirm={result.confirm_count} "
             f"rejects={self.state.reject_count}"
         )
+        if result.accepted:
+            self.get_logger().info(message)
+        else:
+            self.get_logger().warn(message)
 
     def log_reject(
         self,

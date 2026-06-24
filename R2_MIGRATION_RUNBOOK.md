@@ -992,6 +992,7 @@ ls -lh logs/autostart/latest/health_monitor.*
 - `MAP_LOCALIZER` 发布质量 topic，且没有持续 rejected。
 - `/robot/pose_filtered` 连续刷新。
 - `POSE_INTERFACE.log` 不应持续刷 `TF robot_origin->robot_base_highrate is stale` 后完全不发 `/robot/pose`；默认 `RC_ROBOT_POSE_MAX_TF_AGE=0.0` 是为了接受低频 `map -> camera_init` 修正参与后的最新可用组合 TF。
+- `POSE_FILTER.log` 不应出现 `ValueError: Logger severity cannot be changed between calls`。如果出现，说明 r2 还没有同步 Rc 3.8 的滤波日志修复；该问题会让 `/robot/pose_filtered` 运行一段时间后停止发布。
 - 如果启用 beta，对比 `/robot/pose_filtered_beta`，确认静止尖峰更少且真实连续运动不会长期 hold。
 - CAN 使用 `/robot/pose_filtered`，有接收端时 TX 计数增长。
 - 健康日志存在，能记录温度、load、CPU 频率、地图质量和静止漂移。

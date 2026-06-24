@@ -1428,6 +1428,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
    - Rc 3.7 起，`pose_from_tf` 默认 `max_tf_age_sec=0.0`，也就是接受 TF buffer 最新可用变换，不再按 1 秒 stamp 门限丢弃组合 TF。原因是 `map -> camera_init` 重定位修正频率可能较低，旧门限会让 `/robot/pose` 停止发布，导致 PlotJuggler 和 `/robot/pose_filtered` 看不到机器人业务位姿。
    - 新增 `pose_stability_filter`，将 `/robot/pose` 平滑为 `/robot/pose_filtered`，同时保留旧兼容名 `/lidar/pose_filtered`；`RC_POSE_FILTER=0` 可关闭。滤波器按 `xy_speed` 和 `yaw_rate` 自适应调整强度，静止时压抖动，运动时快速跟随，并带连续拒绝后的恢复机制，避免机器人移动后滤波输出永久停在旧值。
    - Rc 2.9 参考 r2 的 `pose_filter.py` 增加 `filter_mode=normal|beta`。normal 仍是默认生产链路；beta 输出 `/robot/pose_filtered_beta` 和 `/lidar/pose_filter_beta/status`，通过短时 hold/确认抑制静止尖峰。beta 默认不启动，需要 `RC_POSE_FILTER_BETA=1` 手动开启对比。
+   - Rc 3.8 修复 `pose_stability_filter` 在 accepted/rejected 日志之间切换 severity 时触发 `ValueError: Logger severity cannot be changed between calls` 并退出的问题。这个问题会导致 `/robot/pose_filtered` 运行一段时间后消失，看起来像定位链路“死掉”。
 
 21. `autostart/start_mapping_terminals.sh`、`autostart/save_fast_lio_map.sh`、`autostart/map_localizer.sh`、`autostart/pose_interface_mapping.sh`、`autostart/pose_interface_relocalization.sh`、`autostart/pose_stability_filter.sh`
    - 新增建图保存和地图重定位的一键脚本。
