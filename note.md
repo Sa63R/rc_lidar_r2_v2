@@ -73,6 +73,27 @@ RC_AUTOSTART_PLOTJUGGLER=1 \
 RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd" \
 ./autostart/start_all_terminals.sh
 
+# 启用 stable 候选滤波做 PlotJuggler 对比，但 CAN 仍走默认 /robot/pose_filtered
+cd "/home/orangepi/RC_LIDAR_NOW"
+RC_LIDAR_MODE=relocalization \
+RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
+RC_AUTOSTART_HEADLESS=1 \
+RC_AUTOSTART_PLOTJUGGLER=1 \
+RC_POSE_FILTER_STABLE=1 \
+RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd" \
+./autostart/start_all_terminals.sh
+
+# 确认 stable 更稳且运动不卡顿后，才让 CAN 发送 /robot/pose_filtered_stable
+cd "/home/orangepi/RC_LIDAR_NOW"
+RC_LIDAR_MODE=relocalization \
+RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
+RC_AUTOSTART_HEADLESS=1 \
+RC_AUTOSTART_PLOTJUGGLER=1 \
+RC_POSE_FILTER_STABLE=1 \
+RC_POSE_FILTER_SELECTED=stable \
+RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd" \
+./autostart/start_all_terminals.sh
+
 
 # 如果车确实放回建图开始原点附近：
 cd "/home/orangepi/RC_LIDAR_NOW"

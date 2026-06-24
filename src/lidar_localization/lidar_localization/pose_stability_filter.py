@@ -1,6 +1,8 @@
 import math
+import statistics
+from collections import deque
 from dataclasses import dataclass
-from typing import Optional
+from typing import Deque, Optional
 
 import rclpy
 from geometry_msgs.msg import PoseStamped
@@ -29,6 +31,9 @@ REASON_CODES = {
     "beta_hold": 5.0,
     "beta_spike_rejected": 6.0,
     "beta_confirmed_motion": 7.0,
+    "stable_hold": 8.0,
+    "stable_spike_rejected": 9.0,
+    "stable_confirmed_motion": 10.0,
 }
 
 HOLD_STATE_CODES = {
@@ -74,6 +79,11 @@ class PoseFilterState:
         filter_mode: str = "normal",
         beta_confirm_samples: int = 3,
         beta_return_tolerance_m: float = 0.0,
+        stable_confirm_samples: int = 3,
+        stable_return_tolerance_m: float = 0.0,
+        stable_release_distance_m: float = 0.0,
+        stable_window_size: int = 9,
+        stable_moving_hold_sec: float = 0.8,
     ) -> None:
         self.static_alpha = float(static_alpha)
         self.moving_alpha = float(moving_alpha)
@@ -86,13 +96,24 @@ class PoseFilterState:
         self.max_yaw_jump_rad = float(max_yaw_jump_rad)
         self.spike_step_m = float(spike_step_m)
         self.filter_mode = str(filter_mode).lower()
-        if self.filter_mode not in {"normal", "beta"}:
-            raise ValueError("filter_mode must be normal or beta")
+        if self.filter_mode not in {"normal", "beta", "stable"}:
+            raise ValueError("filter_mode must be normal, beta, or stable")
         self.beta_confirm_samples = max(1, int(beta_confirm_samples))
         if beta_return_tolerance_m > 0.0:
             self.beta_return_tolerance_m = float(beta_return_tolerance_m)
         else:
             self.beta_return_tolerance_m = max(0.003, self.spike_step_m * 0.5)
+        self.stable_confirm_samples = max(1, int(stable_confirm_samples))
+        if stable_return_tolerance_m > 0.0:
+            self.stable_return_tolerance_m = float(stable_return_tolerance_m)
+        else:
+            self.stable_return_tolerance_m = max(0.003, self.spike_step_m * 0.5)
+        if stable_release_distance_m > 0.0:
+            self.stable_release_distance_m = float(stable_release_distance_m)
+        else:
+            self.stable_release_distance_m = max(0.03, self.spike_step_m * 2.5)
+        self.stable_window_size = max(3, int(stable_window_size))
+        self.stable_moving_hold_sec = max(0.0, float(stable_moving_hold_sec))
 
         self.filtered: Optional[tuple[float, float, float, float, float, float]] = None
         self.last_raw: Optional[tuple[float, float, float, float, float, float]] = None
@@ -112,6 +133,14 @@ class PoseFilterState:
         self.beta_hold_direction: Optional[tuple[float, float]] = None
         self.beta_hold_count = 0
 
+        self.stable_anchor: Optional[
+            tuple[float, float, float, float, float, float]
+        ] = None
+        self.stable_samples: Deque[
+            tuple[float, float, float, float, float, float]
+        ] = deque(maxlen=self.stable_window_size)
+        self.stable_moving_until_sec: Optional[float] = None
+
     def update(
         self,
         raw: tuple[float, float, float, float, float, float],
@@ -130,6 +159,8 @@ class PoseFilterState:
             self.filtered = raw
             self.last_raw = raw
             self.last_stamp_sec = stamp_sec
+            self.stable_anchor = raw
+            self.stable_samples.append(raw)
             self.accept_count += 1
             return FilterResult(raw, True, "initial", 0.0, False, 0.0, 0.0, 0.0, 1.0)
 
@@ -163,6 +194,16 @@ class PoseFilterState:
         if self.filter_mode == "beta":
             return self._update_beta(raw, stamp_sec, motion_factor, xy_step, speed_xy, yaw_rate)
 
+        if self.filter_mode == "stable":
+            return self._update_stable(
+                raw,
+                stamp_sec,
+                motion_factor,
+                xy_step,
+                speed_xy,
+                yaw_rate,
+            )
+
         return self._update_normal(raw, stamp_sec, motion_factor, xy_step, speed_xy, yaw_rate)
 
     def recover(
@@ -183,9 +224,14 @@ class PoseFilterState:
             wrap_angle(float(raw[5])),
         )
         self._clear_beta_hold()
+        self._clear_stable_hold()
         self.filtered = raw
         self.last_raw = raw
         self.last_stamp_sec = float(stamp_sec)
+        self.stable_anchor = raw
+        self.stable_samples.clear()
+        self.stable_samples.append(raw)
+        self.stable_moving_until_sec = None
         self.accept_count += 1
         self.consecutive_rejects = 0
         self.last_motion_factor = motion_factor
@@ -376,6 +422,204 @@ class PoseFilterState:
             confirm_count=self.beta_hold_count,
         )
 
+    def _update_stable(
+        self,
+        raw: tuple[float, float, float, float, float, float],
+        stamp_sec: float,
+        motion_factor: float,
+        xy_step: float,
+        speed_xy: float,
+        yaw_rate: float,
+    ) -> FilterResult:
+        if self.stable_anchor is None:
+            self.stable_anchor = self.filtered
+
+        if self.beta_hold_origin is not None:
+            return self._update_stable_hold(
+                raw,
+                stamp_sec,
+                motion_factor,
+                xy_step,
+                speed_xy,
+                yaw_rate,
+            )
+
+        if (
+            self.stable_moving_until_sec is not None
+            and stamp_sec <= self.stable_moving_until_sec
+        ):
+            self.last_raw = raw
+            self.last_stamp_sec = float(stamp_sec)
+            self.stable_anchor = raw
+            self.stable_samples.clear()
+            self.stable_samples.append(raw)
+            if motion_factor > 0.2:
+                self.stable_moving_until_sec = stamp_sec + self.stable_moving_hold_sec
+            return self._accept_raw(
+                raw,
+                max(motion_factor, 0.75),
+                xy_step,
+                speed_xy,
+                yaw_rate,
+                "accepted",
+            )
+
+        anchor = self.stable_anchor or self.filtered
+        raw_to_anchor = math.hypot(raw[0] - anchor[0], raw[1] - anchor[1])
+        if raw_to_anchor > self.spike_step_m:
+            self._start_beta_hold(raw)
+            self.last_raw = raw
+            self.last_stamp_sec = float(stamp_sec)
+            self.reject_count += 1
+            self.consecutive_rejects += 1
+            return FilterResult(
+                self.filtered,
+                False,
+                "stable_hold",
+                motion_factor,
+                True,
+                xy_step,
+                speed_xy,
+                yaw_rate,
+                0.0,
+                hold_state="holding",
+                confirm_count=self.beta_hold_count,
+            )
+
+        self.last_raw = raw
+        self.last_stamp_sec = float(stamp_sec)
+        self._remember_stable_sample(raw)
+        target = self.stable_anchor or raw
+        return self._accept_raw(
+            target,
+            0.0,
+            xy_step,
+            speed_xy,
+            yaw_rate,
+            "accepted",
+        )
+
+    def _update_stable_hold(
+        self,
+        raw: tuple[float, float, float, float, float, float],
+        stamp_sec: float,
+        motion_factor: float,
+        xy_step: float,
+        speed_xy: float,
+        yaw_rate: float,
+    ) -> FilterResult:
+        origin = self.beta_hold_origin
+        direction = self.beta_hold_direction
+        candidate = self.beta_hold_candidate
+        if origin is None or direction is None or candidate is None:
+            self._clear_stable_hold()
+            return self._update_stable(raw, stamp_sec, motion_factor, xy_step, speed_xy, yaw_rate)
+
+        origin_to_raw = math.hypot(raw[0] - origin[0], raw[1] - origin[1])
+        self.last_raw = raw
+        self.last_stamp_sec = float(stamp_sec)
+
+        if origin_to_raw <= self.stable_return_tolerance_m:
+            self._clear_stable_hold()
+            self._remember_stable_sample(raw)
+            self.reject_count += 1
+            self.consecutive_rejects += 1
+            return FilterResult(
+                self.filtered,
+                False,
+                "stable_spike_rejected",
+                motion_factor,
+                True,
+                xy_step,
+                speed_xy,
+                yaw_rate,
+                0.0,
+                hold_state="rejected",
+            )
+
+        vx = raw[0] - origin[0]
+        vy = raw[1] - origin[1]
+        progress = vx * direction[0] + vy * direction[1]
+        lateral = abs(vx * direction[1] - vy * direction[0])
+        candidate_progress = (
+            (candidate[0] - origin[0]) * direction[0]
+            + (candidate[1] - origin[1]) * direction[1]
+        )
+        continuing = (
+            progress >= max(candidate_progress, self.spike_step_m)
+            and lateral <= max(self.spike_step_m, origin_to_raw * 0.35)
+        )
+        if continuing:
+            self.beta_hold_count += 1
+            self.beta_hold_candidate = raw
+
+        if (
+            self.beta_hold_count >= self.stable_confirm_samples
+            and origin_to_raw >= self.stable_release_distance_m
+        ):
+            confirm_count = self.beta_hold_count
+            self._clear_stable_hold()
+            self.stable_moving_until_sec = stamp_sec + self.stable_moving_hold_sec
+            self.stable_anchor = raw
+            self.stable_samples.clear()
+            self.stable_samples.append(raw)
+            return self._accept_raw(
+                raw,
+                max(motion_factor, 1.0),
+                xy_step,
+                speed_xy,
+                yaw_rate,
+                "stable_confirmed_motion",
+                hold_state="released",
+                confirm_count=confirm_count,
+            )
+
+        self.reject_count += 1
+        self.consecutive_rejects += 1
+        return FilterResult(
+            self.filtered,
+            False,
+            "stable_hold",
+            motion_factor,
+            True,
+            xy_step,
+            speed_xy,
+            yaw_rate,
+            0.0,
+            hold_state="holding",
+            confirm_count=self.beta_hold_count,
+        )
+
+    def _clear_stable_hold(self) -> None:
+        self._clear_beta_hold()
+
+    def _remember_stable_sample(
+        self,
+        raw: tuple[float, float, float, float, float, float],
+    ) -> None:
+        self.stable_samples.append(raw)
+        self.stable_anchor = self._stable_window_pose()
+
+    def _stable_window_pose(self) -> tuple[float, float, float, float, float, float]:
+        samples = list(self.stable_samples)
+        if not samples:
+            return self.filtered
+
+        def median_at(index: int) -> float:
+            return float(statistics.median(sample[index] for sample in samples))
+
+        sin_yaw = sum(math.sin(sample[5]) for sample in samples)
+        cos_yaw = sum(math.cos(sample[5]) for sample in samples)
+        yaw = math.atan2(sin_yaw, cos_yaw)
+        return (
+            median_at(0),
+            median_at(1),
+            median_at(2),
+            median_at(3),
+            median_at(4),
+            wrap_angle(yaw),
+        )
+
     def _accept_raw(
         self,
         raw: tuple[float, float, float, float, float, float],
@@ -503,6 +747,21 @@ class PoseStabilityFilter(Node):
         self.beta_return_tolerance_m = float(
             self.declare_parameter("beta_return_tolerance_m", 0.0).value
         )
+        self.stable_confirm_samples = int(
+            self.declare_parameter("stable_confirm_samples", 3).value
+        )
+        self.stable_return_tolerance_m = float(
+            self.declare_parameter("stable_return_tolerance_m", 0.0).value
+        )
+        self.stable_release_distance_m = float(
+            self.declare_parameter("stable_release_distance_m", 0.0).value
+        )
+        self.stable_window_size = int(
+            self.declare_parameter("stable_window_size", 9).value
+        )
+        self.stable_moving_hold_sec = float(
+            self.declare_parameter("stable_moving_hold_sec", 0.8).value
+        )
         self.recovery_reject_count = int(
             self.declare_parameter("recovery_reject_count", 10).value
         )
@@ -527,6 +786,11 @@ class PoseStabilityFilter(Node):
             filter_mode=self.filter_mode,
             beta_confirm_samples=self.beta_confirm_samples,
             beta_return_tolerance_m=self.beta_return_tolerance_m,
+            stable_confirm_samples=self.stable_confirm_samples,
+            stable_return_tolerance_m=self.stable_return_tolerance_m,
+            stable_release_distance_m=self.stable_release_distance_m,
+            stable_window_size=self.stable_window_size,
+            stable_moving_hold_sec=self.stable_moving_hold_sec,
         )
 
         self.last_receive_time: Optional[Time] = None
@@ -565,7 +829,12 @@ class PoseStabilityFilter(Node):
             f"max_xy_speed={self.max_xy_speed:.3f} "
             f"max_yaw_jump_deg={math.degrees(self.max_yaw_jump_rad):.1f} "
             f"beta_confirm_samples={self.beta_confirm_samples} "
-            f"beta_return_tolerance={self.state.beta_return_tolerance_m:.3f}"
+            f"beta_return_tolerance={self.state.beta_return_tolerance_m:.3f} "
+            f"stable_confirm_samples={self.stable_confirm_samples} "
+            f"stable_return_tolerance={self.state.stable_return_tolerance_m:.3f} "
+            f"stable_release_distance={self.state.stable_release_distance_m:.3f} "
+            f"stable_window_size={self.stable_window_size} "
+            f"stable_moving_hold_sec={self.stable_moving_hold_sec:.2f}"
         )
 
     def pose_stamp(self, msg: PoseStamped) -> Time:
@@ -659,6 +928,11 @@ class PoseStabilityFilter(Node):
         _, _, raw_yaw = rpy_from_quat(raw.pose.orientation)
         _, _, filtered_yaw = rpy_from_quat(filtered.pose.orientation)
         status = Float32MultiArray()
+        mode_code = 0.0
+        if self.filter_mode == "beta":
+            mode_code = 1.0
+        elif self.filter_mode == "stable":
+            mode_code = 2.0
         status.data = [
             1.0 if result.accepted else 0.0,
             float(raw.pose.position.x),
@@ -676,7 +950,7 @@ class PoseStabilityFilter(Node):
             1.0 if result.recovered else 0.0,
             float(result.motion_factor),
             float(math.degrees(result.yaw_rate_radps)),
-            1.0 if self.filter_mode == "beta" else 0.0,
+            mode_code,
             float(REASON_CODES.get(result.reason, -1.0)),
             float(HOLD_STATE_CODES.get(result.hold_state, -1.0)),
             float(result.confirm_count),

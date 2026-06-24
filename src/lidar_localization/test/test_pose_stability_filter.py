@@ -100,6 +100,55 @@ class PoseFilterStateTest(unittest.TestCase):
         self.assertEqual(released.confirm_count, 3)
         self.assertGreater(released.pose[0], 0.020)
 
+    def test_stable_mode_rejects_short_static_spike_without_following_it(self):
+        state = PoseFilterState(
+            static_alpha=0.2,
+            moving_alpha=0.8,
+            static_speed_threshold=0.03,
+            full_speed_threshold=0.20,
+            spike_step_m=0.012,
+            filter_mode="stable",
+            stable_confirm_samples=3,
+            stable_release_distance_m=0.030,
+        )
+        state.update((0.0, 0.0, 0.0, 0.0, 0.0, 0.0), stamp_sec=1.0)
+        state.update((0.003, -0.002, 0.0, 0.0, 0.0, 0.0), stamp_sec=1.1)
+
+        held = state.update((0.032, 0.000, 0.0, 0.0, 0.0, 0.0), stamp_sec=1.2)
+        rejected = state.update((0.002, -0.001, 0.0, 0.0, 0.0, 0.0), stamp_sec=1.3)
+
+        self.assertFalse(held.accepted)
+        self.assertEqual(held.reason, "stable_hold")
+        self.assertLess(abs(held.pose[0]), 0.010)
+        self.assertFalse(rejected.accepted)
+        self.assertEqual(rejected.reason, "stable_spike_rejected")
+        self.assertLess(abs(rejected.pose[0]), 0.010)
+
+    def test_stable_mode_releases_after_sustained_motion_confirmation(self):
+        state = PoseFilterState(
+            static_alpha=0.2,
+            moving_alpha=0.8,
+            static_speed_threshold=0.03,
+            full_speed_threshold=0.20,
+            spike_step_m=0.012,
+            filter_mode="stable",
+            stable_confirm_samples=3,
+            stable_release_distance_m=0.030,
+        )
+        state.update((0.0, 0.0, 0.0, 0.0, 0.0, 0.0), stamp_sec=1.0)
+        first = state.update((0.014, 0.0, 0.0, 0.0, 0.0, 0.0), stamp_sec=1.1)
+        second = state.update((0.028, 0.0, 0.0, 0.0, 0.0, 0.0), stamp_sec=1.2)
+        released = state.update((0.043, 0.0, 0.0, 0.0, 0.0, 0.0), stamp_sec=1.3)
+
+        self.assertFalse(first.accepted)
+        self.assertEqual(first.reason, "stable_hold")
+        self.assertFalse(second.accepted)
+        self.assertTrue(released.accepted)
+        self.assertEqual(released.reason, "stable_confirmed_motion")
+        self.assertEqual(released.hold_state, "released")
+        self.assertEqual(released.confirm_count, 3)
+        self.assertGreater(released.pose[0], 0.020)
+
 
 if __name__ == "__main__":
     unittest.main()

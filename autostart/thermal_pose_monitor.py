@@ -48,10 +48,16 @@ CSV_FIELDS = [
     "beta_y",
     "beta_z",
     "beta_yaw_deg",
+    "stable_x",
+    "stable_y",
+    "stable_z",
+    "stable_yaw_deg",
     "raw_filtered_delta_xy_m",
     "raw_filtered_delta_yaw_deg",
     "raw_beta_delta_xy_m",
     "filtered_beta_delta_xy_m",
+    "raw_stable_delta_xy_m",
+    "filtered_stable_delta_xy_m",
     "raw_step_xy_m",
     "raw_speed_xy_mps",
     "raw_yaw_rate_degps",
@@ -61,6 +67,9 @@ CSV_FIELDS = [
     "beta_step_xy_m",
     "beta_speed_xy_mps",
     "beta_yaw_rate_degps",
+    "stable_step_xy_m",
+    "stable_speed_xy_mps",
+    "stable_yaw_rate_degps",
     "motion_factor",
     "is_stationary",
     "raw_window_x_p2p_m",
@@ -72,6 +81,9 @@ CSV_FIELDS = [
     "beta_window_x_p2p_m",
     "beta_window_y_p2p_m",
     "beta_window_xy_p2p_m",
+    "stable_window_x_p2p_m",
+    "stable_window_y_p2p_m",
+    "stable_window_xy_p2p_m",
     "stationary_raw_window_x_p2p_m",
     "stationary_raw_window_y_p2p_m",
     "stationary_raw_window_xy_p2p_m",
@@ -121,12 +133,26 @@ CSV_FIELDS = [
     "beta_filter_status_reason_code",
     "beta_filter_status_hold_state_code",
     "beta_filter_status_confirm_count",
+    "stable_filter_status_accepted",
+    "stable_filter_status_raw_step_xy_m",
+    "stable_filter_status_speed_xy_mps",
+    "stable_filter_status_alpha",
+    "stable_filter_status_reject_count",
+    "stable_filter_status_consecutive_rejects",
+    "stable_filter_status_recovered",
+    "stable_filter_status_motion_factor",
+    "stable_filter_status_yaw_rate_degps",
+    "stable_filter_status_reason_code",
+    "stable_filter_status_hold_state_code",
+    "stable_filter_status_confirm_count",
     "raw_age_sec",
     "filtered_age_sec",
     "beta_age_sec",
+    "stable_age_sec",
     "quality_age_sec",
     "filter_status_age_sec",
     "beta_filter_status_age_sec",
+    "stable_filter_status_age_sec",
 ]
 
 
@@ -284,19 +310,24 @@ class ThermalPoseMonitor(Node):
         self.raw_pose: PoseSample | None = None
         self.filtered_pose: PoseSample | None = None
         self.beta_pose: PoseSample | None = None
+        self.stable_pose: PoseSample | None = None
         self.quality: tuple[float, list[float]] | None = None
         self.filter_status: tuple[float, list[float]] | None = None
         self.beta_filter_status: tuple[float, list[float]] | None = None
+        self.stable_filter_status: tuple[float, list[float]] | None = None
         self.previous_raw_pose: PoseSample | None = None
         self.previous_filtered_pose: PoseSample | None = None
         self.previous_beta_pose: PoseSample | None = None
+        self.previous_stable_pose: PoseSample | None = None
         self.callback_previous_raw_pose: PoseSample | None = None
         self.callback_previous_filtered_pose: PoseSample | None = None
         self.callback_previous_beta_pose: PoseSample | None = None
+        self.callback_previous_stable_pose: PoseSample | None = None
 
         self.raw_window: Deque[PoseSample] = deque()
         self.filtered_window: Deque[PoseSample] = deque()
         self.beta_window: Deque[PoseSample] = deque()
+        self.stable_window: Deque[PoseSample] = deque()
         self.stationary_raw_window: Deque[PoseSample] = deque()
         self.stationary_filtered_window: Deque[PoseSample] = deque()
         self.static_context_raw_window: Deque[PoseSample] = deque()
@@ -345,16 +376,19 @@ class ThermalPoseMonitor(Node):
         self.create_subscription(PoseStamped, args.raw_topic, self.on_raw_pose, 20)
         self.create_subscription(PoseStamped, args.filtered_topic, self.on_filtered_pose, 20)
         self.create_subscription(PoseStamped, args.beta_topic, self.on_beta_pose, 20)
+        self.create_subscription(PoseStamped, args.stable_topic, self.on_stable_pose, 20)
         self.create_subscription(Float32MultiArray, args.quality_topic, self.on_quality, 20)
         self.create_subscription(Float32MultiArray, args.filter_status_topic, self.on_filter_status, 20)
         self.create_subscription(Float32MultiArray, args.beta_filter_status_topic, self.on_beta_filter_status, 20)
+        self.create_subscription(Float32MultiArray, args.stable_filter_status_topic, self.on_stable_filter_status, 20)
         self.timer = self.create_timer(args.interval, self.sample)
 
         self.get_logger().info(
             f"health monitor logging csv={self.csv_path} summary={self.summary_path} "
             f"events={self.event_path} raw={args.raw_topic} filtered={args.filtered_topic} "
-            f"beta={args.beta_topic} quality={args.quality_topic} "
-            f"filter_status={args.filter_status_topic} beta_status={args.beta_filter_status_topic}"
+            f"beta={args.beta_topic} stable={args.stable_topic} quality={args.quality_topic} "
+            f"filter_status={args.filter_status_topic} beta_status={args.beta_filter_status_topic} "
+            f"stable_status={args.stable_filter_status_topic}"
         )
         self.get_logger().info(
             f"health monitor markers run={self.run_marker_path} stop={self.stop_marker_path} "
@@ -390,9 +424,11 @@ class ThermalPoseMonitor(Node):
                 "raw_topic": self.args.raw_topic,
                 "filtered_topic": self.args.filtered_topic,
                 "beta_topic": self.args.beta_topic,
+                "stable_topic": self.args.stable_topic,
                 "quality_topic": self.args.quality_topic,
                 "filter_status_topic": self.args.filter_status_topic,
                 "beta_filter_status_topic": self.args.beta_filter_status_topic,
+                "stable_filter_status_topic": self.args.stable_filter_status_topic,
                 "interval_sec": self.args.interval,
                 "window_sec": self.args.window,
                 "summary_interval_sec": self.args.summary_interval,
@@ -476,6 +512,24 @@ class ThermalPoseMonitor(Node):
                     "beta_step_xy_m": step_xy,
                     "beta_speed_xy_mps": speed_xy,
                     "beta_yaw_rate_degps": yaw_rate,
+                    "threshold_m": self.args.spike_filtered_step,
+                },
+            )
+
+    def on_stable_pose(self, msg: PoseStamped) -> None:
+        p = msg.pose.position
+        pose = (time.monotonic(), float(p.x), float(p.y), float(p.z), yaw_from_pose(msg))
+        step_xy, speed_xy, yaw_rate = pose_step(self.callback_previous_stable_pose, pose)
+        self.stable_pose = pose
+        self.callback_previous_stable_pose = pose
+        if math.isfinite(step_xy) and step_xy >= self.args.spike_filtered_step:
+            self.start_event(
+                "stable_pose_step",
+                pose[0],
+                {
+                    "stable_step_xy_m": step_xy,
+                    "stable_speed_xy_mps": speed_xy,
+                    "stable_yaw_rate_degps": yaw_rate,
                     "threshold_m": self.args.spike_filtered_step,
                 },
             )
@@ -585,6 +639,41 @@ class ThermalPoseMonitor(Node):
                 },
             )
 
+    def on_stable_filter_status(self, msg: Float32MultiArray) -> None:
+        now = time.monotonic()
+        values = [float(value) for value in msg.data]
+        self.stable_filter_status = (now, values)
+        accepted = values[0] if len(values) > 0 else math.nan
+        raw_step = values[5] if len(values) > 5 else math.nan
+        recovered = values[13] if len(values) > 13 else math.nan
+        motion_factor = values[14] if len(values) > 14 else math.nan
+        reason_code = values[17] if len(values) > 17 else math.nan
+        hold_state = values[18] if len(values) > 18 else math.nan
+        confirm_count = values[19] if len(values) > 19 else math.nan
+        if math.isfinite(accepted) and accepted < 0.5:
+            self.start_event(
+                "stable_filter_rejected",
+                now,
+                {
+                    "stable_filter_raw_step_xy_m": raw_step,
+                    "stable_filter_motion_factor": motion_factor,
+                    "stable_filter_reason_code": reason_code,
+                    "stable_filter_hold_state_code": hold_state,
+                    "stable_filter_confirm_count": confirm_count,
+                },
+            )
+        if math.isfinite(recovered) and recovered > 0.5:
+            self.start_event(
+                "stable_filter_recovered",
+                now,
+                {
+                    "stable_filter_raw_step_xy_m": raw_step,
+                    "stable_filter_motion_factor": motion_factor,
+                    "stable_filter_reason_code": reason_code,
+                    "stable_filter_hold_state_code": hold_state,
+                },
+            )
+
     def start_event(self, reason: str, stamp: float, trigger: dict[str, Any]) -> None:
         last_stamp = self.last_event_by_reason.get(reason)
         if last_stamp is not None and stamp - last_stamp < self.args.event_cooldown_sec:
@@ -631,8 +720,13 @@ class ThermalPoseMonitor(Node):
             "cpu_freq_avg_mhz": series_stats(numeric_rows, "cpu_freq_avg_mhz"),
             "raw_step_xy_m": series_stats(numeric_rows, "raw_step_xy_m"),
             "filtered_step_xy_m": series_stats(numeric_rows, "filtered_step_xy_m"),
+            "stable_step_xy_m": series_stats(numeric_rows, "stable_step_xy_m"),
             "raw_window_xy_p2p_m": series_stats(numeric_rows, "raw_window_xy_p2p_m"),
             "filtered_window_xy_p2p_m": series_stats(numeric_rows, "filtered_window_xy_p2p_m"),
+            "stable_window_xy_p2p_m": series_stats(
+                numeric_rows,
+                "stable_window_xy_p2p_m",
+            ),
             "static_context_raw_xy_p2p_m": series_stats(
                 numeric_rows, "static_context_raw_xy_p2p_m"
             ),
@@ -647,6 +741,14 @@ class ThermalPoseMonitor(Node):
             "filter_status_alpha": series_stats(numeric_rows, "filter_status_alpha"),
             "filter_status_motion_factor": series_stats(
                 numeric_rows, "filter_status_motion_factor"
+            ),
+            "stable_filter_status_alpha": series_stats(
+                numeric_rows,
+                "stable_filter_status_alpha",
+            ),
+            "stable_filter_status_motion_factor": series_stats(
+                numeric_rows,
+                "stable_filter_status_motion_factor",
             ),
             "spike_candidate_count": sum(
                 1 for row in numeric_rows if row.get("spike_candidate", 0.0) > 0.5
@@ -730,6 +832,8 @@ class ThermalPoseMonitor(Node):
             self.filtered_window.append(self.filtered_pose)
         if self.beta_pose:
             self.beta_window.append(self.beta_pose)
+        if self.stable_pose:
+            self.stable_window.append(self.stable_pose)
 
         if is_stationary:
             if self.raw_pose:
@@ -752,6 +856,7 @@ class ThermalPoseMonitor(Node):
         self.trim_window(self.raw_window, now)
         self.trim_window(self.filtered_window, now)
         self.trim_window(self.beta_window, now)
+        self.trim_window(self.stable_window, now)
         self.trim_window(self.stationary_raw_window, now)
         self.trim_window(self.stationary_filtered_window, now)
         self.trim_window(self.static_context_raw_window, now)
@@ -771,6 +876,10 @@ class ThermalPoseMonitor(Node):
         beta_step, beta_speed, beta_yaw_rate = pose_step(
             self.previous_beta_pose,
             self.beta_pose,
+        )
+        stable_step, stable_speed, stable_yaw_rate = pose_step(
+            self.previous_stable_pose,
+            self.stable_pose,
         )
         motion_factor = self.compute_motion_factor(
             raw_speed,
@@ -865,6 +974,37 @@ class ThermalPoseMonitor(Node):
             beta_filter_hold_state = values[18] if len(values) > 18 else math.nan
             beta_filter_confirm_count = values[19] if len(values) > 19 else math.nan
 
+        (
+            stable_filter_accepted,
+            stable_filter_raw_step,
+            stable_filter_speed,
+            stable_filter_alpha,
+            stable_filter_reject_count,
+            stable_filter_consecutive_rejects,
+            stable_filter_recovered,
+            stable_filter_motion_factor,
+            stable_filter_yaw_rate,
+            stable_filter_reason_code,
+            stable_filter_hold_state,
+            stable_filter_confirm_count,
+            stable_filter_status_age,
+        ) = (math.nan,) * 13
+        if self.stable_filter_status:
+            stamp, values = self.stable_filter_status
+            stable_filter_status_age = now - stamp
+            stable_filter_accepted = values[0] if len(values) > 0 else math.nan
+            stable_filter_raw_step = values[5] if len(values) > 5 else math.nan
+            stable_filter_speed = values[6] if len(values) > 6 else math.nan
+            stable_filter_alpha = values[7] if len(values) > 7 else math.nan
+            stable_filter_reject_count = values[10] if len(values) > 10 else math.nan
+            stable_filter_consecutive_rejects = values[12] if len(values) > 12 else math.nan
+            stable_filter_recovered = values[13] if len(values) > 13 else math.nan
+            stable_filter_motion_factor = values[14] if len(values) > 14 else math.nan
+            stable_filter_yaw_rate = values[15] if len(values) > 15 else math.nan
+            stable_filter_reason_code = values[17] if len(values) > 17 else math.nan
+            stable_filter_hold_state = values[18] if len(values) > 18 else math.nan
+            stable_filter_confirm_count = values[19] if len(values) > 19 else math.nan
+
         spike_candidate = bool(
             (math.isfinite(raw_step) and raw_step >= self.args.spike_raw_step)
             or (
@@ -876,6 +1016,10 @@ class ThermalPoseMonitor(Node):
                 and beta_step >= self.args.spike_filtered_step
             )
             or (
+                math.isfinite(stable_step)
+                and stable_step >= self.args.spike_filtered_step
+            )
+            or (
                 math.isfinite(quality_jump)
                 and quality_jump >= self.args.spike_map_jump
             )
@@ -885,6 +1029,8 @@ class ThermalPoseMonitor(Node):
             )
             or (math.isfinite(filter_accepted) and filter_accepted < 0.5)
             or (math.isfinite(filter_recovered) and filter_recovered > 0.5)
+            or (math.isfinite(stable_filter_accepted) and stable_filter_accepted < 0.5)
+            or (math.isfinite(stable_filter_recovered) and stable_filter_recovered > 0.5)
         )
 
         motion_now = bool(
@@ -926,10 +1072,18 @@ class ThermalPoseMonitor(Node):
             stamp, beta_x, beta_y, beta_z, beta_yaw = self.beta_pose
             beta_age = now - stamp
 
+        stable_x = stable_y = stable_z = stable_yaw = math.nan
+        stable_age = math.nan
+        if self.stable_pose:
+            stamp, stable_x, stable_y, stable_z, stable_yaw = self.stable_pose
+            stable_age = now - stamp
+
         delta_xy = math.nan
         delta_yaw = math.nan
         raw_beta_delta_xy = math.nan
         filtered_beta_delta_xy = math.nan
+        raw_stable_delta_xy = math.nan
+        filtered_stable_delta_xy = math.nan
         if all(math.isfinite(value) for value in (raw_x, raw_y, filtered_x, filtered_y)):
             delta_xy = math.hypot(raw_x - filtered_x, raw_y - filtered_y)
         if math.isfinite(raw_yaw) and math.isfinite(filtered_yaw):
@@ -938,10 +1092,18 @@ class ThermalPoseMonitor(Node):
             raw_beta_delta_xy = math.hypot(raw_x - beta_x, raw_y - beta_y)
         if all(math.isfinite(value) for value in (filtered_x, filtered_y, beta_x, beta_y)):
             filtered_beta_delta_xy = math.hypot(filtered_x - beta_x, filtered_y - beta_y)
+        if all(math.isfinite(value) for value in (raw_x, raw_y, stable_x, stable_y)):
+            raw_stable_delta_xy = math.hypot(raw_x - stable_x, raw_y - stable_y)
+        if all(math.isfinite(value) for value in (filtered_x, filtered_y, stable_x, stable_y)):
+            filtered_stable_delta_xy = math.hypot(
+                filtered_x - stable_x,
+                filtered_y - stable_y,
+            )
 
         raw_x_p2p, raw_y_p2p, raw_xy_p2p = window_p2p(self.raw_window)
         filtered_x_p2p, filtered_y_p2p, filtered_xy_p2p = window_p2p(self.filtered_window)
         beta_x_p2p, beta_y_p2p, beta_xy_p2p = window_p2p(self.beta_window)
+        stable_x_p2p, stable_y_p2p, stable_xy_p2p = window_p2p(self.stable_window)
         stationary_raw_x_p2p, stationary_raw_y_p2p, stationary_raw_xy_p2p = window_p2p(
             self.stationary_raw_window
         )
@@ -977,10 +1139,16 @@ class ThermalPoseMonitor(Node):
             "beta_y": beta_y,
             "beta_z": beta_z,
             "beta_yaw_deg": math.degrees(beta_yaw) if math.isfinite(beta_yaw) else math.nan,
+            "stable_x": stable_x,
+            "stable_y": stable_y,
+            "stable_z": stable_z,
+            "stable_yaw_deg": math.degrees(stable_yaw) if math.isfinite(stable_yaw) else math.nan,
             "raw_filtered_delta_xy_m": delta_xy,
             "raw_filtered_delta_yaw_deg": delta_yaw,
             "raw_beta_delta_xy_m": raw_beta_delta_xy,
             "filtered_beta_delta_xy_m": filtered_beta_delta_xy,
+            "raw_stable_delta_xy_m": raw_stable_delta_xy,
+            "filtered_stable_delta_xy_m": filtered_stable_delta_xy,
             "raw_step_xy_m": raw_step,
             "raw_speed_xy_mps": raw_speed,
             "raw_yaw_rate_degps": raw_yaw_rate,
@@ -990,6 +1158,9 @@ class ThermalPoseMonitor(Node):
             "beta_step_xy_m": beta_step,
             "beta_speed_xy_mps": beta_speed,
             "beta_yaw_rate_degps": beta_yaw_rate,
+            "stable_step_xy_m": stable_step,
+            "stable_speed_xy_mps": stable_speed,
+            "stable_yaw_rate_degps": stable_yaw_rate,
             "motion_factor": motion_factor,
             "is_stationary": 1.0 if is_stationary else 0.0,
             "raw_window_x_p2p_m": raw_x_p2p,
@@ -1001,6 +1172,9 @@ class ThermalPoseMonitor(Node):
             "beta_window_x_p2p_m": beta_x_p2p,
             "beta_window_y_p2p_m": beta_y_p2p,
             "beta_window_xy_p2p_m": beta_xy_p2p,
+            "stable_window_x_p2p_m": stable_x_p2p,
+            "stable_window_y_p2p_m": stable_y_p2p,
+            "stable_window_xy_p2p_m": stable_xy_p2p,
             "stationary_raw_window_x_p2p_m": stationary_raw_x_p2p,
             "stationary_raw_window_y_p2p_m": stationary_raw_y_p2p,
             "stationary_raw_window_xy_p2p_m": stationary_raw_xy_p2p,
@@ -1050,12 +1224,26 @@ class ThermalPoseMonitor(Node):
             "beta_filter_status_reason_code": beta_filter_reason_code,
             "beta_filter_status_hold_state_code": beta_filter_hold_state,
             "beta_filter_status_confirm_count": beta_filter_confirm_count,
+            "stable_filter_status_accepted": stable_filter_accepted,
+            "stable_filter_status_raw_step_xy_m": stable_filter_raw_step,
+            "stable_filter_status_speed_xy_mps": stable_filter_speed,
+            "stable_filter_status_alpha": stable_filter_alpha,
+            "stable_filter_status_reject_count": stable_filter_reject_count,
+            "stable_filter_status_consecutive_rejects": stable_filter_consecutive_rejects,
+            "stable_filter_status_recovered": stable_filter_recovered,
+            "stable_filter_status_motion_factor": stable_filter_motion_factor,
+            "stable_filter_status_yaw_rate_degps": stable_filter_yaw_rate,
+            "stable_filter_status_reason_code": stable_filter_reason_code,
+            "stable_filter_status_hold_state_code": stable_filter_hold_state,
+            "stable_filter_status_confirm_count": stable_filter_confirm_count,
             "raw_age_sec": raw_age,
             "filtered_age_sec": filtered_age,
             "beta_age_sec": beta_age,
+            "stable_age_sec": stable_age,
             "quality_age_sec": quality_age,
             "filter_status_age_sec": filter_status_age,
             "beta_filter_status_age_sec": beta_filter_status_age,
+            "stable_filter_status_age_sec": stable_filter_status_age,
         }
 
         self.rows.append(row)
@@ -1071,6 +1259,7 @@ class ThermalPoseMonitor(Node):
         self.previous_raw_pose = self.raw_pose
         self.previous_filtered_pose = self.filtered_pose
         self.previous_beta_pose = self.beta_pose
+        self.previous_stable_pose = self.stable_pose
 
         elapsed = now - self.start_time
         if (
@@ -1099,6 +1288,7 @@ class ThermalPoseMonitor(Node):
             raw_p2p = [row["raw_window_xy_p2p_m"] for row in numeric_rows]
             filtered_p2p = [row["filtered_window_xy_p2p_m"] for row in numeric_rows]
             beta_p2p = [row["beta_window_xy_p2p_m"] for row in numeric_rows]
+            stable_p2p = [row["stable_window_xy_p2p_m"] for row in numeric_rows]
             stationary_filtered_p2p = [
                 row["stationary_filtered_window_xy_p2p_m"] for row in numeric_rows
             ]
@@ -1130,6 +1320,10 @@ class ThermalPoseMonitor(Node):
                     numeric_rows,
                     "beta_window_xy_p2p_m",
                 ),
+                "stable_window_xy_p2p_m": series_stats(
+                    numeric_rows,
+                    "stable_window_xy_p2p_m",
+                ),
                 "stationary_filtered_window_xy_p2p_m": series_stats(
                     numeric_rows,
                     "stationary_filtered_window_xy_p2p_m",
@@ -1156,6 +1350,14 @@ class ThermalPoseMonitor(Node):
                     numeric_rows,
                     "filtered_beta_delta_xy_m",
                 ),
+                "raw_stable_delta_xy_m": series_stats(
+                    numeric_rows,
+                    "raw_stable_delta_xy_m",
+                ),
+                "filtered_stable_delta_xy_m": series_stats(
+                    numeric_rows,
+                    "filtered_stable_delta_xy_m",
+                ),
                 "map_quality_fitness": series_stats(numeric_rows, "map_quality_fitness"),
                 "map_quality_jump_xy_m": series_stats(numeric_rows, "map_quality_jump_xy_m"),
                 "map_quality_align_ms": series_stats(numeric_rows, "map_quality_align_ms"),
@@ -1176,10 +1378,19 @@ class ThermalPoseMonitor(Node):
                     numeric_rows,
                     "beta_filter_status_motion_factor",
                 ),
+                "stable_filter_status_alpha": series_stats(
+                    numeric_rows,
+                    "stable_filter_status_alpha",
+                ),
+                "stable_filter_status_motion_factor": series_stats(
+                    numeric_rows,
+                    "stable_filter_status_motion_factor",
+                ),
                 "correlation": {
                     "temp_vs_raw_window_xy_p2p": pearson(temps, raw_p2p),
                     "temp_vs_filtered_window_xy_p2p": pearson(temps, filtered_p2p),
                     "temp_vs_beta_window_xy_p2p": pearson(temps, beta_p2p),
+                    "temp_vs_stable_window_xy_p2p": pearson(temps, stable_p2p),
                     "temp_vs_stationary_filtered_window_xy_p2p": pearson(
                         temps,
                         stationary_filtered_p2p,
@@ -1188,6 +1399,7 @@ class ThermalPoseMonitor(Node):
                     "load1_vs_raw_window_xy_p2p": pearson(loads, raw_p2p),
                     "load1_vs_filtered_window_xy_p2p": pearson(loads, filtered_p2p),
                     "load1_vs_beta_window_xy_p2p": pearson(loads, beta_p2p),
+                    "load1_vs_stable_window_xy_p2p": pearson(loads, stable_p2p),
                     "load1_vs_stationary_filtered_window_xy_p2p": pearson(
                         loads,
                         stationary_filtered_p2p,
@@ -1252,9 +1464,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--raw-topic", default="/robot/pose")
     parser.add_argument("--filtered-topic", default="/robot/pose_filtered")
     parser.add_argument("--beta-topic", default="/robot/pose_filtered_beta")
+    parser.add_argument("--stable-topic", default="/robot/pose_filtered_stable")
     parser.add_argument("--quality-topic", default="/map_lidar/quality")
     parser.add_argument("--filter-status-topic", default="/lidar/pose_filter/status")
     parser.add_argument("--beta-filter-status-topic", default="/lidar/pose_filter_beta/status")
+    parser.add_argument("--stable-filter-status-topic", default="/lidar/pose_filter_stable/status")
     parser.add_argument("--static-speed", type=float, default=0.015)
     parser.add_argument("--full-speed", type=float, default=0.12)
     parser.add_argument("--static-yaw-rate-deg", type=float, default=5.0)

@@ -59,6 +59,8 @@ if [ -z "${RC_CAN_POSE_TOPIC:-}" ]; then
       RC_CAN_POSE_TOPIC="${RC_RAW_POSE_TOPIC:-/robot/pose}"
     elif [ "${RC_POSE_FILTER_SELECTED:-normal}" = "beta" ]; then
       RC_CAN_POSE_TOPIC="${RC_BETA_FILTERED_POSE_TOPIC:-/robot/pose_filtered_beta}"
+    elif [ "${RC_POSE_FILTER_SELECTED:-normal}" = "stable" ]; then
+      RC_CAN_POSE_TOPIC="${RC_STABLE_FILTERED_POSE_TOPIC:-/robot/pose_filtered_stable}"
     else
       RC_CAN_POSE_TOPIC="${RC_POSE_FILTER_CAN_TOPIC:-/robot/pose_filtered}"
     fi

@@ -37,6 +37,15 @@ if [ "${RC_LIDAR_MODE:-tracking}" = "relocalization" ]; then
       )
       ;;
   esac
+
+  case "${RC_POSE_FILTER_STABLE:-0}" in
+    1|true|TRUE|yes|YES|on|ON)
+      TOPICS+=(
+        "${RC_STABLE_FILTERED_POSE_TOPIC:-/robot/pose_filtered_stable}"
+        "/lidar/pose_filter_stable/status"
+      )
+      ;;
+  esac
 fi
 
 TOPICS+=(

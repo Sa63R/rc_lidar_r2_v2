@@ -142,6 +142,7 @@ close_terminal_windows_by_title() {
     "POSE_INTERFACE"
     "POSE_FILTER"
     "POSE_FILTER_BETA"
+    "POSE_FILTER_STABLE"
     "HEALTH_MONITOR"
     "THERMAL_MONITOR"
     "READY_NOTIFY"

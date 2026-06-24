@@ -23,11 +23,13 @@ RC_HEALTH_MONITOR="${RC_HEALTH_MONITOR:-${RC_THERMAL_POSE_MONITOR:-1}}"
 RC_POSE_FILTER_SELECTED="${RC_POSE_FILTER_SELECTED:-normal}"
 RC_POSE_FILTER_BETA="${RC_POSE_FILTER_BETA:-0}"
 RC_BETA_FILTERED_POSE_TOPIC="${RC_BETA_FILTERED_POSE_TOPIC:-/robot/pose_filtered_beta}"
+RC_POSE_FILTER_STABLE="${RC_POSE_FILTER_STABLE:-0}"
+RC_STABLE_FILTERED_POSE_TOPIC="${RC_STABLE_FILTERED_POSE_TOPIC:-/robot/pose_filtered_stable}"
 case "$RC_POSE_FILTER_SELECTED" in
-  normal|beta)
+  normal|beta|stable)
     ;;
   *)
-    echo "[ERROR] Unknown RC_POSE_FILTER_SELECTED=$RC_POSE_FILTER_SELECTED. Use normal or beta." >&2
+    echo "[ERROR] Unknown RC_POSE_FILTER_SELECTED=$RC_POSE_FILTER_SELECTED. Use normal, beta, or stable." >&2
     exit 2
     ;;
 esac
@@ -43,8 +45,24 @@ case "$RC_POSE_FILTER_BETA" in
     exit 2
     ;;
 esac
+case "$RC_POSE_FILTER_STABLE" in
+  1|true|TRUE|yes|YES|on|ON)
+    RC_POSE_FILTER_STABLE_ENABLED=1
+    ;;
+  0|false|FALSE|no|NO|off|OFF|"")
+    RC_POSE_FILTER_STABLE_ENABLED=0
+    ;;
+  *)
+    echo "[ERROR] Unknown RC_POSE_FILTER_STABLE=$RC_POSE_FILTER_STABLE. Use 0 or 1." >&2
+    exit 2
+    ;;
+esac
 if [ "$RC_POSE_FILTER_SELECTED" = "beta" ] && [ "$RC_POSE_FILTER_BETA_ENABLED" != "1" ]; then
   echo "[ERROR] RC_POSE_FILTER_SELECTED=beta requires RC_POSE_FILTER_BETA=1." >&2
+  exit 2
+fi
+if [ "$RC_POSE_FILTER_SELECTED" = "stable" ] && [ "$RC_POSE_FILTER_STABLE_ENABLED" != "1" ]; then
+  echo "[ERROR] RC_POSE_FILTER_SELECTED=stable requires RC_POSE_FILTER_STABLE=1." >&2
   exit 2
 fi
 
@@ -88,6 +106,8 @@ export RC_HEALTH_MONITOR
 export RC_POSE_FILTER_SELECTED
 export RC_POSE_FILTER_BETA
 export RC_BETA_FILTERED_POSE_TOPIC
+export RC_POSE_FILTER_STABLE
+export RC_STABLE_FILTERED_POSE_TOPIC
 export RC_LIDAR_BOOT_ID="${RC_LIDAR_BOOT_ID:-$BOOT_ID}"
 
 # ROS2 自己的日志目录
@@ -113,6 +133,8 @@ mkdir -p "$ROS_LOG_DIR"
   echo "pose_filter_selected: $RC_POSE_FILTER_SELECTED"
   echo "pose_filter_beta: $RC_POSE_FILTER_BETA"
   echo "beta_filtered_pose_topic: $RC_BETA_FILTERED_POSE_TOPIC"
+  echo "pose_filter_stable: $RC_POSE_FILTER_STABLE"
+  echo "stable_filtered_pose_topic: $RC_STABLE_FILTERED_POSE_TOPIC"
   echo "log_dir: $LOG_DIR"
   echo "dir: $DIR"
   echo "user: $(whoami)"
@@ -529,6 +551,11 @@ elif [ "$RC_LIDAR_MODE" = "relocalization" ]; then
       start_one "POSE_FILTER_BETA" "pose_stability_filter_beta.sh"
     else
       summary_event "skipped POSE_FILTER_BETA because RC_POSE_FILTER_BETA=0"
+    fi
+    if [ "$RC_POSE_FILTER_STABLE_ENABLED" = "1" ]; then
+      start_one "POSE_FILTER_STABLE" "pose_stability_filter_stable.sh"
+    else
+      summary_event "skipped POSE_FILTER_STABLE because RC_POSE_FILTER_STABLE=0"
     fi
   fi
   if should_start_ready_notify; then

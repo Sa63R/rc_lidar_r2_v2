@@ -550,7 +550,19 @@ RC_POSE_FILTER_SELECTED=beta \
 ./autostart/start_all_terminals.sh
 ```
 
-迁移到 R2 时优先保留这个保守策略：beta 先用于 PlotJuggler 和健康日志对比，不默认进入电控生产链路。`RC_POSE_FILTER_SELECTED=beta` 必须和 `RC_POSE_FILTER_BETA=1` 同时设置，否则启动脚本应直接报错，避免 CAN 读取不存在的 `/robot/pose_filtered_beta`。
+Rc 3.9 又增加 stable 候选滤波，用于处理静止时 map localizer 输出 1-4cm 短时跳点、normal 被瞬时速度误判成真实运动的问题：
+
+```bash
+# 手动对比 stable，但 CAN 仍发 normal
+RC_POSE_FILTER_STABLE=1 ./autostart/start_all_terminals.sh
+
+# 确认 stable 更适合现场后，才让 CAN 发 stable
+RC_POSE_FILTER_STABLE=1 \
+RC_POSE_FILTER_SELECTED=stable \
+./autostart/start_all_terminals.sh
+```
+
+迁移到 R2 时优先保留这个保守策略：beta/stable 先用于 PlotJuggler 和健康日志对比，不默认进入电控生产链路。`RC_POSE_FILTER_SELECTED=beta` 必须和 `RC_POSE_FILTER_BETA=1` 同时设置；`RC_POSE_FILTER_SELECTED=stable` 必须和 `RC_POSE_FILTER_STABLE=1` 同时设置，否则启动脚本应直接报错，避免 CAN 读取不存在的候选 topic。
 
 ## 8. TF、外参和自转校准
 
@@ -979,6 +991,8 @@ ros2 topic echo /robot/pose --once
 ros2 topic echo /robot/pose_filtered --once
 # 如果手动启用了 RC_POSE_FILTER_BETA=1：
 ros2 topic echo /robot/pose_filtered_beta --once
+# 如果手动启用了 RC_POSE_FILTER_STABLE=1：
+ros2 topic echo /robot/pose_filtered_stable --once
 ros2 topic echo /map_lidar/quality --once
 ros2 topic echo /lidar/pose_filter/status --once
 tail -n 120 logs/autostart/latest/CAN_SERIAL.log
@@ -994,6 +1008,7 @@ ls -lh logs/autostart/latest/health_monitor.*
 - `POSE_INTERFACE.log` 不应持续刷 `TF robot_origin->robot_base_highrate is stale` 后完全不发 `/robot/pose`；默认 `RC_ROBOT_POSE_MAX_TF_AGE=0.0` 是为了接受低频 `map -> camera_init` 修正参与后的最新可用组合 TF。
 - `POSE_FILTER.log` 不应出现 `ValueError: Logger severity cannot be changed between calls`。如果出现，说明 r2 还没有同步 Rc 3.8 的滤波日志修复；该问题会让 `/robot/pose_filtered` 运行一段时间后停止发布。
 - 如果启用 beta，对比 `/robot/pose_filtered_beta`，确认静止尖峰更少且真实连续运动不会长期 hold。
+- 如果启用 stable，对比 `/robot/pose_filtered_stable`，确认静止 1-4cm 短时跳点不会被快速跟随，同时慢速连续移动和绕点转圈不会出现平台/锯齿。
 - CAN 使用 `/robot/pose_filtered`，有接收端时 TX 计数增长。
 - 健康日志存在，能记录温度、load、CPU 频率、地图质量和静止漂移。
 - `./autostart/stop_all.sh` 能清掉残留雷达、定位、滤波、CAN 和 GUI 调试进程。
