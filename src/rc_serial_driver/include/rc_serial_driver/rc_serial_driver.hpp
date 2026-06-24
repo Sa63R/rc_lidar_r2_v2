@@ -5,6 +5,7 @@
 
 #include <rclcpp/rclcpp.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <std_msgs/msg/float32_multi_array.hpp>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 
@@ -27,8 +28,10 @@ private:
   void sendMapBodyPose();       // ← 必须声明
   void reopenPort();
   void poseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
+  void qualityCallback(const std_msgs::msg::Float32MultiArray::SharedPtr msg);
   bool readPoseFromTopic(float & x, float & y, float & z, float & yaw);
   bool readPoseFromTf(float & x, float & y, float & z, float & yaw);
+  bool canSendPoseByQuality();
 
   // TF
   std::unique_ptr<tf2_ros::Buffer> tf_buffer_;
@@ -49,6 +52,19 @@ private:
   std::mutex pose_mutex_;
   geometry_msgs::msg::PoseStamped::SharedPtr latest_pose_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
+
+  // Relocalization quality gate
+  bool quality_gate_enabled_{false};
+  std::string quality_topic_;
+  double quality_timeout_sec_{1.0};
+  double quality_max_fitness_{0.05};
+  int quality_min_consecutive_accepts_{5};
+  bool quality_require_accepted_{true};
+  bool quality_require_converged_{true};
+  std::mutex quality_mutex_;
+  std_msgs::msg::Float32MultiArray::SharedPtr latest_quality_;
+  rclcpp::Time latest_quality_wall_time_;
+  rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr quality_sub_;
 
   // Timer
   rclcpp::TimerBase::SharedPtr send_timer_;  // ← 必须声明

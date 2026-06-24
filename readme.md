@@ -790,6 +790,8 @@ ls -lh maps/mid360_map.pcd
 
 重要：当前 `lidar_map_localization` 是局部地图匹配，不是全局重定位。也就是说，它不能在完全不知道初始位置的情况下，从整张地图里自动找出机器人在哪里。之前出现过“机器人不是在建图原点启动，但输出仍接近 0”的现象，本质是把 `map -> camera_init` 初值默认假设成 identity，NDT 又持续匹配失败，容易造成误判。
 
+大场地比赛时，不建议直接拿整张大场馆 PCD 做生产重定位。更稳的策略是：只建/裁出比赛区域及其周围少量缓冲区的局部地图，让机器人从固定上电点或接近建图原点的位置启动；如果不在原点启动，就必须给粗略初值。当前算法没有做 Scan Context、粒子全局搜索或多候选全局匹配，所以“拿全图自动找自己在哪里”不是它擅长的工作。
+
 现在默认不再假设当前启动点就是地图原点；重定位启动后，如果没有初始位姿，`MAP_LOCALIZER.log` 会提示等待 `/initialpose` 或 `RC_RELOCALIZATION_INITIAL_GUESS=1`，并且不会发布看起来像 0 的假定位结果。
 
 如果机器人确实放在建图开始时的原点附近，可以显式允许地图原点初值：
@@ -905,6 +907,20 @@ pose_topic=/robot/pose_filtered
 ```
 
 这条链路经过 `/map_lidar/odom -> /robot/pose -> /robot/pose_filtered`，电控收到的是地图重定位后的滤波机器人中心点坐标。如果 `/robot/pose_filtered` 没有刷新或 topic 不存在，CAN 会暂停发送，不会自动退回 TF。
+
+Rc 3.0 起，重定位模式下 CAN 还会默认等待 `/map_lidar/quality` 连续稳定后才发送。判据和 READY 提示保持同一方向：本帧 accepted/converged、`fitness <= 0.05`、连续 accepted 数达到阈值，并且质量 topic 没有超时。这样即使 `/robot/pose_filtered` 已经存在，只要地图匹配还没真正稳定，电控也不会收到早期的假定位坐标。
+
+可调参数：
+
+```bash
+RC_CAN_REQUIRE_READY=1                 # relocalization 模式默认开启；tracking/mapping 默认关闭
+RC_CAN_READY_QUALITY_TOPIC=/map_lidar/quality
+RC_CAN_READY_TIMEOUT_SEC=1.0
+RC_CAN_READY_MAX_FITNESS=0.05
+RC_CAN_READY_MIN_ACCEPTS=5
+RC_CAN_READY_REQUIRE_ACCEPTED=1
+RC_CAN_READY_REQUIRE_CONVERGED=1
+```
 
 如果需要临时回退旧 TF 链路，必须手动覆盖：
 
@@ -1059,6 +1075,55 @@ RC_LIDAR_MODE=relocalization \
 ```bash
 RC_LIDAR_MAP_PATH=/home/orangepi/maps/site_a.pcd \
 RC_LIDAR_MODE=relocalization \
+./autostart/start_all_terminals.sh
+```
+
+### 局部地图准备
+
+如果在大场地里只比赛一个小区域，推荐先从大地图裁出比赛局部图，再用这份局部图做生产重定位。新增工具不会修改原始 PCD；如果输出路径已经存在，会自动添加时间戳保存，避免覆盖旧地图。
+
+矩形裁剪示例，坐标单位是原始 PCD/FAST-LIO map 坐标系里的米：
+
+```bash
+cd /home/orangepi/RC_LIDAR_NOW
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+
+ros2 run lidar_map_localization pcd_prepare_local_map \
+  --input maps/mid360_map.pcd \
+  --output maps/competition_local.pcd \
+  --leaf 0.10 \
+  --min-x -4.0 --max-x 4.0 \
+  --min-y -3.0 --max-y 5.0 \
+  --margin 2.0
+```
+
+圆形裁剪示例：
+
+```bash
+ros2 run lidar_map_localization pcd_prepare_local_map \
+  --input maps/mid360_map.pcd \
+  --output maps/competition_local.pcd \
+  --leaf 0.10 \
+  --center-x 0.0 --center-y 0.0 --radius 6.0 \
+  --margin 2.0
+```
+
+工具会同时生成：
+
+```text
+maps/competition_local.pcd.report.json
+```
+
+报告里记录输入/输出路径、裁剪范围、原始点数、有效点数、裁剪后点数和降采样后点数。生产启动时指定这份局部图：
+
+```bash
+cd /home/orangepi/RC_LIDAR_NOW
+RC_LIDAR_MODE=relocalization \
+RC_LIDAR_MAP_PATH=/home/orangepi/RC_LIDAR_NOW/maps/competition_local.pcd \
+RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
+RC_AUTOSTART_HEADLESS=1 \
+RC_AUTOSTART_PLOTJUGGLER=0 \
 ./autostart/start_all_terminals.sh
 ```
 
@@ -1312,6 +1377,7 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
    - 默认读取 `maps/mid360_map.pcd`，订阅 `/cloud_registered` 和 `/Odometry`，输出 `/map_lidar/odom`、`/map_lidar/pose`、`/localization/map`、`/map_lidar/quality`。
    - 当前帧名适配为 FAST-LIO 原始帧：`map -> camera_init -> body`。
    - 新增 `pcd_quality_report`，用于离线检查 PCD 地图点数、范围和体素密度。
+   - Rc 3.0 新增 `pcd_prepare_local_map`，用于从大场馆 PCD 裁出比赛局部图并降采样；输出已存在时自动改名，避免覆盖原图或旧局部图。
 
 20. `src/lidar_localization`
    - 新增 `pose_from_odom` 位姿接口。
@@ -1325,6 +1391,7 @@ ros2 run tf2_ros tf2_echo init base_link_highrate
    - `RC_LIDAR_MODE=mapping` 用于建图保存；`RC_LIDAR_MODE=relocalization` 用于基于地图的高精度重定位。
    - 未设置 `RC_FASTLIO_MAP_SAVE_PATH` 时，若默认 `maps/mid360_map.pcd` 已存在，会自动保存为带时间戳的新 PCD，避免覆盖旧地图。
    - 重定位模式默认启动 normal 位姿滤波，并默认把 `/robot/pose_filtered` 作为 CAN 发送来源；`RC_POSE_FILTER_BETA=1` 可额外启动 beta 对比，`RC_POSE_FILTER_SELECTED=beta` 才会把 CAN 来源切到 `/robot/pose_filtered_beta`。`stop_all.sh` 和 CAN 重启脚本已同步清理 normal/beta 滤波节点，避免模式切换后残留旧进程。
+   - Rc 3.0 起，重定位模式下 CAN 默认启用 `RC_CAN_REQUIRE_READY=1`，等待 `/map_lidar/quality` 连续稳定后才发送 `/robot/pose_filtered`，避免开机早期或匹配失败时把假坐标发给电控。
 
 22. `autostart/thermal_pose_monitor.py`、`autostart/thermal_pose_monitor.sh`
    - 新增默认启动的轻量健康日志；`RC_HEALTH_MONITOR=0` 可关闭，旧变量 `RC_THERMAL_POSE_MONITOR` 仍兼容。

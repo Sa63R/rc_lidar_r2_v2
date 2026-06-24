@@ -239,7 +239,13 @@ yaw_can = 左转为正
 ```text
 RC_CAN_POSE_SOURCE=pose_topic
 RC_CAN_POSE_TOPIC=/robot/pose_filtered
+RC_CAN_REQUIRE_READY=1
+RC_CAN_READY_QUALITY_TOPIC=/map_lidar/quality
+RC_CAN_READY_MAX_FITNESS=0.05
+RC_CAN_READY_MIN_ACCEPTS=5
 ```
+
+`RC_CAN_REQUIRE_READY=1` 表示 CAN 发送前必须看到 `/map_lidar/quality` 连续 accepted/converged、fitness 达标并且没有超时。迁移到 R2 时建议保留这个门控，避免重定位还没稳定时把早期假坐标发给电控。只有在临时排查 CAN 链路本身时，才考虑短时间设为 `0`。
 
 临时回退旧 TF 链路：
 
@@ -407,6 +413,34 @@ ros2 run lidar_map_localization pcd_quality_report --map maps/mid360_map.pcd
 - Z 结构太弱、地图过于稀疏、动态物体太多，会增加重定位抖动。
 - 多次建图后保留评分更好、现场重复性更好的 PCD。
 
+如果 R2 的比赛区域只是大场馆的一小块，不要直接拿整张大场馆 PCD 做生产重定位。建议先裁出比赛区及少量缓冲区的局部地图：
+
+```bash
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+
+ros2 run lidar_map_localization pcd_prepare_local_map \
+  --input maps/mid360_map.pcd \
+  --output maps/competition_local.pcd \
+  --leaf 0.10 \
+  --min-x -4.0 --max-x 4.0 \
+  --min-y -3.0 --max-y 5.0 \
+  --margin 2.0
+```
+
+也可以用圆形区域：
+
+```bash
+ros2 run lidar_map_localization pcd_prepare_local_map \
+  --input maps/mid360_map.pcd \
+  --output maps/competition_local.pcd \
+  --leaf 0.10 \
+  --center-x 0.0 --center-y 0.0 --radius 6.0 \
+  --margin 2.0
+```
+
+裁剪坐标必须按 R2 实际 PCD 的 FAST-LIO map 坐标确认，不要照搬 Orange Pi 的示例数值。工具不会覆盖已有输出；路径冲突时会自动加时间戳，并写出 `*.report.json` 记录点数和裁剪范围。
+
 ## 7. 重定位验证
 
 确认地图存在：
@@ -420,11 +454,14 @@ ls -lh maps/mid360_map.pcd
 ```bash
 cd "$R2_WS"
 RC_LIDAR_MODE=relocalization \
+RC_LIDAR_MAP_PATH="$R2_WS/maps/competition_local.pcd" \
 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
 RC_AUTOSTART_HEADLESS=1 \
 RC_AUTOSTART_PLOTJUGGLER=0 \
 ./autostart/start_all_terminals.sh
 ```
+
+如果暂时没有局部地图，可以先不设置 `RC_LIDAR_MAP_PATH`，默认使用 `maps/mid360_map.pcd`。一旦大场馆全图出现“识别不到自己在哪里”或局部最优跳变，优先回到局部地图和固定起点策略，而不是盲目调 NDT 参数。
 
 如果机器人不是从建图原点启动，给粗略初值。这个初值是 `map -> camera_init` 的 FAST-LIO 原始坐标，不是业务坐标：
 
@@ -466,6 +503,7 @@ tail -n 120 logs/autostart/latest/CAN_SERIAL.log
 - `/robot/pose` 有连续输出。
 - `/robot/pose_filtered` 跟随 `/robot/pose`，静止时更稳，运动时不长时间卡死。
 - `CAN_SERIAL.log` 显示 `pose_source=pose_topic pose_topic=/robot/pose_filtered`。
+- `CAN_SERIAL.log` 显示 ready gate enabled；`/map_lidar/quality` 未稳定时 CAN 应暂停发送，稳定后 TX 计数才持续增加。
 
 当前 Orange Pi Rc 2.9 滤波已参考 r2 normal/beta 方案，但默认采用更保守的生产策略：
 
@@ -856,6 +894,7 @@ git push origin main
 
 - 以后在当前仓库更新 README 的同时，也要同步维护 `R2_MIGRATION_RUNBOOK.md`。
 - 如果改的是运行默认值、启动命令、PlotJuggler topic、CAN 坐标来源、滤波参数、健康日志字段、地图路径或自启策略，必须把 r2 的复制步骤也写进本文档。
+- 如果改的是地图准备、局部地图裁剪、重定位初值策略或 CAN READY 门控，也必须同步到本文档；这些是 R2 在大场地复刻时最容易踩坑的部分。
 - 如果某次修改只影响实验报告、临时日志或本机私有笔记，可以不写进本文档。
 
 ## 13. 最终验收清单

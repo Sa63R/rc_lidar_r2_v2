@@ -16,6 +16,7 @@
 
 #include <cerrno>
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <memory>
 #include <mutex>
@@ -138,6 +139,13 @@ RCSerialDriver::RCSerialDriver(const rclcpp::NodeOptions & options)
     10,
     std::bind(&RCSerialDriver::poseCallback, this, std::placeholders::_1));
 
+  if (quality_gate_enabled_) {
+    quality_sub_ = create_subscription<std_msgs::msg::Float32MultiArray>(
+      quality_topic_,
+      10,
+      std::bind(&RCSerialDriver::qualityCallback, this, std::placeholders::_1));
+  }
+
   // Timer to send pose at 50 Hz
   send_timer_ = this->create_wall_timer(
     std::chrono::milliseconds(20), //发送周期 20ms,频率为50Hz
@@ -209,6 +217,13 @@ void RCSerialDriver::getParams()
   pose_source_ = declare_parameter<std::string>("pose_source", "tf");
   pose_topic_ = declare_parameter<std::string>("pose_topic", "/lidar/pose");
   pose_topic_timeout_sec_ = declare_parameter<double>("pose_topic_timeout_sec", 0.5);
+  quality_gate_enabled_ = declare_parameter<bool>("quality_gate_enabled", false);
+  quality_topic_ = declare_parameter<std::string>("quality_topic", "/map_lidar/quality");
+  quality_timeout_sec_ = declare_parameter<double>("quality_timeout_sec", 1.0);
+  quality_max_fitness_ = declare_parameter<double>("quality_max_fitness", 0.05);
+  quality_min_consecutive_accepts_ = declare_parameter<int>("quality_min_consecutive_accepts", 5);
+  quality_require_accepted_ = declare_parameter<bool>("quality_require_accepted", true);
+  quality_require_converged_ = declare_parameter<bool>("quality_require_converged", true);
 
   if (pose_source_ != "tf" && pose_source_ != "pose_topic" && pose_source_ != "auto") {
     RCLCPP_WARN(
@@ -235,6 +250,14 @@ void RCSerialDriver::getParams()
     pose_source_.c_str(),
     pose_topic_.c_str(),
     pose_topic_timeout_sec_);
+  RCLCPP_INFO(
+    get_logger(),
+    "Relocalization quality gate: %s (topic=%s timeout=%.2fs max_fitness=%.4f min_accepts=%d)",
+    quality_gate_enabled_ ? "enabled" : "disabled",
+    quality_topic_.c_str(),
+    quality_timeout_sec_,
+    quality_max_fitness_,
+    quality_min_consecutive_accepts_);
 }
 
 void RCSerialDriver::initCAN()
@@ -326,6 +349,15 @@ void RCSerialDriver::sendMapBodyPose()
       return;
     }
 
+    if (!canSendPoseByQuality()) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(),
+        *get_clock(),
+        2000,
+        "Relocalization quality is not ready; holding CAN pose output.");
+      return;
+    }
+
     RCLCPP_DEBUG_STREAM(
       get_logger(),
       "Sending pose from " << source_used
@@ -383,6 +415,71 @@ void RCSerialDriver::poseCallback(const geometry_msgs::msg::PoseStamped::SharedP
 {
   std::lock_guard<std::mutex> lock(pose_mutex_);
   latest_pose_ = msg;
+}
+
+void RCSerialDriver::qualityCallback(const std_msgs::msg::Float32MultiArray::SharedPtr msg)
+{
+  std::lock_guard<std::mutex> lock(quality_mutex_);
+  latest_quality_ = msg;
+  latest_quality_wall_time_ = now();
+}
+
+bool RCSerialDriver::canSendPoseByQuality()
+{
+  if (!quality_gate_enabled_) {
+    return true;
+  }
+
+  std_msgs::msg::Float32MultiArray::SharedPtr quality_msg;
+  rclcpp::Time quality_wall_time;
+  {
+    std::lock_guard<std::mutex> lock(quality_mutex_);
+    quality_msg = latest_quality_;
+    quality_wall_time = latest_quality_wall_time_;
+  }
+
+  if (!quality_msg || quality_msg->data.size() < 10) {
+    RCLCPP_WARN_THROTTLE(
+      get_logger(),
+      *get_clock(),
+      2000,
+      "Waiting for relocalization quality topic %s",
+      quality_topic_.c_str());
+    return false;
+  }
+
+  const double quality_age_sec = (now() - quality_wall_time).seconds();
+  if (quality_age_sec > quality_timeout_sec_) {
+    RCLCPP_WARN_THROTTLE(
+      get_logger(),
+      *get_clock(),
+      2000,
+      "Relocalization quality topic %s is stale: age=%.3fs",
+      quality_topic_.c_str(),
+      quality_age_sec);
+    return false;
+  }
+
+  const auto & data = quality_msg->data;
+  const bool accepted = data[0] > 0.5f;
+  const bool converged = data[1] > 0.5f;
+  const double fitness = static_cast<double>(data[2]);
+  const int consecutive_accepts = static_cast<int>(std::lround(data[9]));
+
+  if (quality_require_accepted_ && !accepted) {
+    return false;
+  }
+  if (quality_require_converged_ && !converged) {
+    return false;
+  }
+  if (!std::isfinite(fitness) || fitness > quality_max_fitness_) {
+    return false;
+  }
+  if (consecutive_accepts < quality_min_consecutive_accepts_) {
+    return false;
+  }
+
+  return true;
 }
 
 bool RCSerialDriver::readPoseFromTopic(float & x, float & y, float & z, float & yaw)

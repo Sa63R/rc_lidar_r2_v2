@@ -35,7 +35,11 @@ add_executable(pcd_quality_report src/pcd_quality_report.cpp)
 target_include_directories(pcd_quality_report PRIVATE ${PCL_INCLUDE_DIRS})
 target_link_libraries(pcd_quality_report ${PCL_LIBRARIES})
 
-install(TARGETS map_localizer pcd_quality_report
+add_executable(pcd_prepare_local_map src/pcd_prepare_local_map.cpp)
+target_include_directories(pcd_prepare_local_map PRIVATE ${PCL_INCLUDE_DIRS})
+target_link_libraries(pcd_prepare_local_map ${PCL_LIBRARIES})
+
+install(TARGETS map_localizer pcd_quality_report pcd_prepare_local_map
   DESTINATION lib/${PROJECT_NAME}
 )
 

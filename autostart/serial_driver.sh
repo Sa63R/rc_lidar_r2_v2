@@ -69,8 +69,30 @@ fi
 export RC_CAN_POSE_SOURCE
 export RC_CAN_POSE_TOPIC
 
+if [ -z "${RC_CAN_REQUIRE_READY:-}" ]; then
+  if [ "${RC_LIDAR_MODE:-tracking}" = "relocalization" ]; then
+    RC_CAN_REQUIRE_READY=1
+  else
+    RC_CAN_REQUIRE_READY=0
+  fi
+fi
+RC_CAN_READY_QUALITY_TOPIC="${RC_CAN_READY_QUALITY_TOPIC:-/map_lidar/quality}"
+RC_CAN_READY_TIMEOUT_SEC="${RC_CAN_READY_TIMEOUT_SEC:-1.0}"
+RC_CAN_READY_MAX_FITNESS="${RC_CAN_READY_MAX_FITNESS:-0.05}"
+RC_CAN_READY_MIN_ACCEPTS="${RC_CAN_READY_MIN_ACCEPTS:-5}"
+RC_CAN_READY_REQUIRE_ACCEPTED="${RC_CAN_READY_REQUIRE_ACCEPTED:-1}"
+RC_CAN_READY_REQUIRE_CONVERGED="${RC_CAN_READY_REQUIRE_CONVERGED:-1}"
+export RC_CAN_REQUIRE_READY
+export RC_CAN_READY_QUALITY_TOPIC
+export RC_CAN_READY_TIMEOUT_SEC
+export RC_CAN_READY_MAX_FITNESS
+export RC_CAN_READY_MIN_ACCEPTS
+export RC_CAN_READY_REQUIRE_ACCEPTED
+export RC_CAN_READY_REQUIRE_CONVERGED
+
 echo "[serial] Launching rc_serial_driver with CAN_INTERFACE=${CAN_INTERFACE:-unset}, CAN_BITRATE=$CAN_BITRATE"
 echo "[serial] pose_source=$RC_CAN_POSE_SOURCE pose_topic=$RC_CAN_POSE_TOPIC"
+echo "[serial] ready_gate=$RC_CAN_REQUIRE_READY quality_topic=$RC_CAN_READY_QUALITY_TOPIC max_fitness=$RC_CAN_READY_MAX_FITNESS min_accepts=$RC_CAN_READY_MIN_ACCEPTS"
 if [ "$RC_CAN_POSE_SOURCE" = "pose_topic" ]; then
   echo "[serial] strict pose-topic mode: no TF fallback will be used if $RC_CAN_POSE_TOPIC is stale or missing."
 fi
