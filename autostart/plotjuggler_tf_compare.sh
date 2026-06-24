@@ -4,10 +4,17 @@ set -euo pipefail
 # shellcheck disable=SC1091
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common_env.sh"
 
-LAYOUT_FILE="${PLOTJUGGLER_LAYOUT:-${PLOTJUGGLER_TF_LAYOUT:-}}"
+if [ "${PLOTJUGGLER_LAYOUT+x}" = "x" ]; then
+  LAYOUT_FILE="$PLOTJUGGLER_LAYOUT"
+elif [ "${PLOTJUGGLER_TF_LAYOUT+x}" = "x" ]; then
+  LAYOUT_FILE="$PLOTJUGGLER_TF_LAYOUT"
+else
+  LAYOUT_FILE=""
+fi
 WAIT_SECONDS="${PLOTJUGGLER_WAIT_SECONDS:-16}"
 BUFFER_SIZE="${PLOTJUGGLER_BUFFER_SIZE:-300}"
 PLOTJUGGLER_CONFIG="${PLOTJUGGLER_CONFIG:-$HOME/.config/PlotJuggler/io.plotjuggler.PlotJuggler.ini}"
+TOPIC_SPIN_TIME="${PLOTJUGGLER_TOPIC_SPIN_TIME:-2}"
 
 TOPICS=()
 
@@ -73,15 +80,25 @@ for line in lines:
     if stripped.startswith("[") and stripped.endswith("]"):
         if in_group and not set_key:
             out.append(f"default_topics={topics}")
+            out.append(f"/default_topics={topics}")
+            out.append(f"selected_topics={topics.replace(', ', ';')}")
             set_key = True
         in_group = stripped == "[DataStreamROS2]"
         seen_group = seen_group or in_group
         out.append(line)
         continue
 
-    if in_group and stripped.startswith("default_topics="):
-        out.append(f"default_topics={topics}")
-        set_key = True
+    if in_group and (
+        stripped.startswith("default_topics=")
+        or stripped.startswith("/default_topics=")
+        or stripped.startswith("selected_topics=")
+    ):
+        if not set_key:
+            out.append(f"default_topics={topics}")
+            out.append(f"/default_topics={topics}")
+            out.append(f"selected_topics={topics.replace(', ', ';')}")
+            set_key = True
+        continue
     else:
         out.append(line)
 
@@ -91,12 +108,16 @@ if not seen_group:
     out.append("[DataStreamROS2]")
     out.append("boolean_strings_to_number=true")
     out.append(f"default_topics={topics}")
+    out.append(f"/default_topics={topics}")
+    out.append(f"selected_topics={topics.replace(', ', ';')}")
     out.append("discard_large_arrays=true")
     out.append("max_array_size=100")
     out.append("remove_suffix_from_strings=true")
     out.append("use_header_stamp=true")
 elif in_group and not set_key:
     out.append(f"default_topics={topics}")
+    out.append(f"/default_topics={topics}")
+    out.append(f"selected_topics={topics.replace(', ', ';')}")
 
 path.write_text("\n".join(out) + "\n", encoding="utf-8")
 PY
@@ -120,9 +141,14 @@ wait_for_topics() {
   local topics
   local topic_output
   local missing
+  local topic_list_args=()
+
+  if ros2 topic list -h 2>/dev/null | grep -q -- "--no-daemon"; then
+    topic_list_args=(--no-daemon --spin-time "$TOPIC_SPIN_TIME")
+  fi
 
   while [ "$SECONDS" -lt "$deadline" ]; do
-    if ! topic_output="$(ros2 topic list 2>&1)"; then
+    if ! topic_output="$(ros2 topic list "${topic_list_args[@]}" 2>&1)"; then
       echo "[plotjuggler] WARN: ros2 topic list failed while waiting for topics:"
       echo "$topic_output" | sed 's/^/[plotjuggler]   /'
       sleep 1

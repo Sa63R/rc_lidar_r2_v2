@@ -624,15 +624,16 @@ RC_AUTOSTART_PLOTJUGGLER=1 \
 ./autostart/start_all_terminals.sh
 ```
 
-当前 PlotJuggler 自动启动策略不是“强行画好所有曲线”，而是做三件低风险自动化：
+当前 PlotJuggler 自动启动策略不是“强行画好所有曲线”，而是做低风险 topic 自动选择：
 
 ```text
 1. 最多等待关键 ROS topic 出现 16 秒。
-2. 写入 PlotJuggler 用户配置里的 DataStreamROS2/default_topics。
-3. 用 xdotool 自动确认 Warning、Start Streaming?、Topic Selector 等弹窗。
+2. 写入 PlotJuggler 用户配置里的 DataStreamROS2/default_topics 和 selected_topics。
+3. 默认不加载 XML 布局，只依赖用户配置预选 topic，避免 PlotJuggler 版本差异导致崩溃。
+4. 用 xdotool 自动确认 Warning、Start Streaming?、Topic Selector 等弹窗。
 ```
 
-等待时间可用 `PLOTJUGGLER_WAIT_SECONDS` 覆盖。如果日志里持续显示一整组 topic 都在等待，先看是否有 `ros2 topic list failed`；这通常是 ROS graph 查询暂时失败或 daemon 状态异常，不等于每个 topic 都真的未发布。
+等待时间可用 `PLOTJUGGLER_WAIT_SECONDS` 覆盖；每次 ROS discovery 默认等待 `2s`，可用 `PLOTJUGGLER_TOPIC_SPIN_TIME` 覆盖。如果日志里持续显示一整组 topic 都在等待，先看是否有 `ros2 topic list failed`；这通常是 ROS graph 查询暂时失败或 daemon 状态异常，不等于每个 topic 都真的未发布。当前脚本等待 topic 时优先使用 `ros2 topic list --no-daemon --spin-time 2`，避免 ROS daemon 缓存或 `rclpy.ok()` 错误导致误判。
 
 r2 上需要安装：
 
@@ -647,6 +648,7 @@ sudo apt install -y ros-humble-plotjuggler ros-humble-plotjuggler-ros xdotool
 
 [DataStreamROS2]
 default_topics=...
+selected_topics=...
 ```
 
 重定位模式下应默认预选这些 topic：
@@ -673,6 +675,17 @@ PLOTJUGGLER_CONFIG_ONLY=1 \
 ./autostart/plotjuggler_tf_compare.sh
 
 grep -n "default_topics" "$HOME/.config/PlotJuggler/io.plotjuggler.PlotJuggler.ini"
+grep -n "selected_topics" "$HOME/.config/PlotJuggler/io.plotjuggler.PlotJuggler.ini"
+```
+
+如果仍然看不到 `/robot/pose_filtered`，确认 topic 本身已经存在：
+
+```bash
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+ros2 topic list --no-daemon --spin-time 2 | grep robot/pose
+ros2 topic info /robot/pose_filtered --verbose --no-daemon
+tail -n 120 logs/autostart/latest/PLOTJUGGLER.log
 ```
 
 如果 PlotJuggler 仍然要求手点确认，检查：
@@ -683,7 +696,7 @@ echo "$DISPLAY"
 tail -n 120 logs/autostart/latest/PLOTJUGGLER.log
 ```
 
-如果 `xdotool` 不存在，PlotJuggler 仍会启动，但需要手动点击确认窗口。PlotJuggler ROS2 插件没有可靠的完全静默订阅参数，本工程采用“启动前写入 `default_topics` + 自动确认弹窗”的方案。
+如果 `xdotool` 不存在，PlotJuggler 仍会启动，但需要手动点击确认窗口。PlotJuggler ROS2 插件没有可靠的完全静默订阅参数，本工程采用“启动前写入 `default_topics/selected_topics` + 自动确认弹窗”的方案。当前 Orange Pi 上 PlotJuggler 3.15 加载轻量 XML 后出现过内部崩溃，所以默认不加载 XML；R2 也先沿用“不加载布局，只预选 topic”的策略。
 
 默认不强制加载右侧曲线分屏布局。原因是自动分屏布局在现场不一定符合调试需求，用户只需要 topic 自动选中即可。如果确实要恢复旧的自动分屏布局：
 

@@ -551,19 +551,20 @@ PlotJuggler 的 ROS2 插件会弹出确认窗口，本工程用 `xdotool` 自动
 sudo apt install -y xdotool
 ```
 
-PlotJuggler 默认只负责自动打开 ROS2 streamer 和预选关键 topic，不再强制加载右侧曲线分屏布局。启动脚本会在打开 PlotJuggler 前同步用户配置：
+PlotJuggler 默认只负责自动打开 ROS2 streamer 和预选关键 topic，不强制分割右侧曲线区域。启动脚本会在打开 PlotJuggler 前同步用户配置：
 
 ```text
 ~/.config/PlotJuggler/io.plotjuggler.PlotJuggler.ini
 [DataStreamROS2]
 default_topics=...
+selected_topics=...
 ```
 
-这样 Topic Selector 里会默认选中 `/robot/pose`、`/robot/pose_filtered`、`/map_lidar/quality`、`/lidar/pose_filter/status` 和三个 `/tf_compare/...` topic。之前出现“只选中了 body/body_highrate 对比 topic”的原因，就是这个 `default_topics` 还保留着旧值；XML 里的 `selected_topics` 不一定会覆盖 ROS2 插件的用户配置。
+这样 Topic Selector 里会默认选中 `/robot/pose`、`/robot/pose_filtered`、`/map_lidar/quality`、`/lidar/pose_filter/status` 和三个 `/tf_compare/...` topic。之前出现“只能看到 `/tf_compare/...`，看不到 `/robot/pose_filtered`”的原因，是 PlotJuggler ROS2 插件没有可靠吃到用户配置里的 topic，且启动时 `ros2 topic list` 被 ROS daemon 状态干扰。当前脚本会同时写 `default_topics` 和 `selected_topics`，并用 `ros2 topic list --no-daemon --spin-time 2` 等待 topic。
 
-PlotJuggler 启动前默认最多等待关键 topic `16s`，可用 `PLOTJUGGLER_WAIT_SECONDS` 覆盖。日志里如果看到 `Waiting for topics:` 后面列出一整组 topic，不一定代表这些 topic 永久不存在；启动早期也可能是 `ros2 topic list`/ROS graph 查询暂时失败。Rc 3.1 起脚本会把 `ros2 topic list failed` 单独写进日志，便于区分“topic 真的没发布”和“ROS graph 查询失败”。
+PlotJuggler 启动前默认最多等待关键 topic `16s`，可用 `PLOTJUGGLER_WAIT_SECONDS` 覆盖；每次 discovery 默认等待 `2s`，可用 `PLOTJUGGLER_TOPIC_SPIN_TIME` 覆盖。日志里如果看到 `Waiting for topics:` 后面列出一整组 topic，不一定代表这些 topic 永久不存在；启动早期也可能是 ROS graph 查询暂时失败。当前脚本会把 `ros2 topic list failed` 单独写进日志，便于区分“topic 真的没发布”和“ROS graph 查询失败”。
 
-如果确实想恢复旧的自动分屏布局，可以手动指定：
+默认不加载 XML 布局，因为当前 Orange Pi 上 PlotJuggler 3.15 在加载该轻量 XML 后出现过 Qt/PlotJuggler 内部崩溃。保留 XML 只是手动备用；如果确实想手动指定其它布局：
 
 ```bash
 PLOTJUGGLER_TF_LAYOUT="$PWD/src/fastlio_world_init/config/tf_compare_plotjuggler.xml" \
@@ -1361,11 +1362,12 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
 
 10. `src/fastlio_world_init/config/tf_compare_plotjuggler.xml`
     - 保留 PlotJuggler ROS2 streamer 配置模板，包含 `/robot/pose`、`/robot/pose_filtered`、`/map_lidar/quality`、`/lidar/pose_filter/status` 和三个 `/tf_compare/...` topic。
-    - 默认启动不再强制加载自动分屏曲线布局；需要时可用 `PLOTJUGGLER_TF_LAYOUT=...` 手动指定。
+    - 当前默认启动不加载这个 XML，只通过用户配置写入 `default_topics/selected_topics`。原因是当前 Orange Pi 上 PlotJuggler 3.15 加载该 XML 后出现过内部崩溃；XML 仅作为手动备用。
 
 11. `autostart/robot_tf_offsets.sh`、`autostart/lidar_tf_offset.sh`、`autostart/plotjuggler_tf_compare.sh`
     - 一键启动时自动启动 TF 对比发布节点和 PlotJuggler。
-    - `plotjuggler_tf_compare.sh` 在重定位模式下会等待 `/robot/pose`、`/robot/pose_filtered`、质量 topic 和 `/tf_compare/...` topic 出现，写入 PlotJuggler 的 `DataStreamROS2/default_topics`，再打开 PlotJuggler。
+    - `plotjuggler_tf_compare.sh` 在重定位模式下会等待 `/robot/pose`、`/robot/pose_filtered`、质量 topic 和 `/tf_compare/...` topic 出现，写入 PlotJuggler 的 `DataStreamROS2/default_topics` 与 `selected_topics`，再打开 PlotJuggler。
+    - 等待 topic 时使用 `ros2 topic list --no-daemon --spin-time 2`，避免 ROS daemon 缓存或 `rclpy.ok()` 错误导致误判 topic 不存在。
 
 12. `src/fastlio_world_init/fastlio_world_init/rotation_extrinsic_calibrator.py`
     - 新增自转外参校准工具。
