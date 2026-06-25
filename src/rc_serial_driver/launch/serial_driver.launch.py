@@ -14,6 +14,8 @@ def generate_launch_description():
 
     can_interface = os.environ.get('CAN_INTERFACE', 'can0')
     can_bitrate = int(os.environ.get('CAN_BITRATE', '1000000'))
+    frame1_rate_hz = float(os.environ.get('RC_CAN_FRAME1_RATE_HZ', '50.0'))
+    frame2_rate_hz = float(os.environ.get('RC_CAN_FRAME2_RATE_HZ', '200.0'))
     pose_source = os.environ.get('RC_CAN_POSE_SOURCE', 'tf')
     pose_topic = os.environ.get('RC_CAN_POSE_TOPIC', '/lidar/pose')
     yaw_pose_topic_enabled = env_bool('RC_CAN_USE_YAW_POSE_TOPIC', '0')
@@ -22,8 +24,8 @@ def generate_launch_description():
     yaw_pose_topic_strict = env_bool('RC_CAN_YAW_POSE_TOPIC_STRICT', '0')
     yaw_ignore_quality_gate = env_bool('RC_CAN_YAW_IGNORE_READY_GATE', '1')
     raw_odom_yaw_enabled = env_bool('RC_CAN_USE_RAW_ODOM_YAW', '0')
-    raw_odom_yaw_topic = os.environ.get('RC_CAN_RAW_ODOM_YAW_TOPIC', '/Odometry')
-    raw_odom_yaw_timeout_sec = float(os.environ.get('RC_CAN_RAW_ODOM_YAW_TIMEOUT_SEC', '0.5'))
+    raw_odom_yaw_topic = os.environ.get('RC_CAN_RAW_ODOM_YAW_TOPIC', '/high_frequency_odometry')
+    raw_odom_yaw_timeout_sec = float(os.environ.get('RC_CAN_RAW_ODOM_YAW_TIMEOUT_SEC', '0.2'))
     raw_odom_yaw_strict = env_bool('RC_CAN_RAW_ODOM_YAW_STRICT', '1')
     raw_odom_yaw_offset_rad = float(os.environ.get('RC_CAN_RAW_ODOM_YAW_OFFSET_RAD', '0.0'))
     raw_odom_yaw_ignore_quality_gate = env_bool('RC_CAN_RAW_ODOM_YAW_IGNORE_READY_GATE', '1')
@@ -46,6 +48,8 @@ def generate_launch_description():
             {
                 'can_interface': can_interface,
                 'can_bitrate': can_bitrate,
+                'frame1_rate_hz': frame1_rate_hz,
+                'frame2_rate_hz': frame2_rate_hz,
                 'pose_source': pose_source,
                 'pose_topic': pose_topic,
                 'yaw_pose_topic_enabled': yaw_pose_topic_enabled,

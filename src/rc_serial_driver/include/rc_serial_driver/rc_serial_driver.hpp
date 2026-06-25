@@ -25,8 +25,8 @@ public:
 
 private:
   void getParams();
-  void initCAN();               // ← 必须声明
-  void sendMapBodyPose();       // ← 必须声明
+  void initCAN();
+  void sendMapBodyPose(bool send_frame1, bool send_frame2);
   void reopenPort();
   void poseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
   void yawPoseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
@@ -48,6 +48,8 @@ private:
   int can_id_frame1_;  // 用于 x, y
   int can_id_frame2_;  // 用于 z, yaw
   int can_bitrate_;
+  double frame1_rate_hz_{50.0};
+  double frame2_rate_hz_{200.0};
   std::chrono::steady_clock::time_point last_can_reopen_attempt_{};
 
   // Pose input
@@ -92,7 +94,8 @@ private:
   rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr quality_sub_;
 
   // Timer
-  rclcpp::TimerBase::SharedPtr send_timer_;  // ← 必须声明
+  rclcpp::TimerBase::SharedPtr send_frame1_timer_;
+  rclcpp::TimerBase::SharedPtr send_frame2_timer_;
 };
 
 }  // namespace rc_serial_driver

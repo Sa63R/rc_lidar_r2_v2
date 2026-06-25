@@ -683,6 +683,49 @@ RC_POSE_FILTER_STABLE=0
 
 这表示开机和无显示器场景下，核心链路仍然 headless 后台启动；CAN 的 `x/y/z` 走 normal `/robot/pose_filtered`，`yaw` 走 FAST-LIO 原始 `/Odometry` yaw，偏置为 0。旧的 `/robot/pose` yaw topic override 不再作为开机默认，以避免读文档和日志时误判 yaw 来源。
 
+## Rc 4.16: High-Frequency Odometry Yaw For CAN
+
+继续测试后，用户认为 `/Odometry` 虽然比 map yaw 和 pose filter 更实时，但它仍然只有 FAST-LIO 主 odometry 输出频率，无法充分支撑无头车边旋转边前进。用户提出参考 `RuanJY/robosense_fast_lio` 的做法，把 FAST-LIO IMU propagation 的中间状态暴露为高频 odometry topic，再直接给 CAN yaw 使用；CAN 总线侧已经确认可以把 `0x13` 单独提高到 200Hz，而 `0x12` 的 `x/y` 继续 50Hz。
+
+本次改动：
+
+```text
+FAST-LIO IMU propagation -> /high_frequency_odometry
+CAN 0x12: x/y from /robot/pose_filtered, 50Hz
+CAN 0x13: z from /robot/pose_filtered, yaw from /high_frequency_odometry, 200Hz
+```
+
+新增 FAST-LIO 参数：
+
+```yaml
+publish:
+  high_frequency_odometry_en: true
+  high_frequency_odometry_topic: /high_frequency_odometry
+  high_frequency_odometry_rate: 200.0
+  high_frequency_odometry_frame_id: camera_init
+  high_frequency_odometry_child_frame_id: body_highrate
+```
+
+CAN 默认参数同步更新：
+
+```bash
+RC_CAN_USE_RAW_ODOM_YAW=1
+RC_CAN_RAW_ODOM_YAW_TOPIC=/high_frequency_odometry
+RC_CAN_RAW_ODOM_YAW_TIMEOUT_SEC=0.2
+RC_CAN_RAW_ODOM_YAW_STRICT=1
+RC_CAN_RAW_ODOM_YAW_OFFSET_RAD=0.0
+RC_CAN_RAW_ODOM_YAW_IGNORE_READY_GATE=1
+RC_CAN_FRAME1_RATE_HZ=50.0
+RC_CAN_FRAME2_RATE_HZ=200.0
+```
+
+风险和边界：
+
+- `/high_frequency_odometry` 仍然是 FAST-LIO 局部 odometry / IMU propagation，不是地图全局 yaw；转多圈后仍可能有累计漂移。
+- 本次只提高 yaw 链路实时性，不改变 `/robot/pose` 的 XY 计算逻辑，也不改变地图重定位和 TF 树。
+- `0x13` 频率提高到 200Hz 后，若现场 CAN 接收端未及时接收，仍可能看到 `CAN buffer full`，但此前现场已经确认 FULL 常见于接收端未启动，不一定代表发送端逻辑错误。
+- 如果高频 yaw 试车效果不好，回退方式仍是 `RC_CAN_USE_RAW_ODOM_YAW=0` 使用 Rc 4.9 的融合 yaw，或把 `RC_CAN_RAW_ODOM_YAW_TOPIC=/Odometry` 回退到普通 FAST-LIO odom yaw。
+
 ## Appendix: User Questions And Constraints
 
 以下内容按时间顺序整理本次大改相关的用户侧问题、判断和约束。重复发送的同一问题已合并；长启动命令、截图和终端日志只保留摘要。
@@ -818,3 +861,7 @@ RC_POSE_FILTER_STABLE=0
 45. 用户进一步追问“旋转 Odom 的意义是什么”，并确认如果电控只需要 `/Odometry` 的原始 yaw 旋转角，且正方向一致，那么不应该额外加零点偏置。用户要求“那就改回 0”，因此 Rc 4.14 将 `RC_CAN_RAW_ODOM_YAW_OFFSET_RAD` 默认值改成 `0.0`。
 
 46. 用户要求把当前可用低负载启动命令设置为开机启动：`RC_LIDAR_MODE=relocalization`、`RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1`、`RC_AUTOSTART_HEADLESS=1`、`RC_AUTOSTART_PLOTJUGGLER=0`、指定 `maps/mid360_map_20260625_064655.pcd`。同时要求开机只用这一套逻辑，不要多入口重复启动。因此 Rc 4.15 明确更新 `boot_start.sh` 与 user systemd 模板，并保留 boot_id guard 防止 XDG/systemd 双入口时重复真实启动。
+
+47. 用户要求下一步主要提高旋转 yaw 的赫兹频率，并让 Codex 查找 MID360 / FAST-LIO 相关高频旋转定位方案。讨论后确认：不必把 `0x12` 的 x/y 一起提高到 200Hz，而是让 `0x12` 保持 50Hz，`0x13` 单独提高到 200Hz。
+
+48. 用户明确要求参考 `RuanJY/robosense_fast_lio` 的代码方法接入高频 IMU propagation odometry，并直接给 CAN 发当前高频 yaw；如果效果不好，就用 tag 回退。用户要求这次先实现完整配套改动，包括启动脚本、PlotJuggler 预选、开机默认和文档。

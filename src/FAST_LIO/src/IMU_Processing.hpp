@@ -1,10 +1,12 @@
 #include <cmath>
 #include <math.h>
+#include <algorithm>
 #include <deque>
 #include <mutex>
 #include <thread>
 #include <fstream>
 #include <csignal>
+#include <string>
 #include <so3_math.h>
 #include <Eigen/Eigen>
 #include <common_lib.h>
@@ -12,6 +14,7 @@
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <condition_variable>
+#include <rclcpp/rclcpp.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <pcl/common/transforms.h>
 #include <pcl/kdtree/kdtree_flann.h>
@@ -46,6 +49,12 @@ class ImuProcess
   void set_acc_cov(const V3D &scaler);
   void set_gyr_bias_cov(const V3D &b_g);
   void set_acc_bias_cov(const V3D &b_a);
+  void set_high_frequency_odometry_publisher(
+      const rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr &pub,
+      bool enabled,
+      double min_period_sec,
+      const std::string &frame_id,
+      const std::string &child_frame_id);
   Eigen::Matrix<double, 12, 12> Q;
   void Process(const MeasureGroup &meas,  esekfom::esekf<state_ikfom, 12, input_ikfom> &kf_state, PointCloudXYZI::Ptr pcl_un_);
 
@@ -61,6 +70,7 @@ class ImuProcess
  private:
   void IMU_init(const MeasureGroup &meas, esekfom::esekf<state_ikfom, 12, input_ikfom> &kf_state, int &N);
   void UndistortPcl(const MeasureGroup &meas, esekfom::esekf<state_ikfom, 12, input_ikfom> &kf_state, PointCloudXYZI &pcl_in_out);
+  void PublishHighFrequencyOdometry(const state_ikfom &imu_state, double timestamp);
 
   PointCloudXYZI::Ptr cur_pcl_un_;
   // sensor_msgs::ImuConstPtr last_imu_;
@@ -79,6 +89,12 @@ class ImuProcess
   int    init_iter_num = 1;
   bool   b_first_frame_ = true;
   bool   imu_need_init_ = true;
+  rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr high_frequency_odom_pub_;
+  bool high_frequency_odom_enabled_ = false;
+  double high_frequency_odom_min_period_sec_ = 0.005;
+  double high_frequency_odom_last_pub_time_ = -1.0;
+  std::string high_frequency_odom_frame_id_ = "camera_init";
+  std::string high_frequency_odom_child_frame_id_ = "body_highrate";
 };
 
 ImuProcess::ImuProcess()
@@ -113,6 +129,7 @@ void ImuProcess::Reset()
   IMUpose.clear();
   last_imu_.reset(new sensor_msgs::msg::Imu());
   cur_pcl_un_.reset(new PointCloudXYZI());
+  high_frequency_odom_last_pub_time_ = -1.0;
 }
 
 void ImuProcess::set_extrinsic(const MD(4,4) &T)
@@ -151,6 +168,53 @@ void ImuProcess::set_gyr_bias_cov(const V3D &b_g)
 void ImuProcess::set_acc_bias_cov(const V3D &b_a)
 {
   cov_bias_acc = b_a;
+}
+
+void ImuProcess::set_high_frequency_odometry_publisher(
+    const rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr &pub,
+    bool enabled,
+    double min_period_sec,
+    const std::string &frame_id,
+    const std::string &child_frame_id)
+{
+  high_frequency_odom_pub_ = pub;
+  high_frequency_odom_enabled_ = enabled;
+  high_frequency_odom_min_period_sec_ = std::max(0.0, min_period_sec);
+  high_frequency_odom_frame_id_ = frame_id;
+  high_frequency_odom_child_frame_id_ = child_frame_id;
+  high_frequency_odom_last_pub_time_ = -1.0;
+}
+
+void ImuProcess::PublishHighFrequencyOdometry(const state_ikfom &imu_state, double timestamp)
+{
+  if (!high_frequency_odom_enabled_ || !high_frequency_odom_pub_) {
+    return;
+  }
+  if (!std::isfinite(timestamp)) {
+    return;
+  }
+  if (high_frequency_odom_last_pub_time_ >= 0.0 &&
+      timestamp - high_frequency_odom_last_pub_time_ + 1e-9 <
+          high_frequency_odom_min_period_sec_) {
+    return;
+  }
+
+  nav_msgs::msg::Odometry odom_msg;
+  odom_msg.header.stamp = get_ros_time(timestamp);
+  odom_msg.header.frame_id = high_frequency_odom_frame_id_;
+  odom_msg.child_frame_id = high_frequency_odom_child_frame_id_;
+  odom_msg.pose.pose.position.x = imu_state.pos.x();
+  odom_msg.pose.pose.position.y = imu_state.pos.y();
+  odom_msg.pose.pose.position.z = imu_state.pos.z();
+
+  Eigen::Quaterniond q(imu_state.rot);
+  odom_msg.pose.pose.orientation.x = q.x();
+  odom_msg.pose.pose.orientation.y = q.y();
+  odom_msg.pose.pose.orientation.z = q.z();
+  odom_msg.pose.pose.orientation.w = q.w();
+
+  high_frequency_odom_pub_->publish(odom_msg);
+  high_frequency_odom_last_pub_time_ = timestamp;
 }
 
 void ImuProcess::IMU_init(const MeasureGroup &meas, esekfom::esekf<state_ikfom, 12, input_ikfom> &kf_state, int &N)
@@ -279,6 +343,7 @@ void ImuProcess::UndistortPcl(const MeasureGroup &meas, esekfom::esekf<state_ikf
 
     /* save the poses at each IMU measurements */
     imu_state = kf_state.get_x();
+    PublishHighFrequencyOdometry(imu_state, tail_stamp);
     angvel_last = angvel_avr - imu_state.bg;
     acc_s_last  = imu_state.rot * (acc_avr - imu_state.ba);
     for(int i=0; i<3; i++)
@@ -295,6 +360,7 @@ void ImuProcess::UndistortPcl(const MeasureGroup &meas, esekfom::esekf<state_ikf
   kf_state.predict(dt, Q, in);
   
   imu_state = kf_state.get_x();
+  PublishHighFrequencyOdometry(imu_state, pcl_end_time);
   last_imu_ = meas.imu.back();
   last_lidar_end_time_ = pcl_end_time;
 

@@ -43,6 +43,11 @@
             scan_publish_en:  true       # false: close all the point cloud output
             dense_publish_en: false      # false: low down the points number in a global-frame point clouds scan.
             scan_bodyframe_pub_en: true  # true: output the point cloud scans in IMU-body-frame
+            high_frequency_odometry_en: true
+            high_frequency_odometry_topic: "/high_frequency_odometry"
+            high_frequency_odometry_rate: 200.0
+            high_frequency_odometry_frame_id: "camera_init"
+            high_frequency_odometry_child_frame_id: "body_highrate"
 
         pcd_save:
             pcd_save_en: true

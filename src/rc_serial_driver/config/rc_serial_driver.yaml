@@ -4,6 +4,8 @@
     can_bitrate: 1000000         # CAN 波特率 (bit/s)
     can_id_frame1: 18    # 0x12 的十进制
     can_id_frame2: 19    # 0x13 的十进制
+    frame1_rate_hz: 50.0
+    frame2_rate_hz: 200.0
     can_id_restart: 48   # 0x30 的十进制
     pose_source: "tf"    # tf / pose_topic / auto
     pose_topic: "/lidar/pose"
@@ -13,6 +15,12 @@
     yaw_pose_topic_timeout_sec: 0.5
     yaw_pose_topic_strict: false
     yaw_ignore_quality_gate: true
+    raw_odom_yaw_enabled: false
+    raw_odom_yaw_topic: "/high_frequency_odometry"
+    raw_odom_yaw_timeout_sec: 0.2
+    raw_odom_yaw_strict: true
+    raw_odom_yaw_offset_rad: 0.0
+    raw_odom_yaw_ignore_quality_gate: true
     restart_enabled: true
     restart_script: "/home/orangepi/RC_LIDAR_NOW/autostart/restart_lidar_stack.sh"
     timestamp_offset: 0.0         # 时间戳偏移

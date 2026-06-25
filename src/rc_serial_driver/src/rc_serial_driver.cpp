@@ -15,6 +15,7 @@
 #include <linux/if.h>
 
 #include <cerrno>
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -74,6 +75,13 @@ bool isCanTxQueueFullError(int error_number)
     default:
       return false;
   }
+}
+
+std::chrono::nanoseconds rateHzToPeriod(double rate_hz)
+{
+  const double clamped_rate_hz = std::max(1.0, rate_hz);
+  return std::chrono::duration_cast<std::chrono::nanoseconds>(
+    std::chrono::duration<double>(1.0 / clamped_rate_hz));
 }
 
 float yawFromQuaternion(const geometry_msgs::msg::Quaternion & q_msg)
@@ -152,7 +160,7 @@ RCSerialDriver::RCSerialDriver(const rclcpp::NodeOptions & options)
   if (raw_odom_yaw_enabled_) {
     raw_odom_yaw_sub_ = create_subscription<nav_msgs::msg::Odometry>(
       raw_odom_yaw_topic_,
-      50,
+      200,
       std::bind(&RCSerialDriver::rawOdomYawCallback, this, std::placeholders::_1));
   }
 
@@ -163,10 +171,13 @@ RCSerialDriver::RCSerialDriver(const rclcpp::NodeOptions & options)
       std::bind(&RCSerialDriver::qualityCallback, this, std::placeholders::_1));
   }
 
-  // Timer to send pose at 50 Hz
-  send_timer_ = this->create_wall_timer(
-    std::chrono::milliseconds(20), //发送周期 20ms,频率为50Hz
-    [this]() { this->sendMapBodyPose(); });
+  send_frame1_timer_ = this->create_wall_timer(
+    rateHzToPeriod(frame1_rate_hz_),
+    [this]() { this->sendMapBodyPose(true, false); });
+
+  send_frame2_timer_ = this->create_wall_timer(
+    rateHzToPeriod(frame2_rate_hz_),
+    [this]() { this->sendMapBodyPose(false, true); });
 
   // Initialize CAN socket (assume interface is pre-configured)
   initCAN();
@@ -231,6 +242,8 @@ void RCSerialDriver::getParams()
   can_id_frame1_ = declare_parameter<int>("can_id_frame1", 0x12);
   can_id_frame2_ = declare_parameter<int>("can_id_frame2", 0x13);
   can_bitrate_ = declare_parameter<int>("can_bitrate", 1000000);
+  frame1_rate_hz_ = declare_parameter<double>("frame1_rate_hz", 50.0);
+  frame2_rate_hz_ = declare_parameter<double>("frame2_rate_hz", 200.0);
   pose_source_ = declare_parameter<std::string>("pose_source", "tf");
   pose_topic_ = declare_parameter<std::string>("pose_topic", "/lidar/pose");
   pose_topic_timeout_sec_ = declare_parameter<double>("pose_topic_timeout_sec", 0.5);
@@ -240,8 +253,8 @@ void RCSerialDriver::getParams()
   yaw_pose_topic_strict_ = declare_parameter<bool>("yaw_pose_topic_strict", false);
   yaw_ignore_quality_gate_ = declare_parameter<bool>("yaw_ignore_quality_gate", true);
   raw_odom_yaw_enabled_ = declare_parameter<bool>("raw_odom_yaw_enabled", false);
-  raw_odom_yaw_topic_ = declare_parameter<std::string>("raw_odom_yaw_topic", "/Odometry");
-  raw_odom_yaw_timeout_sec_ = declare_parameter<double>("raw_odom_yaw_timeout_sec", 0.5);
+  raw_odom_yaw_topic_ = declare_parameter<std::string>("raw_odom_yaw_topic", "/high_frequency_odometry");
+  raw_odom_yaw_timeout_sec_ = declare_parameter<double>("raw_odom_yaw_timeout_sec", 0.2);
   raw_odom_yaw_strict_ = declare_parameter<bool>("raw_odom_yaw_strict", true);
   raw_odom_yaw_offset_rad_ = declare_parameter<double>(
     "raw_odom_yaw_offset_rad", 0.0);
@@ -254,6 +267,9 @@ void RCSerialDriver::getParams()
   quality_min_consecutive_accepts_ = declare_parameter<int>("quality_min_consecutive_accepts", 5);
   quality_require_accepted_ = declare_parameter<bool>("quality_require_accepted", true);
   quality_require_converged_ = declare_parameter<bool>("quality_require_converged", true);
+
+  frame1_rate_hz_ = std::max(1.0, frame1_rate_hz_);
+  frame2_rate_hz_ = std::max(1.0, frame2_rate_hz_);
 
   if (pose_source_ != "tf" && pose_source_ != "pose_topic" && pose_source_ != "auto") {
     RCLCPP_WARN(
@@ -274,6 +290,13 @@ void RCSerialDriver::getParams()
 
   RCLCPP_INFO(get_logger(), "CAN Interface: %s", can_interface_.c_str());
   RCLCPP_INFO(get_logger(), "Expected CAN Bitrate: %d bit/s (ensure pre-configured)", can_bitrate_);
+  RCLCPP_INFO(
+    get_logger(),
+    "CAN TX rates: frame1(0x%X x/y)=%.1fHz frame2(0x%X z/yaw)=%.1fHz",
+    can_id_frame1_,
+    frame1_rate_hz_,
+    can_id_frame2_,
+    frame2_rate_hz_);
   RCLCPP_INFO(
     get_logger(),
     "Pose source: %s (pose_topic=%s timeout=%.2fs)",
@@ -349,8 +372,12 @@ void RCSerialDriver::initCAN()
   }
 }
 
-void RCSerialDriver::sendMapBodyPose()
+void RCSerialDriver::sendMapBodyPose(bool send_frame1, bool send_frame2)
 {
+  if (!send_frame1 && !send_frame2) {
+    return;
+  }
+
   if (can_socket_ < 0) {
     const auto now = std::chrono::steady_clock::now();
     if (last_can_reopen_attempt_.time_since_epoch().count() == 0 ||
@@ -398,7 +425,7 @@ void RCSerialDriver::sendMapBodyPose()
 
     std::string yaw_source_used;
     bool yaw_source_bypasses_quality = false;
-    if (raw_odom_yaw_enabled_) {
+    if (send_frame2 && raw_odom_yaw_enabled_) {
       float raw_odom_yaw = 0.0f;
       if (readRawOdomYaw(raw_odom_yaw)) {
         yaw_can = raw_odom_yaw;
@@ -418,7 +445,7 @@ void RCSerialDriver::sendMapBodyPose()
       }
     }
 
-    if (yaw_source_used.empty() && yaw_pose_topic_enabled_) {
+    if (send_frame2 && yaw_source_used.empty() && yaw_pose_topic_enabled_) {
       float fused_yaw = 0.0f;
       if (readYawFromTopic(fused_yaw)) {
         yaw_can = fused_yaw;
@@ -490,7 +517,7 @@ void RCSerialDriver::sendMapBodyPose()
       << " yaw_left_positive=" << yaw_can
       << "]");
 
-    if (quality_ready) {
+    if (send_frame1 && quality_ready) {
       // === 帧1: x_can, y_can (ID = 0x12) ===
       struct can_frame frame1;
       frame1.can_id = can_id_frame1_;
@@ -510,21 +537,23 @@ void RCSerialDriver::sendMapBodyPose()
       }
     }
 
-    // === 帧2: z_can, yaw_can (ID = 0x13) ===
-    struct can_frame frame2;
-    frame2.can_id = can_id_frame2_;
-    frame2.can_dlc = 8;
-    std::memcpy(frame2.data + 0, &z_can, sizeof(float));
-    std::memcpy(frame2.data + 4, &yaw_can, sizeof(float));
+    if (send_frame2) {
+      // === 帧2: z_can, yaw_can (ID = 0x13) ===
+      struct can_frame frame2;
+      frame2.can_id = can_id_frame2_;
+      frame2.can_dlc = 8;
+      std::memcpy(frame2.data + 0, &z_can, sizeof(float));
+      std::memcpy(frame2.data + 4, &yaw_can, sizeof(float));
 
-    ssize_t bytes_written = write(can_socket_, &frame2, sizeof(struct can_frame));
-    if (bytes_written < 0) {
-      if (isCanTxQueueFullError(errno)) {
-        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000, "CAN buffer full, dropping frame2");
-      } else {
-        RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 5000, "Failed to send frame2: %s", strerror(errno));
-        reopenPort();
-        return;
+      ssize_t bytes_written = write(can_socket_, &frame2, sizeof(struct can_frame));
+      if (bytes_written < 0) {
+        if (isCanTxQueueFullError(errno)) {
+          RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000, "CAN buffer full, dropping frame2");
+        } else {
+          RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 5000, "Failed to send frame2: %s", strerror(errno));
+          reopenPort();
+          return;
+        }
       }
     }
 
