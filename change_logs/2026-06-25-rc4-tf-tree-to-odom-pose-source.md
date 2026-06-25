@@ -592,6 +592,38 @@ RC_CAN_USE_RAW_ODOM_YAW=0
 - 该改动只用于验证电控无头车实时转向；如果漂移影响比赛，需要回到“FAST-LIO 高频预测 + map 慢速偏置修正”的延迟补偿方案。
 - x/y 仍不能绕过 ready gate，否则地图匹配不稳定时会把错误位置发给电控。
 
+## Rc 4.13: raw odom CAN yaw offset changed to pi
+
+Rc 4.12 默认使用 raw `/Odometry` yaw 加 `+pi/2`。现场继续观察后，用户判断“ODOM 的 Y 指向地图右方，但业务 Y 需要指向车前方”，因此要求在当前基础上再加 `90°` 试车。Rc 4.13 只修改 raw odom CAN yaw 的默认偏置：
+
+```bash
+RC_CAN_RAW_ODOM_YAW_OFFSET_RAD=3.141592653589793
+```
+
+也就是说：
+
+```text
+yaw_can = wrap(yaw_from_/Odometry + pi)
+```
+
+其它链路保持不变：
+
+- CAN x/y/z 仍来自 `/robot/pose_filtered`。
+- raw odom yaw 仍默认 `STRICT=1`，不新鲜就暂停，不 fallback。
+- map yaw fusion、pose filter、TF 树和外参不变。
+
+如果现场验证发现方向反了，可以不改代码直接覆盖：
+
+```bash
+RC_CAN_RAW_ODOM_YAW_OFFSET_RAD=1.5707963267948966
+```
+
+或回退到融合 yaw：
+
+```bash
+RC_CAN_USE_RAW_ODOM_YAW=0
+```
+
 ## Appendix: User Questions And Constraints
 
 以下内容按时间顺序整理本次大改相关的用户侧问题、判断和约束。重复发送的同一问题已合并；长启动命令、截图和终端日志只保留摘要。
@@ -721,3 +753,5 @@ RC_CAN_USE_RAW_ODOM_YAW=0
 42. 用户要求先保存当前仓库回退点，然后只改 CAN 的 yaw：`0x12` 的 x/y 和 `0x13` 的 z 保持现有生产链路，只有 `0x13` 的 yaw 改为 FAST-LIO 原始 `/Odometry` yaw，并叠加 `+90°` 业务坐标偏置。用户特别要求：这个 yaw 不加滤波、不走 map 重新拉回、不受 quality gate 冻结。
 
 43. 用户确认修改范围：“只改 yaw，如果没问题，打上 tag，然后改吧。”因此本次先打 tag `before-can-raw-odom-yaw-20260626`，再实现 `RC_CAN_USE_RAW_ODOM_YAW=1` 默认启用的 raw odom yaw CAN 输出。
+
+44. 用户随后怀疑 `+90°` 不够，并说明：“现在 ODOM 的 Y 指向地图的右方，但是我要它指向车的前方，所以理论上应该再转个 90°。”因此 Rc 4.13 把 raw odom CAN yaw 默认偏置从 `+pi/2` 改为 `+pi`，只影响 CAN yaw 字段，不改 TF 和 `/robot/pose`。
