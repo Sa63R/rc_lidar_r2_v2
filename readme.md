@@ -591,7 +591,7 @@ selected_topics=...
 
 PlotJuggler 启动前默认最多等待关键 topic `16s`，可用 `PLOTJUGGLER_WAIT_SECONDS` 覆盖；每次 discovery 默认等待 `2s`，可用 `PLOTJUGGLER_TOPIC_SPIN_TIME` 覆盖。日志里如果看到 `Waiting for topics:` 后面列出一整组 topic，不一定代表这些 topic 永久不存在；启动早期也可能是 ROS graph 查询暂时失败。当前脚本会把 `ros2 topic list failed` 单独写进日志，便于区分“topic 真的没发布”和“ROS graph 查询失败”。
 
-Rc 3.7 起，`POSE_INTERFACE` 默认不再因为组合 TF 时间戳超过 1 秒而丢弃 `robot_origin -> robot_base_highrate`。重定位链路里的 `map -> camera_init` 更新频率可能低于高频车体 TF，组合 TF 的 stamp 经常会老于 1 秒；旧默认 `RC_ROBOT_POSE_MAX_TF_AGE=1.0` 会导致 `/robot/pose` publisher 为 0 或长期没有数据，进而让 `/robot/pose_filtered` 在 PlotJuggler 里消失。当前默认 `RC_ROBOT_POSE_MAX_TF_AGE=0.0` 表示接受 TF buffer 的最新可用变换。只有在明确需要严格丢弃旧 TF 时，再手动设置：
+如果手动设置 `RC_ROBOT_POSE_SOURCE=tf` 回到 TF 拼接路径，`POSE_INTERFACE` 默认不再因为组合 TF 时间戳超过 1 秒而丢弃 `robot_origin -> robot_base_highrate`。重定位链路里的 `map -> camera_init` 更新频率可能低于高频车体 TF，组合 TF 的 stamp 经常会老于 1 秒；旧默认 `RC_ROBOT_POSE_MAX_TF_AGE=1.0` 会导致 `/robot/pose` publisher 为 0 或长期没有数据，进而让 `/robot/pose_filtered` 在 PlotJuggler 里消失。只有在明确需要诊断旧 TF 时间戳门限时，再手动设置：
 
 ```bash
 RC_ROBOT_POSE_MAX_TF_AGE=1.0 ./autostart/start_all_terminals.sh
@@ -783,7 +783,7 @@ RC_AUTOSTART_LIDAR_XYZR=0 \
 ```text
 Livox MID360 -> FAST-LIO -> /cloud_registered + /Odometry
 建图模式：/map_save -> maps/mid360_map.pcd 或自动重命名后的 PCD
-重定位观察链路：lidar_map_localization 发布 map -> camera_init；lidar_localization 查询 TF robot_origin -> robot_base_highrate，发布 /robot/pose -> pose_stability_filter -> /robot/pose_filtered
+重定位观察链路：lidar_map_localization 发布 /map_lidar/odom；lidar_localization 用同一帧 odom 加雷达到机器人中心外参，发布 /robot/pose -> pose_stability_filter -> /robot/pose_filtered
 relocalization CAN 默认链路：/robot/pose_filtered -> rc_serial_driver
 tracking CAN 默认链路：TF robot_origin -> robot_base_highrate/robot_base -> rc_serial_driver
 ```
@@ -963,7 +963,7 @@ FASTLIO_RVIZ=true RC_LIDAR_MODE=relocalization ./autostart/start_all_terminals.s
 
 ```text
 MAP_LOCALIZER   lidar_map_localization，发布 /map_lidar/odom
-POSE_INTERFACE lidar_localization，从 TF robot_origin -> robot_base_highrate 发布 /robot/pose，同时保留兼容名 /lidar/pose
+POSE_INTERFACE lidar_localization，从 /map_lidar/odom 同步计算 robot_origin -> robot_base 并发布 /robot/pose，同时保留兼容名 /lidar/pose
 POSE_FILTER    lidar_localization，发布 /robot/pose_filtered，同时保留兼容名 /lidar/pose_filtered
 READY_NOTIFY   等待 /robot/pose_filtered 与 /map_lidar/quality 稳定后弹出就绪提示
 ```
@@ -988,9 +988,19 @@ pose_source=pose_topic
 pose_topic=/robot/pose_filtered
 ```
 
-这条链路经过 `map -> camera_init` 重定位 TF 和 `robot_origin -> robot_base_highrate` 查询，得到 `/robot/pose -> /robot/pose_filtered`。电控收到的是地图重定位后的滤波机器人中心点坐标。如果 `/robot/pose_filtered` 没有刷新或 topic 不存在，CAN 会暂停发送，不会自动退回 TF。
+这条链路默认不再通过 TF buffer 拼接 `robot_origin -> robot_base_highrate`。`POSE_INTERFACE` 订阅 `/map_lidar/odom`，在同一帧定位结果上计算：
 
-`/robot/pose` 由 `pose_from_tf` 查询组合 TF 得到。由于 `map -> camera_init` 是地图重定位修正，频率可能低于 `body_highrate`，组合 TF 的时间戳可能看起来比较旧；当前默认 `RC_ROBOT_POSE_MAX_TF_AGE=0.0`，不按 1 秒时间戳门限丢弃最新可用 TF。若日志里看到 `TF robot_origin->robot_base_highrate is stale` 并且 `/robot/pose` 没有 publisher，说明当前启动环境仍使用了旧门限或手动设置了过小的 `RC_ROBOT_POSE_MAX_TF_AGE`。
+```text
+robot_origin -> robot_base = inverse(map -> robot_origin) * (map -> body) * (body -> robot_base)
+```
+
+这样保留当前无头车 TF 树和 `X右/Y前/Z上` 语义，同时避免低频 `map -> camera_init` 与高频 `body_highrate` 通过 TF 查询混合时放大抖动。电控收到的是地图重定位后的滤波机器人中心点坐标。如果 `/robot/pose_filtered` 没有刷新或 topic 不存在，CAN 会暂停发送，不会自动退回 TF。
+
+需要临时对比旧 TF 拼接法时，可以手动设置：
+
+```bash
+RC_ROBOT_POSE_SOURCE=tf ./autostart/start_all_terminals.sh
+```
 
 Rc 3.0 起，重定位模式下 CAN 还会默认等待 `/map_lidar/quality` 连续稳定后才发送。判据和 READY 提示保持同一方向：本帧 accepted/converged、`fitness <= 0.05`、连续 accepted 数达到阈值，并且质量 topic 没有超时。这样即使 `/robot/pose_filtered` 已经存在，只要地图匹配还没真正稳定，电控也不会收到早期的假定位坐标。
 
@@ -1428,7 +1438,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
 4a. Rc 3.4 无头车 TF 树重写
    - 生产 TF 从旧 `world -> init`、`body -> base_link`、`body_highrate -> base_link_highrate` 改为 `map -> robot_origin`、`body -> robot_base`、`body_highrate -> robot_base_highrate`。
    - `map` 表示 PCD 地图坐标，Y 正方向作为无头车世界正方向；重定位模式由 `map_localizer` 发布 `map -> camera_init`，mapping/tracking 模式发布 identity `map -> camera_init`。
-   - `/robot/pose` 不再由 `/map_lidar/odom` 手算相对位姿，而是从 TF 查询 `robot_origin -> robot_base_highrate`；滤波和 CAN 继续使用 `/robot/pose_filtered`。
+   - Rc 3.4 曾把 `/robot/pose` 改为从 TF 查询 `robot_origin -> robot_base_highrate`；后来实测发现低频地图修正和高频 `body_highrate` 经 TF buffer 组合后容易放大抖动，因此当前重定位生产链路已切回 `/map_lidar/odom -> pose_from_odom -> /robot/pose`，TF 查询方式保留为 `RC_ROBOT_POSE_SOURCE=tf` 调试回退。
 
 5. `src/my_static_tf/launch/map_to_init.launch.py`
    - 历史版本曾把静态 TF 从 `lidar -> init` 调整为 `world -> init`；Rc 3.4 后生产树改为 `map -> robot_origin`。
@@ -1509,8 +1519,8 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
 20. `src/lidar_localization`
    - 新增 `pose_from_odom` 位姿接口。
    - 建图模式下可把 `/Odometry` 转成相对启动点的 `/robot/pose`，同时保留旧兼容名 `/lidar/pose`。
-   - Rc 3.4 后重定位模式下从 TF 查询 `robot_origin -> robot_base_highrate` 生成 `/robot/pose`，坐标语义为 `X右/Y前/Z上`。
-   - Rc 3.7 起，`pose_from_tf` 默认 `max_tf_age_sec=0.0`，也就是接受 TF buffer 最新可用变换，不再按 1 秒 stamp 门限丢弃组合 TF。原因是 `map -> camera_init` 重定位修正频率可能较低，旧门限会让 `/robot/pose` 停止发布，导致 PlotJuggler 和 `/robot/pose_filtered` 看不到机器人业务位姿。
+   - 当前重定位模式默认使用 `/map_lidar/odom -> pose_from_odom -> /robot/pose`。`/map_lidar/odom` 表示 `map -> body` 的地图定位结果，`pose_from_odom` 在同一帧结果上加 `body -> robot_base` 外参，再相对 `map -> robot_origin` 输出 `robot_origin -> robot_base`，坐标语义为 `X右/Y前/Z上`。
+   - `pose_from_tf` 仍保留，用 `RC_ROBOT_POSE_SOURCE=tf` 可临时恢复从 TF 查询 `robot_origin -> robot_base_highrate` 生成 `/robot/pose` 的方式，用于对比诊断。该方式会混合低频 `map -> camera_init` 和高频 `body_highrate`，在当前 Orange Pi 实测中更容易放大厘米级抖动。
    - 新增 `pose_stability_filter`，将 `/robot/pose` 平滑为 `/robot/pose_filtered`，同时保留旧兼容名 `/lidar/pose_filtered`；`RC_POSE_FILTER=0` 可关闭。滤波器按 `xy_speed` 和 `yaw_rate` 自适应调整强度，静止时压抖动，运动时快速跟随，并带连续拒绝后的恢复机制，避免机器人移动后滤波输出永久停在旧值。
    - Rc 2.9 参考 r2 的 `pose_filter.py` 增加 `filter_mode=normal|beta`。normal 仍是默认生产链路；beta 输出 `/robot/pose_filtered_beta` 和 `/lidar/pose_filter_beta/status`，通过短时 hold/确认抑制静止尖峰。beta 默认不启动，需要 `RC_POSE_FILTER_BETA=1` 手动开启对比。
    - Rc 3.8 修复 `pose_stability_filter` 在 accepted/rejected 日志之间切换 severity 时触发 `ValueError: Logger severity cannot be changed between calls` 并退出的问题。这个问题会导致 `/robot/pose_filtered` 运行一段时间后消失，看起来像定位链路“死掉”。
@@ -1521,6 +1531,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
    - `RC_LIDAR_MODE=mapping` 用于建图保存；`RC_LIDAR_MODE=relocalization` 用于基于地图的高精度重定位。
    - 未设置 `RC_FASTLIO_MAP_SAVE_PATH` 时，若默认 `maps/mid360_map.pcd` 已存在，会自动保存为带时间戳的新 PCD，避免覆盖旧地图。
    - 建图保存依赖 FAST-LIO 的 `/map_save` 服务。如果保存脚本一直等待，优先检查 `/laser_mapping` 节点、`/map_save` 服务和 `POSE_INTERFACE.log`。当前版本修复了 `pose_from_tf` 对 `publish_rate:=50` 这类整数参数不兼容导致节点退出的问题。
+   - `pose_interface_relocalization.sh` 默认 `RC_ROBOT_POSE_SOURCE=odom`，从 `/map_lidar/odom` 同步计算 `/robot/pose`；只有显式设置 `RC_ROBOT_POSE_SOURCE=tf` 时才走 TF 查询链路。
    - 重定位模式默认启动 normal 位姿滤波，并默认把 `/robot/pose_filtered` 作为 CAN 发送来源；`RC_POSE_FILTER_BETA=1` 可额外启动 beta 对比，`RC_POSE_FILTER_STABLE=1` 可额外启动 stable 对比。只有显式 `RC_POSE_FILTER_SELECTED=beta|stable` 时，CAN 才会切到对应候选输出。`stop_all.sh` 和 CAN 重启脚本已同步清理 normal/beta/stable 滤波节点，避免模式切换后残留旧进程。
    - Rc 3.0 起，重定位模式下 CAN 默认启用 `RC_CAN_REQUIRE_READY=1`，等待 `/map_lidar/quality` 连续稳定后才发送 `/robot/pose_filtered`，避免开机早期或匹配失败时把假坐标发给电控。
 

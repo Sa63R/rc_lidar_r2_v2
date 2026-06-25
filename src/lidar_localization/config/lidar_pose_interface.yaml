@@ -17,8 +17,9 @@ lidar_pose_from_odom:
     # Current Orange Pi static extrinsic, matching my_static_tf body -> robot_base.
     lidar_to_base_xyz: [-0.240, 0.287302, -0.760]
     lidar_to_base_rpy: [0.0, 0.0, 1.5707963267948966]
-    # Relocalization mode now prefers pose_from_tf. These values are kept for
-    # manual compatibility with pose_from_odom.
+    # Relocalization mode uses /map_lidar/odom -> pose_from_odom by default.
+    # These values define map -> robot_origin and are used to compute
+    # robot_origin -> robot_base without querying a mixed-frequency TF chain.
     reference_pose_enabled: true
     reference_frame_id: robot_origin
     reference_pose_xyz: [-0.240, 0.287302, -0.760]

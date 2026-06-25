@@ -317,3 +317,35 @@ RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.p
 
 - `RC_CAN_POSE_SOURCE=pose_topic|tf`
   CAN 位姿来源选择。当前生产更倾向 `pose_topic`，也就是发送 `/robot/pose_filtered` 或所选滤波话题；`tf` 主要用于回退排查。
+
+- `RC_ROBOT_POSE_SOURCE=odom|tf`
+  `/robot/pose` 的来源选择。当前重定位生产默认是 `odom`：订阅 `/map_lidar/odom`，在同一帧地图定位结果上加雷达到机器人中心外参，计算 `robot_origin -> robot_base` 并发布 `/robot/pose`。`tf` 是回退/对比模式：直接查询 `robot_origin -> robot_base_highrate`，可能混合低频地图修正和高频 TF，当前不建议作为默认调车链路。
+
+
+# 当前重定位位姿链路说明
+
+当前默认：
+
+```text
+/map_lidar/odom
+  -> pose_from_odom 加 body -> robot_base 外参
+  -> /robot/pose
+  -> /robot/pose_filtered 或 /robot/pose_filtered_stable
+  -> CAN
+```
+
+保留当前 TF 树用于 RQT、tf2_echo、外参校准和调试：
+
+```text
+map
+├── camera_init
+│   ├── body -> robot_base
+│   └── body_highrate -> robot_base_highrate
+└── robot_origin
+```
+
+但生产 `/robot/pose` 默认不再通过 TF 查询 `robot_origin -> robot_base_highrate`。如果想复现或对比 TF 拼接路径：
+
+```bash
+RC_ROBOT_POSE_SOURCE=tf ./autostart/start_all_terminals.sh
+```

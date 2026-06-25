@@ -731,10 +731,12 @@ ros2 topic info /robot/pose --verbose --no-daemon
 tail -n 120 logs/autostart/latest/POSE_INTERFACE.log
 ```
 
-R2 也应沿用当前 Orange Pi 的默认值：`RC_ROBOT_POSE_MAX_TF_AGE=0.0`。原因是重定位链路里的 `map -> camera_init` 可能低频更新，组合 TF 的 stamp 经常老于 1 秒；如果仍使用旧的 `1.0s` 严格门限，`pose_from_tf` 会反复输出 `TF robot_origin->robot_base_highrate is stale`，从而不发布 `/robot/pose`，滤波和 PlotJuggler 也就没有机器人位姿数据。只有明确想诊断旧 TF 丢弃策略时，才临时设置：
+当前 Orange Pi 的重定位生产链路默认使用 `RC_ROBOT_POSE_SOURCE=odom`：`POSE_INTERFACE` 订阅 `/map_lidar/odom`，在同一帧定位结果上加雷达到机器人中心外参，并发布 `/robot/pose`。这保留无头车 TF 树，但避免用 TF buffer 直接拼接 `robot_origin -> robot_base_highrate` 时混合低频 `map -> camera_init` 和高频 `body_highrate`。
+
+只有明确要诊断旧 TF 拼接路径时，才临时设置：
 
 ```bash
-RC_ROBOT_POSE_MAX_TF_AGE=1.0 ./autostart/start_all_terminals.sh
+RC_ROBOT_POSE_SOURCE=tf ./autostart/start_all_terminals.sh
 ```
 
 如果 PlotJuggler 仍然要求手点确认，检查：
@@ -1050,7 +1052,7 @@ ls -lh logs/autostart/latest/health_monitor.*
 - Livox topic、FAST-LIO odometry、`camera_init -> body` TF 正常。
 - `MAP_LOCALIZER` 发布质量 topic，且没有持续 rejected。
 - `/robot/pose_filtered` 连续刷新。
-- `POSE_INTERFACE.log` 不应持续刷 `TF robot_origin->robot_base_highrate is stale` 后完全不发 `/robot/pose`；默认 `RC_ROBOT_POSE_MAX_TF_AGE=0.0` 是为了接受低频 `map -> camera_init` 修正参与后的最新可用组合 TF。
+- `POSE_INTERFACE.log` 正常应显示从 `/map_lidar/odom` 发布 `/robot/pose`。如果看到 `TF robot_origin->robot_base_highrate`，说明当前启动用了 `RC_ROBOT_POSE_SOURCE=tf` 回退路径；该路径只用于对比诊断，不建议作为 R2 生产默认。
 - `POSE_FILTER.log` 不应出现 `ValueError: Logger severity cannot be changed between calls`。如果出现，说明 r2 还没有同步 Rc 3.8 的滤波日志修复；该问题会让 `/robot/pose_filtered` 运行一段时间后停止发布。
 - 如果启用 beta，对比 `/robot/pose_filtered_beta`，确认静止尖峰更少且真实连续运动不会长期 hold。
 - 如果启用 stable，对比 `/robot/pose_filtered_stable`，确认静止 1-4cm 短时跳点不会被快速跟随，同时慢速连续移动和绕点转圈不会出现平台/锯齿。
