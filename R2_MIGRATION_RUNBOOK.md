@@ -268,14 +268,20 @@ RC_CAN_POSE_SOURCE=tf ./autostart/start_all_terminals.sh
 
 ## 5. 迁移启动策略和开机自启
 
-安装自启入口时，优先安装 user systemd，自带 XDG 桌面自启只作为备用。两个入口都调用 `autostart/boot_start.sh`，脚本会用 `boot_id` 防止同一次开机重复启动。
+安装自启入口时，只安装 user systemd。不要默认安装 XDG 桌面自启；它依赖图形登录会话，而且会让同一台车上出现两个开机入口。当前 Orange Pi 生产策略已经移除已安装的桌面自启，只保留 `rc-lidar-autostart.service`。`boot_start.sh` 仍保留 `boot_id` 防重复机制，作为兜底。
 
 ```bash
 cd "$R2_WS"
-./autostart/install_desktop_autostart.sh
 ./autostart/install_user_systemd_autostart.sh
 systemctl --user status rc-lidar-autostart.service
 loginctl show-user "$(id -un)" -p Linger
+```
+
+如果 r2 之前装过桌面 XDG 自启，先删除已安装入口：
+
+```bash
+rm -f "$HOME/.config/autostart/rc_lidar_autostart.desktop"
+systemctl --user daemon-reload
 ```
 
 R2 上不要直接复制 Orange Pi 的 systemd 用户目录；只运行仓库里的安装脚本。`install_user_systemd_autostart.sh` 应尝试启用当前用户 linger。若 R2 没有外接显示器或没有自动登录图形桌面，必须确认 `Linger=yes`，这样 user systemd 服务才能在纯开机阶段启动。若不是 `yes`，执行：
@@ -361,18 +367,19 @@ cd "$R2_WS"
 
 不要只靠关闭终端窗口停止程序。headless、开机自启和 CAN 重启会把进程放到后台。
 
-设置桌面开机自启：
+确认没有桌面 XDG 自启入口：
 
 ```bash
 cd "$R2_WS"
-./autostart/install_desktop_autostart.sh
+rm -f "$HOME/.config/autostart/rc_lidar_autostart.desktop"
+systemctl --user daemon-reload
 ```
 
-检查自启文件：
+检查自启目录里没有 RC LiDAR 的桌面入口：
 
 ```bash
 ls -l "$HOME/.config/autostart"
-grep -R "RC_LIDAR" "$HOME/.config/autostart" -n
+grep -R "RC_LIDAR\\|RC Lidar" "$HOME/.config/autostart" -n || true
 ```
 
 开机自启默认应满足：
@@ -397,7 +404,7 @@ CAN 重启脚本也应保持同样默认策略：
 grep -n "RC_LIDAR_MODE\\|RC_CAN_POSE_TOPIC\\|RC_HEALTH_MONITOR" autostart/restart_lidar_stack.sh
 ```
 
-Orange Pi 当前生产默认已经固定为小场地图 `/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd`，不开 PlotJuggler，ready 只写 json 不弹窗口，并默认不启动 stable 候选滤波，CAN 发 normal `/robot/pose_filtered`。R2 不能照搬这个绝对路径，但应该采用同样策略：把 `boot_start.sh`、`rc-lidar-autostart.service` 和 `restart_lidar_stack.sh` 的默认 `RC_LIDAR_MAP_PATH` 都指向 R2 自己验证过的小场 PCD，并保持 `RC_POSE_FILTER_STABLE=0`；只有需要曲线对比时才手动设置 `RC_POSE_FILTER_STABLE=1`。
+Orange Pi 当前生产默认已经固定为小场地图 `/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd`，不开 PlotJuggler，ready 只写 json 不弹窗口，并默认不启动 stable 候选滤波，CAN 发 normal `/robot/pose_filtered`。R2 不能照搬这个绝对路径，但应该采用同样策略：把 `boot_start.sh`、`rc-lidar-autostart.service` 和 `restart_lidar_stack.sh` 的默认 `RC_LIDAR_MAP_PATH` 都指向 R2 自己验证过的小场 PCD，并保持 `RC_POSE_FILTER_STABLE=0`；开机入口只保留 user systemd，只有需要曲线对比时才手动设置 `RC_AUTOSTART_PLOTJUGGLER=1` 或 `RC_POSE_FILTER_STABLE=1`。
 
 ## 6. 建图、保存地图和地图质量
 

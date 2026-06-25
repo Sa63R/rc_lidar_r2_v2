@@ -184,15 +184,14 @@ cd "/home/orangepi/RC_LIDAR_NOW"
 
 这个脚本会把 `eth0` 的 `192.168.1.5/24` 写进 NetworkManager，并安装 udev 规则，让 USB-CAN 枚举成 `can*` 时自动配置 `1000000` bit/s 和 `restart-ms 100`。
 
-设置桌面开机自启：
+设置开机自启：
 
 ```bash
 cd "/home/orangepi/RC_LIDAR_NOW"
-./autostart/install_desktop_autostart.sh
 ./autostart/install_user_systemd_autostart.sh
 ```
 
-推荐同时安装 user systemd 自启和桌面 XDG 自启。user systemd 是主要兜底入口，XDG 桌面自启保留为备用入口；两边都会调用 `autostart/boot_start.sh`。`boot_start.sh` 会记录当前 `boot_id`，同一次开机只允许真正启动一次，避免桌面自启重复触发导致两套雷达进程或两份互相干扰的日志。
+当前生产只保留 user systemd 自启入口，不再安装桌面 XDG 自启入口。这样没有外接显示器、没有图形桌面登录时也能自启，同时避免 systemd 和桌面自启两个入口在同一次开机里同时触发。`boot_start.sh` 仍会记录当前 `boot_id`，作为防重复兜底。
 
 `install_user_systemd_autostart.sh` 会尝试启用当前用户的 systemd linger。这样即使没有外接显示器、没有图形桌面登录会话，用户级自启服务也能在开机时被 systemd 拉起。检查命令：
 
@@ -216,6 +215,14 @@ logs/autostart/boot_start_state.env
 ```
 
 `boot_attempts.log` 只记录“自启入口有没有被调用”和跳过原因；`start_summary.txt`、`health_monitor.csv` 等仍然在每次实际运行的 `logs/autostart/run_<时间>_<原因>_<boot_id短码>_<pid>/` 目录里。目录名仍保留墙上时间方便人工查看，但真正用于区分强制重启的是 `boot_id短码 + pid`，避免开机初期系统时间未校准或连续强关重启时多个 run 落到同一秒而互相混日志。
+
+如果以前安装过桌面 XDG 自启，需要删除已安装入口，确保只剩 user systemd：
+
+```bash
+rm -f "$HOME/.config/autostart/rc_lidar_autostart.desktop"
+systemctl --user daemon-reload
+systemctl --user is-enabled rc-lidar-autostart.service
+```
 
 由于香橙派开机后可能先用错误系统时间启动，随后被 NTP/chrony 校时，判断日志先后时不要只看文件名时间；优先看 `start_summary.txt` 里的 `boot_id`、`uptime_sec`、`elapsed_sec`，以及 `boot_attempts.log`。`uptime_sec` 是系统从本次开机以来经过的秒数，比墙上时间更可靠。
 
@@ -1514,10 +1521,10 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
    - 持久化 `eth0 -> 192.168.1.5/24`。
    - 安装 udev 规则，USB-CAN 枚举为 `can*` 时自动拉起 CAN 口。
 
-17. `autostart/boot_start.sh`、`autostart/rc_lidar_autostart.desktop`、`autostart/install_desktop_autostart.sh`、`autostart/rc-lidar-autostart.service`、`autostart/install_user_systemd_autostart.sh`
-   - 新增 user systemd 自启入口，并保留图形桌面 XDG 自启入口作为备用。
+17. `autostart/boot_start.sh`、`autostart/rc-lidar-autostart.service`、`autostart/install_user_systemd_autostart.sh`
+   - 生产只使用 user systemd 自启入口；图形桌面 XDG 自启入口不再作为默认安装方式，避免同一台车上出现多个开机入口。
    - `install_user_systemd_autostart.sh` 会尝试启用当前用户 linger，让 user systemd 服务在没有图形登录会话时也能随开机运行。
-   - 两个入口都调用 `boot_start.sh`，并通过 `boot_id` 状态文件保证同一次开机只真正启动一次。
+   - `boot_start.sh` 仍通过 `boot_id` 状态文件防止同一次开机重复启动；如果以前装过 XDG 自启，删除 `~/.config/autostart/rc_lidar_autostart.desktop`。
    - 自启入口诊断写到 `logs/autostart/xdg_autostart.log`、`logs/autostart/boot_attempts.log`、`logs/autostart/boot_start_state.env`。
    - `start_all_terminals.sh` 会在创建 `start_summary.txt`、预检日志和最终启动摘要后主动 `sync`，降低强制断电时日志完全丢失的概率。
 
