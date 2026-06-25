@@ -193,6 +193,19 @@ cd "/home/orangepi/RC_LIDAR_NOW"
 
 推荐同时安装 user systemd 自启和桌面 XDG 自启。user systemd 是主要兜底入口，XDG 桌面自启保留为备用入口；两边都会调用 `autostart/boot_start.sh`。`boot_start.sh` 会记录当前 `boot_id`，同一次开机只允许真正启动一次，避免桌面自启重复触发导致两套雷达进程或两份互相干扰的日志。
 
+`install_user_systemd_autostart.sh` 会尝试启用当前用户的 systemd linger。这样即使没有外接显示器、没有图形桌面登录会话，用户级自启服务也能在开机时被 systemd 拉起。检查命令：
+
+```bash
+loginctl show-user orangepi -p Linger
+systemctl --user is-enabled rc-lidar-autostart.service
+```
+
+期望看到 `Linger=yes` 和 `enabled`。如果 linger 不是 `yes`，手动执行：
+
+```bash
+loginctl enable-linger orangepi
+```
+
 自启诊断日志写到：
 
 ```text
@@ -209,7 +222,7 @@ logs/autostart/boot_start_state.env
 
 ```text
 RC_LIDAR_MODE=relocalization
-RC_LIDAR_MAP_PATH=/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260624_190419.pcd
+RC_LIDAR_MAP_PATH=/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd
 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1
 RC_AUTOSTART_HEADLESS=1
 RC_AUTOSTART_PLOTJUGGLER=0
@@ -217,10 +230,13 @@ RC_AUTOSTART_TF_COMPARE=auto
 RC_AUTOSTART_LIDAR_XYZR=auto
 RC_CAN_POSE_SOURCE=pose_topic
 RC_CAN_POSE_TOPIC=/robot/pose_filtered
+RC_POSE_FILTER_STABLE=1
 RC_HEALTH_MONITOR=1
+RC_READY_NOTIFY=1
+RC_READY_NOTIFY_POPUP=0
 ```
 
-也就是说，开机后会自动用 rc3.2 已验证的小场地图 `maps/mid360_map_20260624_190419.pcd` 做重定位，启动 TF、Livox、FAST-LIO、地图匹配、位姿接口、位姿滤波、CAN 和健康日志等核心链路；CAN 发 `/robot/pose_filtered`，但不会弹 RViz/PlotJuggler 界面。TF 对比发布节点和点云调试打印也会随 PlotJuggler/headless 策略默认跳过，避免香橙派 CPU 被调试工具抢走。需要临时开图形调试时，手动运行一键脚本并覆盖这些环境变量即可。
+也就是说，开机后会自动用当前已验证的小场地图 `maps/mid360_map_20260625_064655.pcd` 做重定位，启动 TF、Livox、FAST-LIO、地图匹配、位姿接口、normal 位姿滤波、stable 候选滤波、CAN 和健康日志等核心链路；CAN 默认仍发 `/robot/pose_filtered`，stable 只作为 `/robot/pose_filtered_stable` 对比输出，除非显式设置 `RC_POSE_FILTER_SELECTED=stable`。开机自启不会弹 RViz/PlotJuggler 界面，也不会弹 ready 终端窗口，只写 `relocalization_ready.json`；即使没有外接显示器也应能走 headless 后台启动。TF 对比发布节点和点云调试打印也会随 PlotJuggler/headless 策略默认跳过，避免香橙派 CPU 被调试工具抢走。需要临时开图形调试时，手动运行一键脚本并覆盖这些环境变量即可。
 
 检查开机自启是否触发：
 
@@ -829,7 +845,7 @@ ls -lh maps/mid360_map.pcd
 
 2026-06-24 实测可用检查点：使用只绕小场地建出的 `/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260624_190419.pcd`，不做裁剪，并用 `RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1` 从建图原点附近启动，重定位表现正确。这是当前优先复刻方案。
 
-Rc 3.3 起，开机低功耗自启和 CAN 重启默认也使用这张小场地图，并保持 `RC_AUTOSTART_PLOTJUGGLER=0`。手动调试时如果需要 PlotJuggler，只额外把 `RC_AUTOSTART_PLOTJUGGLER=1` 打开即可。
+当前开机低功耗自启和 CAN 重启默认使用 2026-06-25 实测的小场地图 `maps/mid360_map_20260625_064655.pcd`，保持 `RC_AUTOSTART_PLOTJUGGLER=0`，并默认额外启动 stable 候选滤波 `RC_POSE_FILTER_STABLE=1`。CAN 仍默认发送 normal `/robot/pose_filtered`，stable 只作为观察和后续切换候选。手动调试时如果需要 PlotJuggler，只额外把 `RC_AUTOSTART_PLOTJUGGLER=1` 打开即可。
 
 现在默认不再假设当前启动点就是地图原点；重定位启动后，如果没有初始位姿，`MAP_LOCALIZER.log` 会提示等待 `/initialpose` 或 `RC_RELOCALIZATION_INITIAL_GUESS=1`，并且不会发布看起来像 0 的假定位结果。
 
@@ -875,7 +891,7 @@ RC_AUTOSTART_PLOTJUGGLER=0 \
 logs/autostart/<run>/relocalization_ready.json
 ```
 
-如果当前有图形桌面，它还会弹出一个小终端窗口提示：
+手动重定位且当前有图形桌面时，它还会弹出一个小终端窗口提示：
 
 ```text
 RC LiDAR 重定位完成
@@ -892,9 +908,10 @@ RC_READY_NOTIFY_STABLE_SEC=3.0       # 连续稳定多久才认为 ready
 RC_READY_NOTIFY_TIMEOUT_SEC=120.0    # 超时时间
 RC_READY_NOTIFY_MAX_FITNESS=0.05     # ready 的 fitness 上限
 RC_READY_NOTIFY_WINDOW_SECONDS=20    # 提示窗口自动关闭时间
+RC_READY_NOTIFY_POPUP=0              # 只写 ready json，不弹窗口
 ```
 
-CAN 报文触发的自动重启默认不弹 ready 窗口，避免电控反复重启时刷屏；如确实需要，重启环境里设置 `RC_READY_NOTIFY=1`。
+开机自启默认 `RC_READY_NOTIFY_POPUP=0`，只写 `relocalization_ready.json`，不依赖外接显示器。CAN 报文触发的自动重启默认不启动 ready notify，避免电控反复重启时刷屏；如确实需要，重启环境里设置 `RC_READY_NOTIFY=1`。
 
 如果想打开图形窗口调试，默认会打开 PlotJuggler，但不会打开 RViz，也不会给每个节点单独弹终端窗口：
 
@@ -1446,6 +1463,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
 
 17. `autostart/boot_start.sh`、`autostart/rc_lidar_autostart.desktop`、`autostart/install_desktop_autostart.sh`、`autostart/rc-lidar-autostart.service`、`autostart/install_user_systemd_autostart.sh`
    - 新增 user systemd 自启入口，并保留图形桌面 XDG 自启入口作为备用。
+   - `install_user_systemd_autostart.sh` 会尝试启用当前用户 linger，让 user systemd 服务在没有图形登录会话时也能随开机运行。
    - 两个入口都调用 `boot_start.sh`，并通过 `boot_id` 状态文件保证同一次开机只真正启动一次。
    - 自启入口诊断写到 `logs/autostart/xdg_autostart.log`、`logs/autostart/boot_attempts.log`、`logs/autostart/boot_start_state.env`。
    - `start_all_terminals.sh` 会在创建 `start_summary.txt`、预检日志和最终启动摘要后主动 `sync`，降低强制断电时日志完全丢失的概率。
@@ -1471,7 +1489,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
    - 新增 `pose_stability_filter`，将 `/robot/pose` 平滑为 `/robot/pose_filtered`，同时保留旧兼容名 `/lidar/pose_filtered`；`RC_POSE_FILTER=0` 可关闭。滤波器按 `xy_speed` 和 `yaw_rate` 自适应调整强度，静止时压抖动，运动时快速跟随，并带连续拒绝后的恢复机制，避免机器人移动后滤波输出永久停在旧值。
    - Rc 2.9 参考 r2 的 `pose_filter.py` 增加 `filter_mode=normal|beta`。normal 仍是默认生产链路；beta 输出 `/robot/pose_filtered_beta` 和 `/lidar/pose_filter_beta/status`，通过短时 hold/确认抑制静止尖峰。beta 默认不启动，需要 `RC_POSE_FILTER_BETA=1` 手动开启对比。
    - Rc 3.8 修复 `pose_stability_filter` 在 accepted/rejected 日志之间切换 severity 时触发 `ValueError: Logger severity cannot be changed between calls` 并退出的问题。这个问题会导致 `/robot/pose_filtered` 运行一段时间后消失，看起来像定位链路“死掉”。
-   - Rc 3.9 增加 `filter_mode=stable` 候选滤波，输出 `/robot/pose_filtered_stable` 和 `/lidar/pose_filter_stable/status`。stable 使用稳态锚点和持续运动确认，避免静止状态下 1-4cm 地图重定位跳点被瞬时速度误判为真实运动。默认不启动、不影响 CAN，需要 `RC_POSE_FILTER_STABLE=1` 手动对比，确认后再用 `RC_POSE_FILTER_SELECTED=stable` 切 CAN。
+   - Rc 3.9 增加 `filter_mode=stable` 候选滤波，输出 `/robot/pose_filtered_stable` 和 `/lidar/pose_filter_stable/status`。stable 使用稳态锚点和持续运动确认，避免静止状态下 1-4cm 地图重定位跳点被瞬时速度误判为真实运动。普通一键脚本仍需 `RC_POSE_FILTER_STABLE=1` 才启动；当前开机自启和 CAN 重启默认把它打开作为候选观察，但 CAN 仍发 normal `/robot/pose_filtered`，只有显式 `RC_POSE_FILTER_SELECTED=stable` 才切 CAN。
 
 21. `autostart/start_mapping_terminals.sh`、`autostart/save_fast_lio_map.sh`、`autostart/map_localizer.sh`、`autostart/pose_interface_mapping.sh`、`autostart/pose_interface_relocalization.sh`、`autostart/pose_stability_filter.sh`
    - 新增建图保存和地图重定位的一键脚本。
@@ -1504,7 +1522,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
 25. `autostart/relocalization_ready_notify.py`、`autostart/relocalization_ready_notify.sh`
    - 新增重定位 ready 提示；默认在开机和手动 `RC_LIDAR_MODE=relocalization` 时启动，CAN 自动重启默认不弹窗。
    - 判据为 `/robot/pose_filtered` 刷新正常，`/map_lidar/quality` 连续 accepted/converged，`fitness <= RC_READY_NOTIFY_MAX_FITNESS`，并稳定 `RC_READY_NOTIFY_STABLE_SEC` 秒。
-   - ready 后写入 `logs/autostart/<run>/relocalization_ready.json`，并在有图形桌面时弹出“RC LiDAR 重定位完成，现在可以移动小车”的小终端窗口；节点随后退出，常态没有后台负载。
+   - ready 后写入 `logs/autostart/<run>/relocalization_ready.json`；手动调试且允许 popup 时，会在有图形桌面时弹出“RC LiDAR 重定位完成，现在可以移动小车”的小终端窗口。开机自启默认 `RC_READY_NOTIFY_POPUP=0`，不依赖外接显示器；节点随后退出，常态没有后台负载。
    - `stop_all.sh` 和 CAN 重启清理逻辑已同步处理 `READY_NOTIFY` 进程和窗口。
 
 ## 注意事项

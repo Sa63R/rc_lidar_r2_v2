@@ -275,9 +275,16 @@ cd "$R2_WS"
 ./autostart/install_desktop_autostart.sh
 ./autostart/install_user_systemd_autostart.sh
 systemctl --user status rc-lidar-autostart.service
+loginctl show-user "$(id -un)" -p Linger
 ```
 
-R2 上不要直接复制 Orange Pi 的 systemd 用户目录；只运行仓库里的安装脚本。若 R2 没有自动登录图形桌面，user systemd 仍可能需要 R2 的登录/linger 策略配合，先用下面命令确认自启入口有没有被调用：
+R2 上不要直接复制 Orange Pi 的 systemd 用户目录；只运行仓库里的安装脚本。`install_user_systemd_autostart.sh` 应尝试启用当前用户 linger。若 R2 没有外接显示器或没有自动登录图形桌面，必须确认 `Linger=yes`，这样 user systemd 服务才能在纯开机阶段启动。若不是 `yes`，执行：
+
+```bash
+loginctl enable-linger "$(id -un)"
+```
+
+然后用下面命令确认自启入口有没有被调用：
 
 ```bash
 tail -n 80 logs/autostart/boot_attempts.log
@@ -300,7 +307,8 @@ logs/autostart/<run>/relocalization_ready.json
 RC_READY_NOTIFY_STABLE_SEC=3.0
 RC_READY_NOTIFY_TIMEOUT_SEC=120.0
 RC_READY_NOTIFY_MAX_FITNESS=0.05
-RC_READY_NOTIFY=0          # 如 R2 不需要提示窗口，可关闭
+RC_READY_NOTIFY=1          # 写 ready json
+RC_READY_NOTIFY_POPUP=0    # 无显示器/生产开机默认不弹窗口
 ```
 
 先做 dry-run：
@@ -375,7 +383,10 @@ RC_AUTOSTART_HEADLESS=1
 RC_AUTOSTART_PLOTJUGGLER=0
 RC_CAN_POSE_SOURCE=pose_topic
 RC_CAN_POSE_TOPIC=/robot/pose_filtered
+RC_POSE_FILTER_STABLE=1
 RC_HEALTH_MONITOR=1
+RC_READY_NOTIFY=1
+RC_READY_NOTIFY_POPUP=0
 ```
 
 CAN 重启脚本也应保持同样默认策略：
@@ -384,7 +395,7 @@ CAN 重启脚本也应保持同样默认策略：
 grep -n "RC_LIDAR_MODE\\|RC_CAN_POSE_TOPIC\\|RC_HEALTH_MONITOR" autostart/restart_lidar_stack.sh
 ```
 
-Orange Pi Rc 3.3 的生产默认已经固定为小场地图 `/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260624_190419.pcd`，且不开 PlotJuggler。R2 不能照搬这个绝对路径，但应该采用同样策略：把 `boot_start.sh`、`rc-lidar-autostart.service` 和 `restart_lidar_stack.sh` 的默认 `RC_LIDAR_MAP_PATH` 都指向 R2 自己验证过的小场 PCD。
+Orange Pi 当前生产默认已经固定为小场地图 `/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd`，不开 PlotJuggler，ready 只写 json 不弹窗口，并默认启动 stable 候选滤波但 CAN 仍发 normal `/robot/pose_filtered`。R2 不能照搬这个绝对路径，但应该采用同样策略：把 `boot_start.sh`、`rc-lidar-autostart.service` 和 `restart_lidar_stack.sh` 的默认 `RC_LIDAR_MAP_PATH` 都指向 R2 自己验证过的小场 PCD，并让 `RC_POSE_FILTER_STABLE=1` 只作为候选输出。
 
 ## 6. 建图、保存地图和地图质量
 
