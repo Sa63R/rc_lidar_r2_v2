@@ -44,6 +44,13 @@ export LD_LIBRARY_PATH="/usr/local/lib:${LD_LIBRARY_PATH:-}"
 export RCUTILS_LOGGING_USE_STDOUT="${RCUTILS_LOGGING_USE_STDOUT:-1}"
 export RCUTILS_LOGGING_BUFFERED_STREAM="${RCUTILS_LOGGING_BUFFERED_STREAM:-0}"
 
+rc_bool() {
+  case "${1:-false}" in
+    1|true|TRUE|yes|YES|on|ON) echo "true" ;;
+    *) echo "false" ;;
+  esac
+}
+
 cd "$WORKSPACE_DIR"
 
 if [ ! -f /opt/ros/humble/setup.bash ]; then

@@ -13,12 +13,14 @@ INPUT_TOPIC="${RC_POSE_FILTER_BETA_INPUT_TOPIC:-${RC_POSE_FILTER_INPUT_TOPIC:-/r
 OUTPUT_TOPIC="${RC_BETA_FILTERED_POSE_TOPIC:-/robot/pose_filtered_beta}"
 ALIAS_TOPIC="${RC_POSE_FILTER_BETA_ALIAS_TOPIC:-/lidar/pose_filtered_beta}"
 STATUS_TOPIC="${RC_POSE_FILTER_BETA_STATUS_TOPIC:-/lidar/pose_filter_beta/status}"
+QUALITY_GATE="$(rc_bool "${RC_POSE_FILTER_BETA_QUALITY_GATE:-${RC_POSE_FILTER_QUALITY_GATE:-1}}")"
 
 echo "[pose_filter_beta] input=$INPUT_TOPIC"
 echo "[pose_filter_beta] output=$OUTPUT_TOPIC"
 echo "[pose_filter_beta] alias=$ALIAS_TOPIC"
 echo "[pose_filter_beta] status=$STATUS_TOPIC"
 echo "[pose_filter_beta] mode=beta"
+echo "[pose_filter_beta] quality_gate=$QUALITY_GATE"
 
 exec ros2 run lidar_localization pose_stability_filter \
   --ros-args \
@@ -28,7 +30,7 @@ exec ros2 run lidar_localization pose_stability_filter \
   -p status_topic:="$STATUS_TOPIC" \
   -p filter_mode:=beta \
   -p output_stamp_mode:="${RC_POSE_FILTER_BETA_STAMP_MODE:-${RC_POSE_FILTER_STAMP_MODE:-now}}" \
-  -p quality_gate_enabled:="${RC_POSE_FILTER_BETA_QUALITY_GATE:-${RC_POSE_FILTER_QUALITY_GATE:-1}}" \
+  -p quality_gate_enabled:="$QUALITY_GATE" \
   -p quality_topic:="${RC_POSE_FILTER_QUALITY_TOPIC:-/map_lidar/quality}" \
   -p quality_timeout_sec:="${RC_POSE_FILTER_QUALITY_TIMEOUT:-1.0}" \
   -p quality_max_jump_m:="${RC_POSE_FILTER_QUALITY_MAX_JUMP:-0.08}" \
