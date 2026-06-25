@@ -230,13 +230,13 @@ RC_AUTOSTART_TF_COMPARE=auto
 RC_AUTOSTART_LIDAR_XYZR=auto
 RC_CAN_POSE_SOURCE=pose_topic
 RC_CAN_POSE_TOPIC=/robot/pose_filtered
-RC_POSE_FILTER_STABLE=1
+RC_POSE_FILTER_STABLE=0
 RC_HEALTH_MONITOR=1
 RC_READY_NOTIFY=1
 RC_READY_NOTIFY_POPUP=0
 ```
 
-也就是说，开机后会自动用当前已验证的小场地图 `maps/mid360_map_20260625_064655.pcd` 做重定位，启动 TF、Livox、FAST-LIO、地图匹配、位姿接口、normal 位姿滤波、stable 候选滤波、CAN 和健康日志等核心链路；CAN 默认仍发 `/robot/pose_filtered`，stable 只作为 `/robot/pose_filtered_stable` 对比输出，除非显式设置 `RC_POSE_FILTER_SELECTED=stable`。开机自启不会弹 RViz/PlotJuggler 界面，也不会弹 ready 终端窗口，只写 `relocalization_ready.json`；即使没有外接显示器也应能走 headless 后台启动。TF 对比发布节点和点云调试打印也会随 PlotJuggler/headless 策略默认跳过，避免香橙派 CPU 被调试工具抢走。需要临时开图形调试时，手动运行一键脚本并覆盖这些环境变量即可。
+也就是说，开机后会自动用当前已验证的小场地图 `maps/mid360_map_20260625_064655.pcd` 做重定位，启动 TF、Livox、FAST-LIO、地图匹配、位姿接口、normal 位姿滤波、CAN 和健康日志等核心链路；CAN 默认仍发 `/robot/pose_filtered`。stable 候选滤波默认不启动，后续需要对比时再手动设置 `RC_POSE_FILTER_STABLE=1`，并且只有显式设置 `RC_POSE_FILTER_SELECTED=stable` 时 CAN 才会切到 stable。开机自启不会弹 RViz/PlotJuggler 界面，也不会弹 ready 终端窗口，只写 `relocalization_ready.json`；即使没有外接显示器也应能走 headless 后台启动。TF 对比发布节点和点云调试打印也会随 PlotJuggler/headless 策略默认跳过，避免香橙派 CPU 被调试工具抢走。需要临时开图形调试时，手动运行一键脚本并覆盖这些环境变量即可。
 
 检查开机自启是否触发：
 
@@ -722,7 +722,7 @@ RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.p
 ./autostart/start_all_terminals.sh
 ```
 
-这条命令不改变雷达频率，只是关掉 PlotJuggler 和 stable 候选滤波，并把健康日志降到 1Hz，用来判断 normal 滤波与地图重定位源头在低负载下的真实表现。需要恢复默认开机生产配置时，使用 `RC_POSE_FILTER_STABLE=1` 和默认 5Hz 健康日志即可。
+这条命令不改变雷达频率，只是关掉 PlotJuggler 和 stable 候选滤波，并把健康日志降到 1Hz，用来判断 normal 滤波与地图重定位源头在低负载下的真实表现。当前默认开机生产配置同样不启动 stable 候选；需要临时对比 stable 时再显式设置 `RC_POSE_FILTER_STABLE=1`。
 
 日志抗断电策略：
 
@@ -870,7 +870,7 @@ ls -lh maps/mid360_map.pcd
 
 2026-06-24 实测可用检查点：使用只绕小场地建出的 `/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260624_190419.pcd`，不做裁剪，并用 `RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1` 从建图原点附近启动，重定位表现正确。这是当前优先复刻方案。
 
-当前开机低功耗自启和 CAN 重启默认使用 2026-06-25 实测的小场地图 `maps/mid360_map_20260625_064655.pcd`，保持 `RC_AUTOSTART_PLOTJUGGLER=0`，并默认额外启动 stable 候选滤波 `RC_POSE_FILTER_STABLE=1`。CAN 仍默认发送 normal `/robot/pose_filtered`，stable 只作为观察和后续切换候选。手动调试时如果需要 PlotJuggler，只额外把 `RC_AUTOSTART_PLOTJUGGLER=1` 打开即可。
+当前开机低功耗自启和 CAN 重启默认使用 2026-06-25 实测的小场地图 `maps/mid360_map_20260625_064655.pcd`，保持 `RC_AUTOSTART_PLOTJUGGLER=0`，并默认不启动 stable 候选滤波 `RC_POSE_FILTER_STABLE=0`。CAN 默认发送 normal `/robot/pose_filtered`。手动调试时如果需要 PlotJuggler，只额外把 `RC_AUTOSTART_PLOTJUGGLER=1` 打开即可；如果需要对比 stable，再额外设置 `RC_POSE_FILTER_STABLE=1`。
 
 现在默认不再假设当前启动点就是地图原点；重定位启动后，如果没有初始位姿，`MAP_LOCALIZER.log` 会提示等待 `/initialpose` 或 `RC_RELOCALIZATION_INITIAL_GUESS=1`，并且不会发布看起来像 0 的假定位结果。
 
@@ -1524,7 +1524,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
    - 新增 `pose_stability_filter`，将 `/robot/pose` 平滑为 `/robot/pose_filtered`，同时保留旧兼容名 `/lidar/pose_filtered`；`RC_POSE_FILTER=0` 可关闭。滤波器按 `xy_speed` 和 `yaw_rate` 自适应调整强度，静止时压抖动，运动时快速跟随，并带连续拒绝后的恢复机制，避免机器人移动后滤波输出永久停在旧值。
    - Rc 2.9 参考 r2 的 `pose_filter.py` 增加 `filter_mode=normal|beta`。normal 仍是默认生产链路；beta 输出 `/robot/pose_filtered_beta` 和 `/lidar/pose_filter_beta/status`，通过短时 hold/确认抑制静止尖峰。beta 默认不启动，需要 `RC_POSE_FILTER_BETA=1` 手动开启对比。
    - Rc 3.8 修复 `pose_stability_filter` 在 accepted/rejected 日志之间切换 severity 时触发 `ValueError: Logger severity cannot be changed between calls` 并退出的问题。这个问题会导致 `/robot/pose_filtered` 运行一段时间后消失，看起来像定位链路“死掉”。
-   - Rc 3.9 增加 `filter_mode=stable` 候选滤波，输出 `/robot/pose_filtered_stable` 和 `/lidar/pose_filter_stable/status`。stable 使用稳态锚点和持续运动确认，避免静止状态下 1-4cm 地图重定位跳点被瞬时速度误判为真实运动。普通一键脚本仍需 `RC_POSE_FILTER_STABLE=1` 才启动；当前开机自启和 CAN 重启默认把它打开作为候选观察，但 CAN 仍发 normal `/robot/pose_filtered`，只有显式 `RC_POSE_FILTER_SELECTED=stable` 才切 CAN。
+   - Rc 3.9 增加 `filter_mode=stable` 候选滤波，输出 `/robot/pose_filtered_stable` 和 `/lidar/pose_filter_stable/status`。stable 使用稳态锚点和持续运动确认，避免静止状态下 1-4cm 地图重定位跳点被瞬时速度误判为真实运动。普通一键脚本、开机自启和 CAN 重启默认都不启动 stable；需要对比时手动设置 `RC_POSE_FILTER_STABLE=1`，只有显式 `RC_POSE_FILTER_SELECTED=stable` 才切 CAN。
 
 21. `autostart/start_mapping_terminals.sh`、`autostart/save_fast_lio_map.sh`、`autostart/map_localizer.sh`、`autostart/pose_interface_mapping.sh`、`autostart/pose_interface_relocalization.sh`、`autostart/pose_stability_filter.sh`
    - 新增建图保存和地图重定位的一键脚本。

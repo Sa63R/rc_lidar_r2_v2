@@ -70,16 +70,17 @@ RC_LIDAR_MODE=relocalization \
 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
 RC_AUTOSTART_HEADLESS=1 \
 RC_AUTOSTART_PLOTJUGGLER=1 \
+RC_POSE_FILTER_STABLE=0 \
 RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd" \
 ./autostart/start_all_terminals.sh
 
-# 启用 stable 候选滤波做 PlotJuggler 对比，但 CAN 仍走默认 /robot/pose_filtered
+# 默认不启用 stable 候选滤波；需要对比时再手动改成 RC_POSE_FILTER_STABLE=1
 cd "/home/orangepi/RC_LIDAR_NOW"
 RC_LIDAR_MODE=relocalization \
 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
 RC_AUTOSTART_HEADLESS=1 \
 RC_AUTOSTART_PLOTJUGGLER=1 \
-RC_POSE_FILTER_STABLE=1 \
+RC_POSE_FILTER_STABLE=0 \
 RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd" \
 ./autostart/start_all_terminals.sh
 
@@ -91,42 +92,6 @@ cd "/home/orangepi/RC_LIDAR_NOW"
 RC_LIDAR_MODE=relocalization \
 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
 ./autostart/start_all_terminals.sh
-
-如果车不是从建图原点启动，需要给粗略初值：
-RC_LIDAR_MODE=relocalization \
-RC_RELOCALIZATION_INITIAL_GUESS=1 \
-RC_RELOCALIZATION_INITIAL_X=0.0 \
-RC_RELOCALIZATION_INITIAL_Y=0.0 \
-RC_RELOCALIZATION_INITIAL_YAW=0.0 \
-./autostart/start_all_terminals.sh
-
-
-# 备用方案：如果只有大场馆 PCD、没法重新绕小场建图，再裁比赛局部地图
-# rc3.2 这次可用方案没有用到裁剪，R2 同步时优先复刻上面“小场直接建图”的流程
-cd "/home/orangepi/RC_LIDAR_NOW"
-source /opt/ros/humble/setup.bash
-source install/setup.bash
-
-ros2 run lidar_map_localization pcd_prepare_local_map \
-  --input maps/mid360_map.pcd \
-  --output maps/competition_local.pcd \
-  --leaf 0.10 \
-  --min-x -4.0 --max-x 4.0 \
-  --min-y -3.0 --max-y 5.0 \
-  --margin 2.0
-
-# 用比赛局部地图做低负载重定位，CAN 默认等待 /map_lidar/quality 稳定后才发
-cd "/home/orangepi/RC_LIDAR_NOW"
-RC_LIDAR_MODE=relocalization \
-RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/competition_local.pcd" \
-RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
-RC_AUTOSTART_HEADLESS=1 \
-RC_AUTOSTART_PLOTJUGGLER=0 \
-./autostart/start_all_terminals.sh
-
-# 如果只是临时排查 CAN 链路，不想等待重定位 ready，可以短时间关闭门控
-RC_CAN_REQUIRE_READY=0 ./autostart/start_all_terminals.sh
-
 
 
 chromium-browser --proxy-server="http://127.0.0.1:7897"
@@ -184,7 +149,7 @@ cat
 
 # 常用控制变量速查（精简版）
 
-只保留最常用的 10 个以内。现场调车优先低负载：headless、不开 PlotJuggler、指定小场地图、开启 stable 候选。
+只保留最常用的 10 个以内。现场调车优先低负载：headless、不开 PlotJuggler、指定小场地图、默认不启动 stable 候选。
 
 ## 推荐开机低负载重定位
 
@@ -194,7 +159,7 @@ RC_LIDAR_MODE=relocalization \
 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
 RC_AUTOSTART_HEADLESS=1 \
 RC_AUTOSTART_PLOTJUGGLER=0 \
-RC_POSE_FILTER_STABLE=1 \
+RC_POSE_FILTER_STABLE=0 \
 RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd" \
 ./autostart/start_all_terminals.sh
 ```
