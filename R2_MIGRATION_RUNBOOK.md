@@ -318,6 +318,8 @@ cd "$R2_WS"
 RC_AUTOSTART_DRY_RUN=1 ./autostart/start_all_terminals.sh
 ```
 
+dry-run 只用于检查启动项，不应覆盖真实运行指针。当前约定是：真实运行读 `logs/autostart/latest`；dry-run 预检查读 `logs/autostart/latest_dry_run`。迁移到 R2 时也要保持这个规则，避免把预检查目录误判成实测日志。
+
 生产推荐低负载重定位启动：
 
 ```bash
@@ -887,7 +889,7 @@ RC_LIDAR_MAP_PATH="<R2 verified small-field map path>" \
 ```
 
 这条命令用于排查“normal 滤波本身是否可靠”和“地图重定位源头是否已经在跳”。它不降低雷达频率，只减少调试节点和日志压力。
-- 原始运行日志目录也会做保守清理：`logs/autostart/run_*` 默认保留 30 天，并额外保留最近 10 次、`latest` 指向的当前运行、`latest_restart` 指向的最近重启日志。它不会删除 `maps/`、`logs/calibration/`、`report_assets/`，也不会按文件名去删 PCD 或校准报告。
+- 原始运行日志目录也会做保守清理：`logs/autostart/run_*` 默认保留 30 天，并额外保留最近 10 次、`latest` 指向的当前真实运行、`latest_dry_run` 指向的最近 dry-run 预检查、`latest_restart` 指向的最近重启日志。它不会删除 `maps/`、`logs/calibration/`、`report_assets/`，也不会按文件名去删 PCD 或校准报告。
 - 每次一键启动会把原始日志清理结果写到当前运行目录的 `log_cleanup.log`。
 
 可调参数：

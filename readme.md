@@ -171,6 +171,7 @@ tail -n 80 logs/autostart/latest/LIVOX.log
 ```bash
 cd "/home/orangepi/RC_LIDAR_NOW"
 ./autostart/stop_all.sh
+```
 RC_LIDAR_MODE=mapping ./autostart/start_all_terminals.sh
 ```
 
@@ -459,6 +460,8 @@ cd "/home/orangepi/RC_LIDAR_NOW"
 RC_AUTOSTART_DRY_RUN=1 ./autostart/start_all_terminals.sh
 ```
 
+dry-run 只用于检查将要启动哪些节点，不会更新真实运行指针 `logs/autostart/latest`；它的日志指针是 `logs/autostart/latest_dry_run`。排查真实雷达运行时，一律优先读 `logs/autostart/latest`，避免把预检查目录误当成实测日志。
+
 确认输出里启动项都显示 `would launch` 后，再执行真正的一键启动：
 
 ```bash
@@ -733,7 +736,7 @@ RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.p
 - `health_events.jsonl` 事件发生时立即 flush/fsync；它只记录异常窗口摘要，不记录点云。
 - CAN 报文重启会生成新的 `run_<时间>_can_restart` 日志目录；直接断电再开机会生成新的 `run_<时间>_boot` 日志目录。
 - 健康日志文件默认保留 7 天：`health_monitor.csv`、`health_monitor_summary.json`、`health_monitor_run.json`、`health_monitor_stop.json`、`health_events.jsonl`、`health_event_context.csv`。
-- 原始运行日志目录也会做保守清理：`logs/autostart/run_*` 默认保留 30 天，并额外保留最近 10 次、`latest` 指向的当前运行、`latest_restart` 指向的最近重启日志。它不会删除 `maps/`、`logs/calibration/`、`report_assets/`，也不会按文件名去删 PCD 或校准报告。
+- 原始运行日志目录也会做保守清理：`logs/autostart/run_*` 默认保留 30 天，并额外保留最近 10 次、`latest` 指向的当前真实运行、`latest_dry_run` 指向的最近 dry-run 预检查、`latest_restart` 指向的最近重启日志。它不会删除 `maps/`、`logs/calibration/`、`report_assets/`，也不会按文件名去删 PCD 或校准报告。
 - 每次一键启动会把原始日志清理结果写到当前运行目录的 `log_cleanup.log`。
 
 如果 `HEALTH_MONITOR.log` 里出现 `ModuleNotFoundError: No module named 'rclpy._rclpy_pybind11'`，优先检查是不是 conda/miniconda 把 `python3` 指到了非 ROS 版本。ROS 2 Humble 使用系统 Python 3.10；Miniconda Python 3.13 会导致 `rclpy` 导入失败。当前 `autostart/common_env.sh` 会在雷达启动脚本里清理 conda 相关环境变量并优先使用系统 Python，避免手动终端的 `(base)` 环境污染雷达链路。如果新开终端反复出现 `Ignoring configuration file ~/.condarc`，通常是 `~/.condarc` 损坏；先备份坏文件，再写入最小配置 `auto_activate_base: false`，不要在 `.bashrc` 里每次启动都执行 `conda config --set auto_activate false`。

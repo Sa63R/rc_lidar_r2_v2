@@ -34,6 +34,7 @@ remember_symlink_target() {
 }
 
 remember_symlink_target "$LOG_ROOT/latest"
+remember_symlink_target "$LOG_ROOT/latest_dry_run"
 remember_symlink_target "$LOG_ROOT/latest_restart"
 
 while IFS= read -r dir; do

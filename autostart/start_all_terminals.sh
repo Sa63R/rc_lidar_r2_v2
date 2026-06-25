@@ -25,6 +25,7 @@ RC_POSE_FILTER_BETA="${RC_POSE_FILTER_BETA:-0}"
 RC_BETA_FILTERED_POSE_TOPIC="${RC_BETA_FILTERED_POSE_TOPIC:-/robot/pose_filtered_beta}"
 RC_POSE_FILTER_STABLE="${RC_POSE_FILTER_STABLE:-0}"
 RC_STABLE_FILTERED_POSE_TOPIC="${RC_STABLE_FILTERED_POSE_TOPIC:-/robot/pose_filtered_stable}"
+RC_AUTOSTART_DRY_RUN="${RC_AUTOSTART_DRY_RUN:-0}"
 case "$RC_POSE_FILTER_SELECTED" in
   normal|beta|stable)
     ;;
@@ -95,7 +96,11 @@ summary_event() {
 }
 
 mkdir -p "$LOG_DIR"
-ln -sfn "$LOG_DIR" "$LOG_ROOT/latest"
+if [ "$RC_AUTOSTART_DRY_RUN" = "1" ]; then
+  ln -sfn "$LOG_DIR" "$LOG_ROOT/latest_dry_run"
+else
+  ln -sfn "$LOG_DIR" "$LOG_ROOT/latest"
+fi
 
 export RUN_ID
 export LOG_DIR
@@ -147,7 +152,7 @@ mkdir -p "$ROS_LOG_DIR"
 sync_file "$LOG_DIR/start_summary.txt"
 
 if [ -x "$DIR/cleanup_autostart_logs.sh" ]; then
-  if [ "${RC_AUTOSTART_DRY_RUN:-0}" = "1" ]; then
+  if [ "$RC_AUTOSTART_DRY_RUN" = "1" ]; then
     RC_AUTOSTART_LOG_CLEANUP_DRY_RUN=1 "$DIR/cleanup_autostart_logs.sh" "$LOG_ROOT" > "$LOG_DIR/log_cleanup.log" 2>&1 || true
   elif [ "${RC_AUTOSTART_LOG_CLEANUP:-1}" = "1" ]; then
     "$DIR/cleanup_autostart_logs.sh" "$LOG_ROOT" > "$LOG_DIR/log_cleanup.log" 2>&1 || true
@@ -168,7 +173,7 @@ if [ -n "${RESTART_LOG:-}" ]; then
   } > "$LOG_DIR/restart_source.txt"
 fi
 
-if [ "${RC_AUTOSTART_DRY_RUN:-0}" = "1" ]; then
+if [ "$RC_AUTOSTART_DRY_RUN" = "1" ]; then
   summary_event "prestop: skipped for dry-run"
 elif [ "${RC_AUTOSTART_SKIP_PRESTOP:-0}" = "1" ]; then
   summary_event "prestop: skipped by RC_AUTOSTART_SKIP_PRESTOP=1"
@@ -210,7 +215,7 @@ RUN_HEADLESS="$(resolve_headless_mode)"
 echo "headless: $RUN_HEADLESS" >> "$LOG_DIR/start_summary.txt"
 
 if [ "$RC_LIDAR_MODE" = "relocalization" ] && [ ! -s "$RC_LIDAR_MAP_PATH" ]; then
-  if [ "${RC_AUTOSTART_DRY_RUN:-0}" = "1" ]; then
+  if [ "$RC_AUTOSTART_DRY_RUN" = "1" ]; then
     echo "[dry-run] relocalization map would be required: $RC_LIDAR_MAP_PATH" | tee -a "$LOG_DIR/start_summary.txt"
   else
     {
@@ -266,7 +271,7 @@ if [ "$RUN_HEADLESS" != "1" ]; then
 fi
 
 # 开机启动时桌面可能还没完全起来，手动启动多等几秒也没坏处
-if [ "${RC_AUTOSTART_DRY_RUN:-0}" = "1" ]; then
+if [ "$RC_AUTOSTART_DRY_RUN" = "1" ]; then
   START_DELAY=0
 else
   START_DELAY="${RC_AUTOSTART_START_DELAY:-3}"
@@ -295,7 +300,7 @@ start_one() {
     echo "pidfile: $pidfile"
   } >> "$LOG_DIR/start_summary.txt"
 
-  if [ "${RC_AUTOSTART_DRY_RUN:-0}" = "1" ]; then
+  if [ "$RC_AUTOSTART_DRY_RUN" = "1" ]; then
     echo "[dry-run] would launch $title using $DIR/$script" | tee -a "$LOG_DIR/start_summary.txt"
     return 0
   fi
@@ -601,6 +606,10 @@ fi
 summary_event "Started all terminals."
 {
   echo "Log dir: $LOG_DIR"
-  echo "Latest: $LOG_ROOT/latest"
+  if [ "$RC_AUTOSTART_DRY_RUN" = "1" ]; then
+    echo "Latest dry-run: $LOG_ROOT/latest_dry_run"
+  else
+    echo "Latest: $LOG_ROOT/latest"
+  fi
 } | tee -a "$LOG_DIR/start_summary.txt"
 sync_file "$LOG_DIR/start_summary.txt"
