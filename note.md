@@ -182,178 +182,9 @@ RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.p
 cat
 
 
-# 重要 0/1 开关参数速查
+# 常用控制变量速查（精简版）
 
-说明：下面这些环境变量大多数都是 `1=开启`、`0=关闭`。现场开机/电控调车优先低负载：不开 RViz、不开 PlotJuggler、不开额外调试输出；需要观察曲线时再手动打开 PlotJuggler。
-
-推荐开机/无显示器低负载重定位：
-
-cd "/home/orangepi/RC_LIDAR_NOW"
-RC_LIDAR_MODE=relocalization \
-RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
-RC_AUTOSTART_HEADLESS=1 \
-RC_AUTOSTART_PLOTJUGGLER=0 \
-RC_POSE_FILTER_STABLE=1 \
-RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd" \
-./autostart/start_all_terminals.sh
-
-常用开关：
-
-- `RC_AUTOSTART_HEADLESS=1`
-  后台/无头启动核心节点，不给每个节点开终端。开机自启、无显示器、电控调车建议保持 `1`。
-
-- `RC_AUTOSTART_HEADLESS=0`
-  允许图形终端启动，主要用于人工调试；现场低负载不建议开。
-
-- `RC_AUTOSTART_PLOTJUGGLER=1`
-  启动 PlotJuggler，并自动订阅关键话题。调试滤波、地图质量、坐标波动时使用。
-
-- `RC_AUTOSTART_PLOTJUGGLER=0`
-  不启动 PlotJuggler。开机自启和低负载默认用这个。
-
-- `RC_POSE_FILTER=1`
-  启动普通滤波，输出 `/robot/pose_filtered`。这是默认生产滤波链路的一部分。
-
-- `RC_POSE_FILTER=0`
-  关闭普通滤波。只建议排查原始 `/robot/pose` 时临时使用。
-
-- `RC_POSE_FILTER_STABLE=1`
-  启动 stable 滤波候选，输出 `/robot/pose_filtered_stable`。当前调车方案常用这个开关打开稳定滤波能力。
-
-- `RC_POSE_FILTER_STABLE=0`
-  关闭 stable 滤波候选。用于做最低负载对照或判断滤波节点是否导致额外负载。
-
-- `RC_POSE_FILTER_BETA=1`
-  启动 beta 滤波候选，输出 `/robot/pose_filtered_beta`。只用于对比测试，默认不作为生产链路。
-
-- `RC_POSE_FILTER_BETA=0`
-  不启动 beta 滤波候选。低负载默认保持 `0`。
-
-- `RC_CAN_REQUIRE_READY=1`
-  CAN 发送前等待重定位质量达标，避免地图还没稳定就把乱坐标发给电控。生产重定位建议保持 `1`。
-
-- `RC_CAN_REQUIRE_READY=0`
-  不等待 ready，启动 CAN 后直接发。只用于排查 CAN 链路，不建议正式调车使用。
-
-- `RC_HEALTH_MONITOR=1`
-  启动健康日志，记录温度、负载、定位质量、原始/滤波位姿等。默认建议开启，开销很小。
-
-- `RC_HEALTH_MONITOR=0`
-  关闭健康日志。只有在极限压低负载时才考虑。
-
-- `RC_READY_NOTIFY=1`
-  启动重定位 ready 检测，生成 ready 标记文件；可用于判断什么时候可以动车。
-
-- `RC_READY_NOTIFY=0`
-  不启动 ready 检测。一般不建议关闭。
-
-- `RC_READY_NOTIFY_POPUP=1`
-  有显示器时弹出“重定位已就绪”的提示窗口。
-
-- `RC_READY_NOTIFY_POPUP=0`
-  不弹窗口，只写 ready 标记。无显示器/开机自启建议用 `0`。
-
-- `RC_AUTOSTART_TF_COMPARE=1`
-  启动 TF 对比话题发布器，给 PlotJuggler 看 `robot_origin -> robot_base` 等对比曲线。
-
-- `RC_AUTOSTART_TF_COMPARE=0`
-  不启动 TF 对比调试节点。低负载/不看 PlotJuggler 时建议关闭。
-
-- `RC_AUTOSTART_LIDAR_XYZR=1`
-  启动 LIDAR XYZR 调试打印。只用于临时查坐标。
-
-- `RC_AUTOSTART_LIDAR_XYZR=0`
-  不启动 LIDAR XYZR 调试打印。默认建议关闭。
-
-- `RC_AUTOSTART_CAN_DURING_MAPPING=1`
-  建图模式也启动 CAN。通常不需要。
-
-- `RC_AUTOSTART_CAN_DURING_MAPPING=0`
-  建图模式跳过 CAN。默认更安全。
-
-- `RC_AUTOSTART_SKIP_PRESTOP=1`
-  启动前不自动清理旧雷达进程。危险，容易造成重复进程，除非明确知道自己在做什么。
-
-- `RC_AUTOSTART_SKIP_PRESTOP=0`
-  启动前先执行残余进程清理。默认推荐。
-
-- `RC_AUTOSTART_DRY_RUN=1`
-  只打印一键启动会启动哪些节点，不真正启动。适合检查启动计划。
-
-- `RC_AUTOSTART_DRY_RUN=0`
-  正常启动。
-
-- `RC_AUTOSTART_SETUP_LIVOX_NET=1`
-  Livox 启动前先尝试配置雷达网口。需要免密 sudo/系统配置配合。
-
-- `RC_AUTOSTART_SETUP_LIVOX_NET=0`
-  不自动配置雷达网口。网口已经固定配置好时可用。
-
-- `RC_MAP_QUALITY_OVERLAP=1`
-  打开地图/当前点云重合率诊断，能帮助判断地图质量，但会增加 CPU 开销，只建议临时诊断。
-
-- `RC_MAP_QUALITY_OVERLAP=0`
-  关闭重合率诊断。默认保持 `0`。
-
-- `RC_HEALTH_MONITOR_EVENT_CONTEXT_CSV=1`
-  健康日志在尖峰事件附近保存更细的上下文 CSV，便于深挖跳变原因。
-
-- `RC_HEALTH_MONITOR_EVENT_CONTEXT_CSV=0`
-  不写详细上下文，只写常规日志和事件摘要。默认更轻量。
-
-配套选择项，不是 0/1，但经常和上面的开关一起用：
-
-- `RC_LIDAR_MODE=mapping`
-  建图模式。保存地图前确认 FAST-LIO 正常发布 `/map_save` 服务。
-
-- `RC_LIDAR_MODE=relocalization`
-  重定位模式。正式调车和开机自启默认用这个。
-
-- `RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1`
-  认为启动点接近地图/机器人业务原点。当前小场地图方案常用这个。
-
-- `RC_POSE_FILTER_SELECTED=normal|stable|beta`
-  选择 CAN/生产链路使用哪个滤波结果。选择 `stable` 时要同时开 `RC_POSE_FILTER_STABLE=1`；选择 `beta` 时要同时开 `RC_POSE_FILTER_BETA=1`。
-
-- `RC_CAN_POSE_SOURCE=pose_topic|tf`
-  CAN 位姿来源选择。当前生产更倾向 `pose_topic`，也就是发送 `/robot/pose_filtered` 或所选滤波话题；`tf` 主要用于回退排查。
-
-- `RC_ROBOT_POSE_SOURCE=odom|tf`
-  `/robot/pose` 的来源选择。当前重定位生产默认是 `odom`：订阅 `/map_lidar/odom`，在同一帧地图定位结果上加雷达到机器人中心外参，计算 `robot_origin -> robot_base` 并发布 `/robot/pose`。`tf` 是回退/对比模式：直接查询 `robot_origin -> robot_base_highrate`，可能混合低频地图修正和高频 TF，当前不建议作为默认调车链路。
-
-
-# 当前重定位位姿链路说明
-
-当前默认：
-
-```text
-/map_lidar/odom
-  -> pose_from_odom 加 body -> robot_base 外参
-  -> /robot/pose
-  -> /robot/pose_filtered 或 /robot/pose_filtered_stable
-  -> CAN
-```
-
-保留当前 TF 树用于 RQT、tf2_echo、外参校准和调试：
-
-```text
-map
-├── camera_init
-│   ├── body -> robot_base
-│   └── body_highrate -> robot_base_highrate
-└── robot_origin
-```
-
-但生产 `/robot/pose` 默认不再通过 TF 查询 `robot_origin -> robot_base_highrate`。如果想复现或对比 TF 拼接路径：
-
-```bash
-RC_ROBOT_POSE_SOURCE=tf ./autostart/start_all_terminals.sh
-```
-
-
-# 最终版：常用 0/1 控制变量速查
-
-说明：这里是放在 `note.md` 最后面的简版备忘。大多数变量都是 `1=开启`、`0=关闭`。开机自启和电控调车优先选择低负载：headless、不开 PlotJuggler、不开额外调试打印。
+只保留最常用的 10 个以内。现场调车优先低负载：headless、不开 PlotJuggler、指定小场地图、开启 stable 候选。
 
 ## 推荐开机低负载重定位
 
@@ -368,114 +199,44 @@ RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.p
 ./autostart/start_all_terminals.sh
 ```
 
-## 启动界面和调试
+## 最常用变量
 
-- `RC_AUTOSTART_HEADLESS=1`
-  无头/后台启动，不给每个节点开终端。开机自启、无显示器、电控调车建议用这个。
+1. `RC_LIDAR_MODE=mapping|relocalization`
+   `mapping` 建图，`relocalization` 重定位。调车/开机自启默认用 `relocalization`。
 
-- `RC_AUTOSTART_HEADLESS=0`
-  图形调试启动，可能打开终端窗口。会增加负载，只建议人工排查时用。
+2. `RC_LIDAR_MAP_PATH=...`
+   指定重定位使用哪张 PCD 地图。换地图时最常改这个。
 
-- `RC_AUTOSTART_PLOTJUGGLER=1`
-  自动启动 PlotJuggler，并订阅关键话题。看滤波、地图质量、坐标波动时用。
+3. `RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1|0`
+   `1` 表示启动点接近地图/机器人业务原点；当前小场地图方案常用 `1`。
 
-- `RC_AUTOSTART_PLOTJUGGLER=0`
-  不启动 PlotJuggler。正式低负载运行建议用这个。
+4. `RC_AUTOSTART_HEADLESS=1|0`
+   `1` 无头低负载后台启动；`0` 更偏人工调试。开机自启/无显示器用 `1`。
 
-- `RC_AUTOSTART_TF_COMPARE=1`
-  启动 TF 对比 topic，给 PlotJuggler 看 `robot_origin -> robot_base` 等 TF 路径结果。
+5. `RC_AUTOSTART_PLOTJUGGLER=1|0`
+   `1` 自动打开 PlotJuggler 看曲线；`0` 不打开，低负载调车默认用 `0`。
 
-- `RC_AUTOSTART_TF_COMPARE=0`
-  不启动 TF 对比。低负载时建议关闭。
+6. `RC_POSE_FILTER_STABLE=1|0`
+   `1` 启动 stable 滤波候选 `/robot/pose_filtered_stable`；`0` 关闭 stable 候选。
 
-- `RC_AUTOSTART_LIDAR_XYZR=1`
-  启动点云/坐标调试打印。只用于临时排查。
+7. `RC_POSE_FILTER_SELECTED=normal|stable|beta`
+   选择 CAN/生产链路使用哪个滤波输出。选 `stable` 时要同时 `RC_POSE_FILTER_STABLE=1`。
 
-- `RC_AUTOSTART_LIDAR_XYZR=0`
-  关闭调试打印。默认建议关闭。
+8. `RC_CAN_REQUIRE_READY=1|0`
+   `1` CAN 等重定位 ready 后再发；正式调车建议 `1`。`0` 只适合排查 CAN 通不通。
 
-## 滤波和 CAN
+9. `RC_HEALTH_MONITOR=1|0`
+   `1` 写健康日志，记录温度、负载、地图质量和位姿；开销小，建议默认 `1`。
 
-- `RC_POSE_FILTER=1`
-  启动普通滤波，输出 `/robot/pose_filtered`。当前 CAN 默认生产链路通常使用这个输出。
+10. `RC_ROBOT_POSE_SOURCE=odom|tf`
+    `/robot/pose` 来源。当前生产默认 `odom`，从 `/map_lidar/odom` 同帧计算机器人中心；`tf` 只用于对比旧 TF 拼接路径。
 
-- `RC_POSE_FILTER=0`
-  关闭普通滤波，只看原始 `/robot/pose`。用于排查滤波是否引入问题。
+当前默认生产链路：
 
-- `RC_POSE_FILTER_STABLE=1`
-  启动 stable 滤波候选，输出 `/robot/pose_filtered_stable`。当前可用于对比和低负载稳定方案测试。
-
-- `RC_POSE_FILTER_STABLE=0`
-  不启动 stable 滤波候选。用于最低负载对照。
-
-- `RC_POSE_FILTER_BETA=1`
-  启动 beta 滤波候选，输出 `/robot/pose_filtered_beta`。只用于实验对比。
-
-- `RC_POSE_FILTER_BETA=0`
-  不启动 beta 滤波。默认建议关闭。
-
-- `RC_CAN_REQUIRE_READY=1`
-  CAN 发送前等待重定位 ready，避免地图没稳定就发乱坐标。正式调车建议开启。
-
-- `RC_CAN_REQUIRE_READY=0`
-  CAN 不等 ready 直接发。只适合排查 CAN 通不通。
-
-## 日志、ready 和安全
-
-- `RC_HEALTH_MONITOR=1`
-  启动健康日志，记录温度、CPU/load、地图质量、原始/滤波位姿等。开销较小，建议默认开启。
-
-- `RC_HEALTH_MONITOR=0`
-  关闭健康日志。只有极限压低负载时才考虑。
-
-- `RC_READY_NOTIFY=1`
-  启动 ready 检测，生成 ready 标记文件，辅助判断什么时候可以动车。
-
-- `RC_READY_NOTIFY=0`
-  不做 ready 检测。一般不建议关闭。
-
-- `RC_READY_NOTIFY_POPUP=1`
-  有显示器时弹出 ready 提示窗口。
-
-- `RC_READY_NOTIFY_POPUP=0`
-  不弹窗口，只写 ready 文件。无显示器/开机自启建议用这个。
-
-- `RC_AUTOSTART_SKIP_PRESTOP=1`
-  启动前不清理旧进程。危险，可能造成重复雷达进程。
-
-- `RC_AUTOSTART_SKIP_PRESTOP=0`
-  启动前自动清理残余雷达进程。默认推荐。
-
-- `RC_AUTOSTART_DRY_RUN=1`
-  只打印启动计划，不真正启动。适合检查当前参数会启动哪些节点。
-
-- `RC_AUTOSTART_DRY_RUN=0`
-  正常启动。
-
-## 诊断增强
-
-- `RC_MAP_QUALITY_OVERLAP=1`
-  打开地图/当前点云重合率诊断，有助于判断地图质量，但会增加 CPU 开销。
-
-- `RC_MAP_QUALITY_OVERLAP=0`
-  关闭重合率诊断。默认建议关闭。
-
-- `RC_HEALTH_MONITOR_EVENT_CONTEXT_CSV=1`
-  健康日志在尖峰事件前后保存更细的上下文 CSV，适合深挖跳变原因。
-
-- `RC_HEALTH_MONITOR_EVENT_CONTEXT_CSV=0`
-  只写常规日志和事件摘要，更轻量。
-
-## 重要非 0/1 选择项
-
-- `RC_LIDAR_MODE=mapping|relocalization`
-  `mapping` 是建图；`relocalization` 是重定位。正式调车和开机自启用 `relocalization`。
-
-- `RC_POSE_FILTER_SELECTED=normal|stable|beta`
-  选择 CAN/生产链路使用哪个滤波输出。选 `stable` 时要同时 `RC_POSE_FILTER_STABLE=1`；选 `beta` 时要同时 `RC_POSE_FILTER_BETA=1`。
-
-- `RC_CAN_POSE_SOURCE=pose_topic|tf`
-  CAN 坐标来源。当前生产建议 `pose_topic`，也就是发 `/robot/pose_filtered` 或所选滤波话题；`tf` 只作为回退排查。
-
-- `RC_ROBOT_POSE_SOURCE=odom|tf`
-  `/robot/pose` 的计算来源。当前生产默认 `odom`，从 `/map_lidar/odom` 同帧计算机器人中心坐标；`tf` 是旧 TF 拼接路径，只用于对比诊断。
+```text
+/map_lidar/odom
+  -> pose_from_odom 加 body -> robot_base 外参
+  -> /robot/pose
+  -> /robot/pose_filtered 或所选滤波输出
+  -> CAN
+```
