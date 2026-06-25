@@ -619,7 +619,8 @@ fused_yaw = latest_map_yaw_reference + (fastlio_yaw_now - fastlio_yaw_at_referen
 ```bash
 RC_ROBOT_POSE_YAW_FUSION=1
 RC_ROBOT_POSE_FAST_ODOM_TOPIC=/Odometry
-RC_ROBOT_POSE_YAW_FUSION_MAP_CORRECTION_ALPHA=0.25
+RC_ROBOT_POSE_YAW_FUSION_MAP_CORRECTION_ALPHA=0.05
+RC_MAP_LOCALIZER_INPUT_QUEUE_DEPTH=1
 ```
 
 如果 R2 现场发现 fused yaw 比旧 map yaw 更抖，可临时回退：
@@ -629,6 +630,8 @@ RC_ROBOT_POSE_YAW_FUSION=0 ./autostart/start_all_terminals.sh
 ```
 
 同时观察 `/robot/yaw_fusion/status`：`data[1]` 为 ready，`data[3]` 为 FAST-LIO yaw 年龄，`data[4]` 为最近 map yaw 年龄，`data[8]` 为 fast yaw 增量。FAST-LIO 年龄长期变大时，说明低延迟 yaw 输入本身没跟上，不能继续调滤波来解决。
+
+Rc 4.11 起，`map_localizer` 的 scan/odom 输入队列默认只保留最新 1 帧。迁移 R2 时保留 `RC_MAP_LOCALIZER_INPUT_QUEUE_DEPTH=1`：如果地图匹配耗时高于输入频率，旧 scan/odom 会被新输入覆盖，不再排队补算历史帧。这个策略不是按 header stamp 强丢弃结果，因为不同传感器时间基准可能不完全一致；先保证“算的是最新收到的数据”，再通过健康日志里的 `scan_age_sec`、`odom_age_sec`、`align_ms` 判断是否仍有真实延迟。若 R2 的 map localizer 因算力不足仍明显滞后，优先降低地图匹配开销或只让 map 做慢 offset 修正，不要让旧 map yaw 强拖 fast yaw。
 
 Orange Pi Rc 4.9 起，CAN 也默认使用这个融合 yaw，而不是继续发送 `/robot/pose_filtered` 里的 yaw：
 

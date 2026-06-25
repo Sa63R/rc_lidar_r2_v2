@@ -44,7 +44,7 @@ def generate_launch_description():
             DeclareLaunchArgument("fast_odom_topic", default_value="/Odometry"),
             DeclareLaunchArgument("yaw_fusion_publish_on_fast_odom", default_value="true"),
             DeclareLaunchArgument("yaw_fusion_max_fast_age_sec", default_value="0.50"),
-            DeclareLaunchArgument("yaw_fusion_map_correction_alpha", default_value="0.25"),
+            DeclareLaunchArgument("yaw_fusion_map_correction_alpha", default_value="0.05"),
             Node(
                 package="lidar_localization",
                 executable="pose_from_odom",

@@ -95,7 +95,7 @@ class PoseFromOdom(Node):
         self.declare_parameter("fast_odom_topic", "/Odometry")
         self.declare_parameter("yaw_fusion_publish_on_fast_odom", True)
         self.declare_parameter("yaw_fusion_max_fast_age_sec", 0.50)
-        self.declare_parameter("yaw_fusion_map_correction_alpha", 0.25)
+        self.declare_parameter("yaw_fusion_map_correction_alpha", 0.05)
         self.declare_parameter("yaw_fusion_status_topic", "/robot/yaw_fusion/status")
 
         self.input_odom_topic = self.get_parameter("input_odom_topic").value

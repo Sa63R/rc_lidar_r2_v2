@@ -31,6 +31,6 @@ lidar_pose_from_odom:
     fast_odom_topic: /Odometry
     yaw_fusion_publish_on_fast_odom: true
     yaw_fusion_max_fast_age_sec: 0.50
-    yaw_fusion_map_correction_alpha: 0.25
+    yaw_fusion_map_correction_alpha: 0.05
     yaw_fusion_status_topic: /robot/yaw_fusion/status
     log_period_sec: 1.0

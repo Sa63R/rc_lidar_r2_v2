@@ -188,7 +188,7 @@ RC_ROBOT_POSE_YAW_FUSION=1
 RC_ROBOT_POSE_FAST_ODOM_TOPIC=/Odometry
 RC_ROBOT_POSE_YAW_FUSION_PUBLISH_ON_FAST_ODOM=1
 RC_ROBOT_POSE_YAW_FUSION_MAX_FAST_AGE=0.50
-RC_ROBOT_POSE_YAW_FUSION_MAP_CORRECTION_ALPHA=0.25
+RC_ROBOT_POSE_YAW_FUSION_MAP_CORRECTION_ALPHA=0.05
 ```
 
 回退旧 map yaw：
@@ -520,6 +520,30 @@ RC_CAN_YAW_IGNORE_READY_GATE=0
 
 这个改动不是为了解决所有旋转延迟，而是为了排除一个明确风险：地图质量短暂波动时不应该让无头车航向角完全冻结。x/y 继续走 ready gate，避免低质量定位结果污染位置控制。
 
+## Rc 4.11: map localizer drops queued history instead of replaying old scan/odom
+
+后续实车观察发现，即使 CAN yaw 已经直接读取 `/robot/pose`，无头车旋转时仍存在“车停了，yaw 还继续慢慢追到正确角度”的现象。通过 `/robot/yaw_fusion/status` 对比可见：
+
+- `fast_yaw` 基本实时，停住后只在很小范围内抖动。
+- `map_ref/fused_yaw` 会在 `map_update` 中继续缓慢变化，像是在把旧 map 修正结果一帧帧拉回来。
+- 健康日志里 `map_quality_scan_age_sec`、`map_quality_odom_age_sec` 和 `align_ms` 可以用来判断 map localizer 是否真的在处理旧输入或算得太慢。
+
+这说明问题不只是 `alpha` 大小，而是 map localizer 不应该让旧 scan/odom 排队进入实时控制修正链路。Rc 4.11 做了两件保守修改：
+
+1. `map_localizer` 的 scan 和 odom 输入 QoS 改成 `keep_last(1)`，并通过 `RC_MAP_LOCALIZER_INPUT_QUEUE_DEPTH` 暴露配置，默认 `1`。如果地图匹配耗时高于输入频率，旧输入会被最新输入覆盖，而不是排队补算历史。
+2. `RC_ROBOT_POSE_YAW_FUSION_MAP_CORRECTION_ALPHA` 默认从 `0.25` 降到 `0.05`。FAST-LIO yaw 继续负责快速响应，map yaw 只做较弱的全局方向修正，降低旧 map 结果强拖 yaw 的概率。
+
+这个版本暂时不做“按时间戳强丢弃”，因为 Livox/FAST-LIO/header stamp 和系统 wall time 可能不是完全相同的时间基准。更稳的策略是先防止 DDS/ROS 队列积压历史输入，同时继续把 `scan_age_sec`、`odom_age_sec`、`align_ms` 写进健康日志。如果后续证明时间戳可信，再考虑加入“过旧结果只记录、不参与 yaw correction”的第二层门控。
+
+迁移到其他仓库时需要同步：
+
+```bash
+RC_MAP_LOCALIZER_INPUT_QUEUE_DEPTH=1
+RC_ROBOT_POSE_YAW_FUSION_MAP_CORRECTION_ALPHA=0.05
+```
+
+注意：这不会让 map localizer “完全不慢”，它只是避免旧输入排队回放。若单次匹配本身仍要 150ms 以上，map 修正仍天然晚一个计算周期；但它不应再累积成 1-2 秒历史回放。
+
 ## Appendix: User Questions And Constraints
 
 以下内容按时间顺序整理本次大改相关的用户侧问题、判断和约束。重复发送的同一问题已合并；长启动命令、截图和终端日志只保留摘要。
@@ -631,3 +655,15 @@ RC_CAN_YAW_IGNORE_READY_GATE=0
 33. 用户要求：“直接改 CAN 的 yaw 走融合后的坐标。”这促成 Rc 4.9：CAN 的位置字段继续读 `/robot/pose_filtered`，但 yaw 字段单独读 `/robot/pose` 的融合 yaw，并默认严格要求该 topic 新鲜，避免继续把滤波延迟带给电控。
 
 34. 用户提出新的怀疑：无头车旋转延迟可能不是 yaw topic 本身，而是 CAN ready gate 把整包输出冻结了。用户要求“yaw 不走 CAN 质量门控，其余继续走”，并且希望用参数控制，但默认 yaw 不走门控。这促成 Rc 4.10：`RC_CAN_YAW_IGNORE_READY_GATE=1` 默认开启，quality 不 ready 时只继续发 `0x13` 的 yaw，并保留 x/y 的 ready gate。
+
+35. 用户通过 `/robot/yaw_fusion/status` 日志观察到：降低 map 修正权重到 `0.03` 后，车确实更能边转边走，但多转几圈后 FAST-LIO/odom 会有 10-20 度漂移，需要 map 慢慢拉回。用户由此判断：问题不是 fast yaw 不实时，而是 map 算得慢或使用旧点云，把旧姿态逐步拉回当前输出。
+
+36. 用户进一步梳理 map 拖慢 fast yaw 的逻辑：`alpha=0.25` 时旧 map 结果强拉 yaw，会让机器人像被历史姿态拖住；`alpha=0.03` 时旧 map 拖不动 fast yaw，但全局修正也太慢，需要很多次 map 更新才能拉回 odom 漂移。用户要求优化这个融合逻辑，而不是继续单纯调大/调小 alpha。
+
+37. 用户提出关键优化方向：map localizer 不应该每一个历史点云都算一遍，而应该只算当前最新点云。如果旧 scan/odom 已经没实时价值，就不要让它继续参与 yaw/pose 修正。用户特别强调：控制链路最怕旧坐标慢慢补回来。
+
+38. 用户也指出了粗暴丢弃策略的风险：如果 map localizer 本身算得太慢，可能出现“算完发现旧了就丢，再算又旧了又丢”，最后 map 永远纠正不了 odom 漂移。因此策略不能只是按时间戳强丢弃输出。
+
+39. 用户最终提出并确认一个更保守的第一版策略：假定 map localizer 能正常算完一帧；只维护长度为 1 的等待队列，正在算的一帧继续算，新来的点云只顶掉等待区旧帧。算完后直接用结果修正，不先做时间戳强丢弃；修正大小用参数控制，默认先从 `0.05` 试起。
+
+40. 用户补充确认：这种只保留最新输入的改法应该也会让 XY 受益，因为 XY 同样依赖 map localizer 修正。如果旧点云参与 `/map_lidar/odom -> /robot/pose`，不仅 yaw 会被拖慢，XY 也可能被旧结果拉动。但 XY 仍应保留质量门控，不能像 yaw 一样完全绕过 ready gate。

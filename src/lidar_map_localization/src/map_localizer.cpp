@@ -74,6 +74,8 @@ class MapLocalizer : public rclcpp::Node {
     quality_overlap_distance_ = declare_parameter<double>("quality_overlap_distance", 0.20);
     quality_overlap_period_sec_ = declare_parameter<double>("quality_overlap_period_sec", 1.0);
     quality_overlap_max_points_ = declare_parameter<int>("quality_overlap_max_points", 1000);
+    input_queue_depth_ = std::max(
+        1, static_cast<int>(declare_parameter<int>("input_queue_depth", 1)));
 
     map_T_odom_.setIdentity();
     if (initial_guess_enabled_) {
@@ -112,11 +114,14 @@ class MapLocalizer : public rclcpp::Node {
       tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
     }
 
+    auto input_qos = rclcpp::QoS(rclcpp::KeepLast(input_queue_depth_))
+                         .best_effort()
+                         .durability_volatile();
     scan_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>(
-        scan_topic_, rclcpp::SensorDataQoS(),
+        scan_topic_, input_qos,
         std::bind(&MapLocalizer::scanCallback, this, std::placeholders::_1));
     odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-        odom_topic_, 20,
+        odom_topic_, input_qos,
         std::bind(&MapLocalizer::odomCallback, this, std::placeholders::_1));
     initialpose_sub_ = create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
         initialpose_topic_, 10,
@@ -130,9 +135,9 @@ class MapLocalizer : public rclcpp::Node {
     publishMap();
     RCLCPP_INFO(
         get_logger(),
-        "map localizer ready: map=%s scan=%s odom=%s output=%s",
+        "map localizer ready: map=%s scan=%s odom=%s output=%s input_queue_depth=%d",
         map_path_.c_str(), scan_topic_.c_str(), odom_topic_.c_str(),
-        output_odom_topic_.c_str());
+        output_odom_topic_.c_str(), input_queue_depth_);
   }
 
  private:
@@ -632,6 +637,7 @@ class MapLocalizer : public rclcpp::Node {
   double quality_overlap_distance_{0.20};
   double quality_overlap_period_sec_{1.0};
   int quality_overlap_max_points_{1000};
+  int input_queue_depth_{1};
   double last_overlap_time_sec_{-1.0};
   double last_overlap_ratio_{-1.0};
   int consecutive_rejects_{0};

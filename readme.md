@@ -1574,6 +1574,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
    - 新增 `pcd_quality_report`，用于离线检查 PCD 地图点数、范围和体素密度。
    - Rc 3.0 新增 `pcd_prepare_local_map`，用于从大场馆 PCD 裁出比赛局部图并降采样；输出已存在时自动改名，避免覆盖原图或旧局部图。
    - Rc 3.2 确认可用方案是“直接绕比赛小场地建小 PCD，不裁剪”。本机可用地图为 `maps/mid360_map_20260624_190419.pcd`，裁剪工具保留为备用但本检查点没有用到。
+   - Rc 4.11 起，`map_localizer` 的 scan/odom 输入默认使用 `RC_MAP_LOCALIZER_INPUT_QUEUE_DEPTH=1`。如果地图匹配算不过来，ROS 输入队列只保留最新 scan/odom，旧帧会被覆盖，不再排队回放到 yaw/pose 修正链路。这个改动不按 header stamp 强丢弃结果，先避免历史点云积压；`scan_age_sec`、`odom_age_sec`、`align_ms` 仍通过 `/map_lidar/quality` 和健康日志记录，用来判断是否还存在真实延迟。
 
 20. `src/lidar_localization`
    - 新增 `pose_from_odom` 位姿接口。
@@ -1586,7 +1587,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
    - Rc 3.9 增加 `filter_mode=stable` 候选滤波，输出 `/robot/pose_filtered_stable` 和 `/lidar/pose_filter_stable/status`。stable 使用稳态锚点和持续运动确认，避免静止状态下 1-4cm 地图重定位跳点被瞬时速度误判为真实运动。普通一键脚本、开机自启和 CAN 重启默认都不启动 stable；需要对比时手动设置 `RC_POSE_FILTER_STABLE=1`，只有显式 `RC_POSE_FILTER_SELECTED=stable` 才切 CAN。
    - Rc 4.6 增加 yaw 独立低延迟滤波参数 `RC_POSE_FILTER_YAW_ALPHA`，默认 `0.85`。XY 仍使用静止强滤波和运动自适应 alpha；yaw 不再被静止 `static_alpha=0.12` 拖慢，用来降低无头车自转后航向角约 2 秒才跟上的问题。beta/stable 候选也支持各自覆盖 `RC_POSE_FILTER_BETA_YAW_ALPHA`、`RC_POSE_FILTER_STABLE_YAW_ALPHA`。
    - Rc 4.7 增加 `RC_POSE_FILTER_USE_RAW_YAW`，默认关闭。打开后 yaw 直接取 `/robot/pose` 原始 yaw，并且即使 XY 因 `quality_gate` 被 hold，yaw 也继续更新；用于无头车需要快速航向响应的场景。该开关只绕过 yaw，不绕过 XY 的质量门控。
-   - Rc 4.8 在 `pose_from_odom` 增加低延迟 yaw 融合：`/robot/pose` 的 XY 仍来自 `/map_lidar/odom` 地图重定位结果，但 yaw 默认使用“最近一次地图 yaw 基准 + FAST-LIO `/Odometry` 高频 yaw 增量”。这样保留全局地图方向，又降低无头车自转时等待 map localizer 更新造成的约 1 秒级航向延迟。可用 `RC_ROBOT_POSE_YAW_FUSION=0` 回退旧 map yaw；`RC_ROBOT_POSE_YAW_FUSION_MAP_CORRECTION_ALPHA` 控制每次地图 yaw 更新对融合 yaw 的校正力度，默认 `0.25`。
+   - Rc 4.8 在 `pose_from_odom` 增加低延迟 yaw 融合：`/robot/pose` 的 XY 仍来自 `/map_lidar/odom` 地图重定位结果，但 yaw 默认使用“最近一次地图 yaw 基准 + FAST-LIO `/Odometry` 高频 yaw 增量”。这样保留全局地图方向，又降低无头车自转时等待 map localizer 更新造成的约 1 秒级航向延迟。可用 `RC_ROBOT_POSE_YAW_FUSION=0` 回退旧 map yaw；`RC_ROBOT_POSE_YAW_FUSION_MAP_CORRECTION_ALPHA` 控制每次地图 yaw 更新对融合 yaw 的校正力度，Rc 4.11 默认 `0.05`，避免旧 map 结果强拖 fast yaw。
    - Rc 4.9 起，CAN 的 yaw 单独读取 `/robot/pose`，而 x/y/z 仍读取当前 `RC_CAN_POSE_TOPIC`，默认 `/robot/pose_filtered`。这样电控仍拿到滤波后的稳定位置，但航向角直接使用 Rc 4.8 的低延迟融合 yaw。相关开关为 `RC_CAN_USE_YAW_POSE_TOPIC`、`RC_CAN_YAW_POSE_TOPIC`、`RC_CAN_YAW_POSE_TOPIC_STRICT`。
    - Rc 4.10 起，CAN yaw 默认不再被 `/map_lidar/quality` ready gate 冻住：`RC_CAN_YAW_IGNORE_READY_GATE=1`。quality 不 ready 时，`0x12` 的 x/y 不发，`0x13` 继续发最新 yaw，并沿用最近一次质量通过时的可信 z。这个改动用于降低无头车旋转时因为重定位质量短暂波动导致的航向冻结；如果要恢复旧行为，可设为 `0`。
 
