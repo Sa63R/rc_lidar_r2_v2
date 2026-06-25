@@ -252,6 +252,11 @@ yaw_can = 左转为正
 ```text
 RC_CAN_POSE_SOURCE=pose_topic
 RC_CAN_POSE_TOPIC=/robot/pose_filtered
+RC_CAN_USE_RAW_ODOM_YAW=1
+RC_CAN_RAW_ODOM_YAW_TOPIC=/Odometry
+RC_CAN_RAW_ODOM_YAW_STRICT=1
+RC_CAN_RAW_ODOM_YAW_OFFSET_RAD=1.5707963267948966
+RC_CAN_RAW_ODOM_YAW_IGNORE_READY_GATE=1
 RC_CAN_USE_YAW_POSE_TOPIC=1
 RC_CAN_YAW_POSE_TOPIC=/robot/pose
 RC_CAN_YAW_POSE_TOPIC_STRICT=1
@@ -264,9 +269,9 @@ RC_CAN_READY_MIN_ACCEPTS=5
 
 `RC_CAN_REQUIRE_READY=1` 表示 CAN 发送前必须看到 `/map_lidar/quality` 连续 accepted/converged、fitness 达标并且没有超时。迁移到 R2 时建议保留这个门控，避免重定位还没稳定时把早期假坐标发给电控。只有在临时排查 CAN 链路本身时，才考虑短时间设为 `0`。
 
-Orange Pi Rc 4.9 起，CAN 的位置和 yaw 来源分开：x/y/z 默认来自 `/robot/pose_filtered`，yaw 默认来自 `/robot/pose` 的低延迟融合 yaw。R2 迁移时建议保留这个结构，因为它能同时保留位置滤波稳定性和无头车旋转响应速度。如果 `/robot/pose` 不刷新，`RC_CAN_YAW_POSE_TOPIC_STRICT=1` 会让 CAN 暂停发送，避免回退到慢 yaw。
+Orange Pi Rc 4.12 起，CAN 的位置和 yaw 来源进一步分开：x/y/z 默认来自 `/robot/pose_filtered`，yaw 默认来自 FAST-LIO 原始 `/Odometry` 并加 `+pi/2` 业务坐标偏置。R2 迁移时如果电控优先要求无头车旋转实时性，可先保留这个结构；它绕过 map yaw fusion、pose filter 和 ready gate 对 yaw 的影响，但代价是原始 FAST-LIO yaw 转多圈后可能有累计漂移。若 R2 现场发现 raw odom yaw 漂移不可接受，设置 `RC_CAN_USE_RAW_ODOM_YAW=0` 回退 Rc 4.9 的 `/robot/pose` 低延迟融合 yaw。`RC_CAN_YAW_POSE_TOPIC_STRICT=1` 会让融合 yaw 不刷新时暂停发送，避免回退到慢 yaw。
 
-Orange Pi Rc 4.10 起，`RC_CAN_YAW_IGNORE_READY_GATE=1` 是默认值：当 `/map_lidar/quality` 短暂不 ready 时，CAN 不再整包冻结，而是继续发送 `0x13` 的最新 yaw，并用最近一次质量通过时的可信 z；`0x12` 的 x/y 仍被 ready gate 挡住。迁移到 R2 时建议保留这个默认值，用来避免无头车旋转时因为地图质量短暂波动而航向冻结。
+Orange Pi Rc 4.10 起，`RC_CAN_YAW_IGNORE_READY_GATE=1` 是融合 yaw 的默认值；Rc 4.12 的 raw odom yaw 对应 `RC_CAN_RAW_ODOM_YAW_IGNORE_READY_GATE=1`。当 `/map_lidar/quality` 短暂不 ready 时，CAN 不再整包冻结，而是继续发送 `0x13` 的最新 yaw；`0x12` 的 x/y 仍被 ready gate 挡住。迁移到 R2 时建议保留这个默认值，用来避免无头车旋转时因为地图质量短暂波动而航向冻结。
 
 临时回退旧 TF 链路：
 
@@ -633,16 +638,27 @@ RC_ROBOT_POSE_YAW_FUSION=0 ./autostart/start_all_terminals.sh
 
 Rc 4.11 起，`map_localizer` 的 scan/odom 输入队列默认只保留最新 1 帧。迁移 R2 时保留 `RC_MAP_LOCALIZER_INPUT_QUEUE_DEPTH=1`：如果地图匹配耗时高于输入频率，旧 scan/odom 会被新输入覆盖，不再排队补算历史帧。这个策略不是按 header stamp 强丢弃结果，因为不同传感器时间基准可能不完全一致；先保证“算的是最新收到的数据”，再通过健康日志里的 `scan_age_sec`、`odom_age_sec`、`align_ms` 判断是否仍有真实延迟。若 R2 的 map localizer 因算力不足仍明显滞后，优先降低地图匹配开销或只让 map 做慢 offset 修正，不要让旧 map yaw 强拖 fast yaw。
 
-Orange Pi Rc 4.9 起，CAN 也默认使用这个融合 yaw，而不是继续发送 `/robot/pose_filtered` 里的 yaw：
+Orange Pi Rc 4.12 起，CAN 默认优先使用 FAST-LIO 原始 `/Odometry` yaw 加 `+pi/2`，而不是继续发送 `/robot/pose_filtered` 或 `/robot/pose` 里的 yaw：
 
 ```bash
+RC_CAN_USE_RAW_ODOM_YAW=1
+RC_CAN_RAW_ODOM_YAW_TOPIC=/Odometry
+RC_CAN_RAW_ODOM_YAW_STRICT=1
+RC_CAN_RAW_ODOM_YAW_OFFSET_RAD=1.5707963267948966
+RC_CAN_RAW_ODOM_YAW_IGNORE_READY_GATE=1
+```
+
+这个设置只影响 CAN 的 yaw 字段；x/y/z 仍按 `RC_CAN_POSE_TOPIC` 读取，默认 `/robot/pose_filtered`。它适合先验证电控无头车旋转实时性；如果 R2 现场发现 FAST-LIO 原始 yaw 转多圈后漂移太大，可以回退到 Rc 4.9 的融合 yaw：
+
+```bash
+RC_CAN_USE_RAW_ODOM_YAW=0
 RC_CAN_USE_YAW_POSE_TOPIC=1
 RC_CAN_YAW_POSE_TOPIC=/robot/pose
 RC_CAN_YAW_POSE_TOPIC_STRICT=1
 RC_CAN_YAW_IGNORE_READY_GATE=1
 ```
 
-这个设置只影响 CAN 的 yaw 字段；x/y/z 仍按 `RC_CAN_POSE_TOPIC` 读取，默认 `/robot/pose_filtered`。Rc 4.10 后，即使 ready gate 临时不通过，yaw 也可以继续更新；如果 R2 现场需要回退旧整包门控行为，可以设置 `RC_CAN_YAW_IGNORE_READY_GATE=0`。如果要完全回退旧 yaw 来源，可以临时设置 `RC_CAN_USE_YAW_POSE_TOPIC=0`。
+Rc 4.10 后，即使 ready gate 临时不通过，yaw 也可以继续更新；如果 R2 现场需要回退旧整包门控行为，可以设置 `RC_CAN_RAW_ODOM_YAW_IGNORE_READY_GATE=0` 或 `RC_CAN_YAW_IGNORE_READY_GATE=0`。如果要完全回退旧 yaw 来源，可以临时设置 `RC_CAN_USE_RAW_ODOM_YAW=0 RC_CAN_USE_YAW_POSE_TOPIC=0`。
 
 当前 Orange Pi Rc 2.9 滤波已参考 r2 normal/beta 方案，但默认采用更保守的生产策略：
 

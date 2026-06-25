@@ -544,6 +544,54 @@ RC_ROBOT_POSE_YAW_FUSION_MAP_CORRECTION_ALPHA=0.05
 
 注意：这不会让 map localizer “完全不慢”，它只是避免旧输入排队回放。若单次匹配本身仍要 150ms 以上，map 修正仍天然晚一个计算周期；但它不应再累积成 1-2 秒历史回放。
 
+## Rc 4.12: CAN yaw uses raw FAST-LIO odom yaw
+
+Rc 4.11 后，用户实测认为“只保留最新 map 输入 + 低 map correction alpha”已经比之前好很多，但无头车仍不能完全边旋转边前进。进一步分析后，用户从电控侧得到新的临时要求：先不要让 CAN yaw 走 map localizer、yaw fusion 或 pose filter，直接发送 FAST-LIO 原始 `/Odometry` 的 yaw，用来验证最实时的航向角是否能解决无头车旋转延迟。
+
+因此 Rc 4.12 只修改 CAN 的 yaw 来源，不改变 x/y/z：
+
+```text
+CAN x/y/z:
+  /robot/pose_filtered
+  继续走地图重定位、滤波和 ready gate
+
+CAN yaw:
+  /Odometry 原始 FAST-LIO yaw + pi/2
+  不走 map localizer 修正
+  不走 /robot/pose yaw fusion
+  不走 pose filter
+  不受 /map_lidar/quality ready gate 冻结
+```
+
+新增默认参数：
+
+```bash
+RC_CAN_USE_RAW_ODOM_YAW=1
+RC_CAN_RAW_ODOM_YAW_TOPIC=/Odometry
+RC_CAN_RAW_ODOM_YAW_TIMEOUT_SEC=0.5
+RC_CAN_RAW_ODOM_YAW_STRICT=1
+RC_CAN_RAW_ODOM_YAW_OFFSET_RAD=1.5707963267948966
+RC_CAN_RAW_ODOM_YAW_IGNORE_READY_GATE=1
+```
+
+`+pi/2` 是业务坐标偏置，用来把 FAST-LIO/LiDAR 原始 yaw 转到当前无头车 `X右/Y前/Z上` 的 yaw 约定。输出仍 wrap 到 `[-pi, pi]`，符合电控原本期待。
+
+回退方式：
+
+```bash
+RC_CAN_USE_RAW_ODOM_YAW=0
+```
+
+`RC_CAN_RAW_ODOM_YAW_STRICT=1` 表示 raw `/Odometry` yaw 不存在或超时时暂停发送，不悄悄 fallback 到 `/robot/pose` 融合 yaw，避免现场误判当前到底发给电控的是哪条 yaw 链路。
+
+关闭后 CAN yaw 会回到 Rc 4.9 的 `/robot/pose` 低延迟融合 yaw。若还要完全退回“整包用 pose topic 的 yaw”，再设置 `RC_CAN_USE_YAW_POSE_TOPIC=0`。
+
+风险记录：
+
+- 原始 `/Odometry` yaw 实时性最高，但转多圈后可能存在 FAST-LIO/IMU 累计漂移。
+- 该改动只用于验证电控无头车实时转向；如果漂移影响比赛，需要回到“FAST-LIO 高频预测 + map 慢速偏置修正”的延迟补偿方案。
+- x/y 仍不能绕过 ready gate，否则地图匹配不稳定时会把错误位置发给电控。
+
 ## Appendix: User Questions And Constraints
 
 以下内容按时间顺序整理本次大改相关的用户侧问题、判断和约束。重复发送的同一问题已合并；长启动命令、截图和终端日志只保留摘要。
@@ -667,3 +715,9 @@ RC_ROBOT_POSE_YAW_FUSION_MAP_CORRECTION_ALPHA=0.05
 39. 用户最终提出并确认一个更保守的第一版策略：假定 map localizer 能正常算完一帧；只维护长度为 1 的等待队列，正在算的一帧继续算，新来的点云只顶掉等待区旧帧。算完后直接用结果修正，不先做时间戳强丢弃；修正大小用参数控制，默认先从 `0.05` 试起。
 
 40. 用户补充确认：这种只保留最新输入的改法应该也会让 XY 受益，因为 XY 同样依赖 map localizer 修正。如果旧点云参与 `/map_lidar/odom -> /robot/pose`，不仅 yaw 会被拖慢，XY 也可能被旧结果拉动。但 XY 仍应保留质量门控，不能像 yaw 一样完全绕过 ready gate。
+
+41. 用户得到电控侧情报：MID360 自带陀螺仪，陀螺仪主要问题是温漂零偏而不是短时旋转误差，因此提出是否可以直接给电控发陀螺仪/FAST-LIO 的原始旋转数据。随后明确：原始 gyro 是角速度，不能直接当 yaw；但 FAST-LIO `/Odometry` 的 yaw 已经是 IMU/LiDAR 融合后的低延迟姿态，可以作为临时 CAN yaw 源。
+
+42. 用户要求先保存当前仓库回退点，然后只改 CAN 的 yaw：`0x12` 的 x/y 和 `0x13` 的 z 保持现有生产链路，只有 `0x13` 的 yaw 改为 FAST-LIO 原始 `/Odometry` yaw，并叠加 `+90°` 业务坐标偏置。用户特别要求：这个 yaw 不加滤波、不走 map 重新拉回、不受 quality gate 冻结。
+
+43. 用户确认修改范围：“只改 yaw，如果没问题，打上 tag，然后改吧。”因此本次先打 tag `before-can-raw-odom-yaw-20260626`，再实现 `RC_CAN_USE_RAW_ODOM_YAW=1` 默认启用的 raw odom yaw CAN 输出。

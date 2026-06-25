@@ -87,6 +87,11 @@ float yawFromQuaternion(const geometry_msgs::msg::Quaternion & q_msg)
   return static_cast<float>(yaw);
 }
 
+float wrapYaw(float yaw)
+{
+  return static_cast<float>(std::atan2(std::sin(yaw), std::cos(yaw)));
+}
+
 void requestRadarRestart(const rclcpp::Logger & logger)
 {
   const auto now = std::chrono::steady_clock::now();
@@ -143,6 +148,12 @@ RCSerialDriver::RCSerialDriver(const rclcpp::NodeOptions & options)
       yaw_pose_topic_,
       20,
       std::bind(&RCSerialDriver::yawPoseCallback, this, std::placeholders::_1));
+  }
+  if (raw_odom_yaw_enabled_) {
+    raw_odom_yaw_sub_ = create_subscription<nav_msgs::msg::Odometry>(
+      raw_odom_yaw_topic_,
+      50,
+      std::bind(&RCSerialDriver::rawOdomYawCallback, this, std::placeholders::_1));
   }
 
   if (quality_gate_enabled_) {
@@ -228,6 +239,14 @@ void RCSerialDriver::getParams()
   yaw_pose_topic_timeout_sec_ = declare_parameter<double>("yaw_pose_topic_timeout_sec", 0.5);
   yaw_pose_topic_strict_ = declare_parameter<bool>("yaw_pose_topic_strict", false);
   yaw_ignore_quality_gate_ = declare_parameter<bool>("yaw_ignore_quality_gate", true);
+  raw_odom_yaw_enabled_ = declare_parameter<bool>("raw_odom_yaw_enabled", false);
+  raw_odom_yaw_topic_ = declare_parameter<std::string>("raw_odom_yaw_topic", "/Odometry");
+  raw_odom_yaw_timeout_sec_ = declare_parameter<double>("raw_odom_yaw_timeout_sec", 0.5);
+  raw_odom_yaw_strict_ = declare_parameter<bool>("raw_odom_yaw_strict", true);
+  raw_odom_yaw_offset_rad_ = declare_parameter<double>(
+    "raw_odom_yaw_offset_rad", 1.5707963267948966);
+  raw_odom_yaw_ignore_quality_gate_ = declare_parameter<bool>(
+    "raw_odom_yaw_ignore_quality_gate", true);
   quality_gate_enabled_ = declare_parameter<bool>("quality_gate_enabled", false);
   quality_topic_ = declare_parameter<std::string>("quality_topic", "/map_lidar/quality");
   quality_timeout_sec_ = declare_parameter<double>("quality_timeout_sec", 1.0);
@@ -269,6 +288,15 @@ void RCSerialDriver::getParams()
     yaw_pose_topic_timeout_sec_,
     yaw_pose_topic_strict_ ? "true" : "false",
     yaw_ignore_quality_gate_ ? "true" : "false");
+  RCLCPP_INFO(
+    get_logger(),
+    "CAN raw odom yaw override: %s (topic=%s timeout=%.2fs strict=%s offset=%.6frad ignore_quality_gate=%s)",
+    raw_odom_yaw_enabled_ ? "enabled" : "disabled",
+    raw_odom_yaw_topic_.c_str(),
+    raw_odom_yaw_timeout_sec_,
+    raw_odom_yaw_strict_ ? "true" : "false",
+    raw_odom_yaw_offset_rad_,
+    raw_odom_yaw_ignore_quality_gate_ ? "true" : "false");
   RCLCPP_INFO(
     get_logger(),
     "Relocalization quality gate: %s (topic=%s timeout=%.2fs max_fitness=%.4f min_accepts=%d)",
@@ -369,11 +397,33 @@ void RCSerialDriver::sendMapBodyPose()
     }
 
     std::string yaw_source_used;
-    if (yaw_pose_topic_enabled_) {
+    bool yaw_source_bypasses_quality = false;
+    if (raw_odom_yaw_enabled_) {
+      float raw_odom_yaw = 0.0f;
+      if (readRawOdomYaw(raw_odom_yaw)) {
+        yaw_can = raw_odom_yaw;
+        yaw_source_used = raw_odom_yaw_topic_ + "+offset";
+        yaw_source_bypasses_quality = raw_odom_yaw_ignore_quality_gate_;
+      } else {
+        RCLCPP_WARN_THROTTLE(
+          get_logger(),
+          *get_clock(),
+          1000,
+          "CAN raw odom yaw topic %s is not ready%s.",
+          raw_odom_yaw_topic_.c_str(),
+          raw_odom_yaw_strict_ ? "; holding CAN pose output" : "; trying fallback yaw source");
+        if (raw_odom_yaw_strict_) {
+          return;
+        }
+      }
+    }
+
+    if (yaw_source_used.empty() && yaw_pose_topic_enabled_) {
       float fused_yaw = 0.0f;
       if (readYawFromTopic(fused_yaw)) {
         yaw_can = fused_yaw;
         yaw_source_used = yaw_pose_topic_;
+        yaw_source_bypasses_quality = yaw_ignore_quality_gate_;
       } else if (yaw_pose_topic_strict_) {
         RCLCPP_WARN_THROTTLE(
           get_logger(),
@@ -396,8 +446,7 @@ void RCSerialDriver::sendMapBodyPose()
     const bool quality_ready = canSendPoseByQuality();
     const bool yaw_can_bypass_quality =
       !quality_ready &&
-      yaw_pose_topic_enabled_ &&
-      yaw_ignore_quality_gate_ &&
+      yaw_source_bypasses_quality &&
       !yaw_source_used.empty();
 
     if (!quality_ready && !yaw_can_bypass_quality) {
@@ -418,17 +467,17 @@ void RCSerialDriver::sendMapBodyPose()
           get_logger(),
           *get_clock(),
           1000,
-          "Relocalization quality is not ready and no trusted z is available; holding CAN yaw output.");
-        return;
+          "Relocalization quality is not ready and no trusted z is available; sending yaw from %s with current z.",
+          yaw_source_used.c_str());
+      } else {
+        z_can = last_quality_passed_z_can_;
+        RCLCPP_WARN_THROTTLE(
+          get_logger(),
+          *get_clock(),
+          2000,
+          "Relocalization quality is not ready; holding CAN x/y but sending yaw from %s with last trusted z.",
+          yaw_source_used.c_str());
       }
-
-      z_can = last_quality_passed_z_can_;
-      RCLCPP_WARN_THROTTLE(
-        get_logger(),
-        *get_clock(),
-        2000,
-        "Relocalization quality is not ready; holding CAN x/y but sending yaw from %s with last trusted z.",
-        yaw_source_used.c_str());
     }
 
     RCLCPP_DEBUG_STREAM(
@@ -497,6 +546,13 @@ void RCSerialDriver::yawPoseCallback(const geometry_msgs::msg::PoseStamped::Shar
 {
   std::lock_guard<std::mutex> lock(yaw_pose_mutex_);
   latest_yaw_pose_ = msg;
+}
+
+void RCSerialDriver::rawOdomYawCallback(const nav_msgs::msg::Odometry::SharedPtr msg)
+{
+  std::lock_guard<std::mutex> lock(raw_odom_yaw_mutex_);
+  latest_raw_odom_yaw_ = msg;
+  latest_raw_odom_yaw_wall_time_ = now();
 }
 
 void RCSerialDriver::qualityCallback(const std_msgs::msg::Float32MultiArray::SharedPtr msg)
@@ -626,6 +682,39 @@ bool RCSerialDriver::readYawFromTopic(float & yaw)
   }
 
   yaw = yawFromQuaternion(yaw_msg->pose.orientation);
+  return true;
+}
+
+bool RCSerialDriver::readRawOdomYaw(float & yaw)
+{
+  nav_msgs::msg::Odometry::SharedPtr odom_msg;
+  rclcpp::Time wall_time;
+  {
+    std::lock_guard<std::mutex> lock(raw_odom_yaw_mutex_);
+    odom_msg = latest_raw_odom_yaw_;
+    wall_time = latest_raw_odom_yaw_wall_time_;
+  }
+
+  if (!odom_msg) {
+    return false;
+  }
+
+  if (wall_time.nanoseconds() != 0) {
+    const double age_sec = (now() - wall_time).seconds();
+    if (age_sec > raw_odom_yaw_timeout_sec_) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(),
+        *get_clock(),
+        1000,
+        "CAN raw odom yaw topic %s is stale: receive_age=%.3fs",
+        raw_odom_yaw_topic_.c_str(),
+        age_sec);
+      return false;
+    }
+  }
+
+  yaw = wrapYaw(yawFromQuaternion(odom_msg->pose.pose.orientation) +
+    static_cast<float>(raw_odom_yaw_offset_rad_));
   return true;
 }
 

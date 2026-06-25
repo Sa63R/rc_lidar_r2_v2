@@ -1005,7 +1005,23 @@ pose_source=pose_topic
 pose_topic=/robot/pose_filtered
 ```
 
-Rc 4.9 起，CAN 的 yaw 单独从融合后的 `/robot/pose` 读取：
+Rc 4.12 起，按电控现场要求，CAN 的 yaw 默认直接从 FAST-LIO 原始 `/Odometry` 读取，并叠加机器人业务坐标系的 `+pi/2` yaw 偏置：
+
+```text
+RC_CAN_USE_RAW_ODOM_YAW=1
+RC_CAN_RAW_ODOM_YAW_TOPIC=/Odometry
+RC_CAN_RAW_ODOM_YAW_STRICT=1
+RC_CAN_RAW_ODOM_YAW_OFFSET_RAD=1.5707963267948966
+RC_CAN_RAW_ODOM_YAW_IGNORE_READY_GATE=1
+```
+
+也就是说，电控收到的 `0x12: x,y` 和 `0x13` 的 `z` 仍来自 `/robot/pose_filtered`，保留地图重定位和滤波后的稳定位置；`0x13` 的 `yaw` 临时改为 FAST-LIO `/Odometry` 原始 yaw 加 `90°`，不经过 map localizer 拉回、不经过 yaw fusion、不经过 pose filter，也不被 `/map_lidar/quality` ready gate 冻住。这样优先满足无头车转向实时性；代价是原始 FAST-LIO yaw 转多圈后可能有累计漂移。需要回退到上一版融合 yaw 时，设置：
+
+```bash
+RC_CAN_USE_RAW_ODOM_YAW=0
+```
+
+Rc 4.9 起，CAN 的 yaw 曾经单独从融合后的 `/robot/pose` 读取：
 
 ```text
 RC_CAN_USE_YAW_POSE_TOPIC=1
@@ -1014,7 +1030,7 @@ RC_CAN_YAW_POSE_TOPIC_STRICT=1
 RC_CAN_YAW_IGNORE_READY_GATE=1
 ```
 
-也就是说，电控收到的 `0x12: x,y` 和 `0x13` 的 `z` 仍来自 `/robot/pose_filtered`，保留 XY/Z 的滤波稳定性；`0x13` 的 `yaw` 来自 `/robot/pose`，也就是 Rc 4.8 的低延迟融合 yaw，绕开滤波器对航向角的延迟。`RC_CAN_YAW_POSE_TOPIC_STRICT=1` 表示融合 yaw 不新鲜时 CAN 暂停发送，不回退到慢 yaw。Rc 4.10 起，`RC_CAN_YAW_IGNORE_READY_GATE=1` 为默认值：当 `/map_lidar/quality` 短暂不 ready 时，CAN 会继续发送 `0x13` 的最新 yaw，并使用最近一次质量通过时的可信 z；`0x12` 的 x/y 仍被 quality gate 挡住，避免低质量位置污染电控。
+这条融合 yaw 链路仍保留为 raw odom yaw 的回退方案：`RC_CAN_USE_RAW_ODOM_YAW=0` 后，`0x13` 的 `yaw` 会重新来自 `/robot/pose`，也就是 Rc 4.8 的低延迟融合 yaw，绕开滤波器对航向角的延迟。`RC_CAN_YAW_POSE_TOPIC_STRICT=1` 表示融合 yaw 不新鲜时 CAN 暂停发送，不回退到慢 yaw。Rc 4.10 起，`RC_CAN_YAW_IGNORE_READY_GATE=1` 为默认值：当 `/map_lidar/quality` 短暂不 ready 时，CAN 会继续发送 `0x13` 的最新 yaw，并使用最近一次质量通过时的可信 z；`0x12` 的 x/y 仍被 quality gate 挡住，避免低质量位置污染电控。
 
 这条链路默认不再通过 TF buffer 拼接 `robot_origin -> robot_base_highrate`。`POSE_INTERFACE` 订阅 `/map_lidar/odom`，在同一帧定位结果上计算：
 
@@ -1046,6 +1062,12 @@ RC_CAN_USE_YAW_POSE_TOPIC=1
 RC_CAN_YAW_POSE_TOPIC=/robot/pose
 RC_CAN_YAW_POSE_TOPIC_TIMEOUT_SEC=0.5
 RC_CAN_YAW_POSE_TOPIC_STRICT=1
+RC_CAN_USE_RAW_ODOM_YAW=1
+RC_CAN_RAW_ODOM_YAW_TOPIC=/Odometry
+RC_CAN_RAW_ODOM_YAW_TIMEOUT_SEC=0.5
+RC_CAN_RAW_ODOM_YAW_STRICT=1
+RC_CAN_RAW_ODOM_YAW_OFFSET_RAD=1.5707963267948966
+RC_CAN_RAW_ODOM_YAW_IGNORE_READY_GATE=1
 ```
 
 如果需要临时回退旧 TF 链路，必须手动覆盖：
@@ -1590,6 +1612,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
    - Rc 4.8 在 `pose_from_odom` 增加低延迟 yaw 融合：`/robot/pose` 的 XY 仍来自 `/map_lidar/odom` 地图重定位结果，但 yaw 默认使用“最近一次地图 yaw 基准 + FAST-LIO `/Odometry` 高频 yaw 增量”。这样保留全局地图方向，又降低无头车自转时等待 map localizer 更新造成的约 1 秒级航向延迟。可用 `RC_ROBOT_POSE_YAW_FUSION=0` 回退旧 map yaw；`RC_ROBOT_POSE_YAW_FUSION_MAP_CORRECTION_ALPHA` 控制每次地图 yaw 更新对融合 yaw 的校正力度，Rc 4.11 默认 `0.05`，避免旧 map 结果强拖 fast yaw。
    - Rc 4.9 起，CAN 的 yaw 单独读取 `/robot/pose`，而 x/y/z 仍读取当前 `RC_CAN_POSE_TOPIC`，默认 `/robot/pose_filtered`。这样电控仍拿到滤波后的稳定位置，但航向角直接使用 Rc 4.8 的低延迟融合 yaw。相关开关为 `RC_CAN_USE_YAW_POSE_TOPIC`、`RC_CAN_YAW_POSE_TOPIC`、`RC_CAN_YAW_POSE_TOPIC_STRICT`。
    - Rc 4.10 起，CAN yaw 默认不再被 `/map_lidar/quality` ready gate 冻住：`RC_CAN_YAW_IGNORE_READY_GATE=1`。quality 不 ready 时，`0x12` 的 x/y 不发，`0x13` 继续发最新 yaw，并沿用最近一次质量通过时的可信 z。这个改动用于降低无头车旋转时因为重定位质量短暂波动导致的航向冻结；如果要恢复旧行为，可设为 `0`。
+   - Rc 4.12 起，CAN yaw 默认优先读取 FAST-LIO 原始 `/Odometry`，并加 `+pi/2` 业务坐标偏置：`RC_CAN_USE_RAW_ODOM_YAW=1`、`RC_CAN_RAW_ODOM_YAW_TOPIC=/Odometry`、`RC_CAN_RAW_ODOM_YAW_STRICT=1`、`RC_CAN_RAW_ODOM_YAW_OFFSET_RAD=1.5707963267948966`。这个实验策略完全绕过 map yaw fusion 和 pose filter 对 yaw 的影响，用来验证电控无头车实时转向；x/y/z 仍按原生产链路走 `/robot/pose_filtered` 和 ready gate。若发现原始 odom yaw 漂移不可接受，可设置 `RC_CAN_USE_RAW_ODOM_YAW=0` 回退 Rc 4.9 的融合 yaw。
 
 21. `autostart/start_mapping_terminals.sh`、`autostart/save_fast_lio_map.sh`、`autostart/map_localizer.sh`、`autostart/pose_interface_mapping.sh`、`autostart/pose_interface_relocalization.sh`、`autostart/pose_stability_filter.sh`
    - 新增建图保存和地图重定位的一键脚本。
