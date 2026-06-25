@@ -23,6 +23,7 @@ if [ "${RC_LIDAR_MODE:-tracking}" = "relocalization" ]; then
     "/robot/pose"
     "/map_lidar/quality"
     "/lidar/pose_filter/status"
+    "/robot/yaw_fusion/status"
   )
 
   if [ "${RC_POSE_FILTER:-1}" != "0" ]; then

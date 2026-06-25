@@ -597,7 +597,7 @@ default_topics=...
 selected_topics=...
 ```
 
-这样 Topic Selector 里会默认选中 `/robot/pose`、`/robot/pose_filtered`、`/map_lidar/quality`、`/lidar/pose_filter/status` 和三个 `/tf_compare/...` topic。之前出现“只能看到 `/tf_compare/...`，看不到 `/robot/pose_filtered`”的原因，可能有两类：一类是 PlotJuggler ROS2 插件没有可靠吃到用户配置里的 topic，且启动时 `ros2 topic list` 被 ROS daemon 状态干扰；另一类是 `/robot/pose` 自己没有发布，滤波节点没有输入，所以 PlotJuggler 即使订阅了 `/robot/pose_filtered` 也没有曲线。当前脚本会同时写 `default_topics` 和 `selected_topics`，并用 `ros2 topic list --no-daemon --spin-time 2` 等待 topic。
+这样 Topic Selector 里会默认选中 `/robot/pose`、`/robot/pose_filtered`、`/map_lidar/quality`、`/lidar/pose_filter/status`、`/robot/yaw_fusion/status` 和三个 `/tf_compare/...` topic。之前出现“只能看到 `/tf_compare/...`，看不到 `/robot/pose_filtered`”的原因，可能有两类：一类是 PlotJuggler ROS2 插件没有可靠吃到用户配置里的 topic，且启动时 `ros2 topic list` 被 ROS daemon 状态干扰；另一类是 `/robot/pose` 自己没有发布，滤波节点没有输入，所以 PlotJuggler 即使订阅了 `/robot/pose_filtered` 也没有曲线。当前脚本会同时写 `default_topics` 和 `selected_topics`，并用 `ros2 topic list --no-daemon --spin-time 2` 等待 topic。
 
 PlotJuggler 启动前默认最多等待关键 topic `16s`，可用 `PLOTJUGGLER_WAIT_SECONDS` 覆盖；每次 discovery 默认等待 `2s`，可用 `PLOTJUGGLER_TOPIC_SPIN_TIME` 覆盖。日志里如果看到 `Waiting for topics:` 后面列出一整组 topic，不一定代表这些 topic 永久不存在；启动早期也可能是 ROS graph 查询暂时失败。当前脚本会把 `ros2 topic list failed` 单独写进日志，便于区分“topic 真的没发布”和“ROS graph 查询失败”。
 
@@ -665,7 +665,12 @@ filter_status_consecutive_rejects
 filter_status_recovered
 filter_status_motion_factor
 filter_status_yaw_rate_degps
+yaw_fusion_fast_age_sec
+yaw_fusion_map_age_sec
+yaw_fusion_delta_yaw_deg
 ```
+
+`/robot/yaw_fusion/status` 是 Rc 4.8 新增的低延迟 yaw 融合诊断。它用于判断 `/robot/pose` 的 yaw 是否正在用 FAST-LIO `/Odometry` 高频增量补偿地图匹配 yaw 延迟：`yaw_fusion_ready=1` 表示融合已就绪，`yaw_fusion_fast_age_sec` 应保持很小，`yaw_fusion_map_age_sec` 反映最近一次地图重定位更新距离当前多久，`yaw_fusion_delta_yaw_deg` 是从最近一次地图 yaw 基准到当前 FAST-LIO yaw 的增量。
 
 重点看三类数：
 
@@ -1566,6 +1571,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
    - Rc 3.9 增加 `filter_mode=stable` 候选滤波，输出 `/robot/pose_filtered_stable` 和 `/lidar/pose_filter_stable/status`。stable 使用稳态锚点和持续运动确认，避免静止状态下 1-4cm 地图重定位跳点被瞬时速度误判为真实运动。普通一键脚本、开机自启和 CAN 重启默认都不启动 stable；需要对比时手动设置 `RC_POSE_FILTER_STABLE=1`，只有显式 `RC_POSE_FILTER_SELECTED=stable` 才切 CAN。
    - Rc 4.6 增加 yaw 独立低延迟滤波参数 `RC_POSE_FILTER_YAW_ALPHA`，默认 `0.85`。XY 仍使用静止强滤波和运动自适应 alpha；yaw 不再被静止 `static_alpha=0.12` 拖慢，用来降低无头车自转后航向角约 2 秒才跟上的问题。beta/stable 候选也支持各自覆盖 `RC_POSE_FILTER_BETA_YAW_ALPHA`、`RC_POSE_FILTER_STABLE_YAW_ALPHA`。
    - Rc 4.7 增加 `RC_POSE_FILTER_USE_RAW_YAW`，默认关闭。打开后 yaw 直接取 `/robot/pose` 原始 yaw，并且即使 XY 因 `quality_gate` 被 hold，yaw 也继续更新；用于无头车需要快速航向响应的场景。该开关只绕过 yaw，不绕过 XY 的质量门控。
+   - Rc 4.8 在 `pose_from_odom` 增加低延迟 yaw 融合：`/robot/pose` 的 XY 仍来自 `/map_lidar/odom` 地图重定位结果，但 yaw 默认使用“最近一次地图 yaw 基准 + FAST-LIO `/Odometry` 高频 yaw 增量”。这样保留全局地图方向，又降低无头车自转时等待 map localizer 更新造成的约 1 秒级航向延迟。可用 `RC_ROBOT_POSE_YAW_FUSION=0` 回退旧 map yaw；`RC_ROBOT_POSE_YAW_FUSION_MAP_CORRECTION_ALPHA` 控制每次地图 yaw 更新对融合 yaw 的校正力度，默认 `0.25`。
 
 21. `autostart/start_mapping_terminals.sh`、`autostart/save_fast_lio_map.sh`、`autostart/map_localizer.sh`、`autostart/pose_interface_mapping.sh`、`autostart/pose_interface_relocalization.sh`、`autostart/pose_stability_filter.sh`
    - 新增建图保存和地图重定位的一键脚本。
@@ -1573,12 +1579,13 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
    - 未设置 `RC_FASTLIO_MAP_SAVE_PATH` 时，若默认 `maps/mid360_map.pcd` 已存在，会自动保存为带时间戳的新 PCD，避免覆盖旧地图。
    - 建图保存依赖 FAST-LIO 的 `/map_save` 服务。如果保存脚本一直等待，优先检查 `/laser_mapping` 节点、`/map_save` 服务和 `POSE_INTERFACE.log`。当前版本修复了 `pose_from_tf` 对 `publish_rate:=50` 这类整数参数不兼容导致节点退出的问题。
    - `pose_interface_relocalization.sh` 默认 `RC_ROBOT_POSE_SOURCE=odom`，从 `/map_lidar/odom` 同步计算 `/robot/pose`；只有显式设置 `RC_ROBOT_POSE_SOURCE=tf` 时才走 TF 查询链路。
+   - `pose_interface_relocalization.sh` 默认启用 `RC_ROBOT_POSE_YAW_FUSION=1`，额外订阅 FAST-LIO `/Odometry` 作为低延迟 yaw 增量来源，并发布 `/robot/yaw_fusion/status` 供 PlotJuggler 和健康日志观察。该融合只改变 `/robot/pose` 的 yaw，不改变地图重定位给出的 XY，也不改变 TF 树。
    - 重定位模式默认启动 normal 位姿滤波，并默认把 `/robot/pose_filtered` 作为 CAN 发送来源；`RC_POSE_FILTER_BETA=1` 可额外启动 beta 对比，`RC_POSE_FILTER_STABLE=1` 可额外启动 stable 对比。只有显式 `RC_POSE_FILTER_SELECTED=beta|stable` 时，CAN 才会切到对应候选输出。`stop_all.sh` 和 CAN 重启脚本已同步清理 normal/beta/stable 滤波节点，避免模式切换后残留旧进程。
    - Rc 3.0 起，重定位模式下 CAN 默认启用 `RC_CAN_REQUIRE_READY=1`，等待 `/map_lidar/quality` 连续稳定后才发送 `/robot/pose_filtered`，避免开机早期或匹配失败时把假坐标发给电控。
 
 22. `autostart/thermal_pose_monitor.py`、`autostart/thermal_pose_monitor.sh`
    - 新增默认启动的轻量健康日志；`RC_HEALTH_MONITOR=0` 可关闭，旧变量 `RC_THERMAL_POSE_MONITOR` 仍兼容。
-   - 默认 0.2 秒记录一次，也就是 5Hz，记录温度、`load1/load5/load15`、CPU 频率、`/robot/pose`、`/robot/pose_filtered`、可选 `/robot/pose_filtered_beta`、可选 `/robot/pose_filtered_stable`、`/map_lidar/quality`、normal/beta/stable 滤波状态、运动状态和静止窗口 XY 峰峰值。
+   - 默认 0.2 秒记录一次，也就是 5Hz，记录温度、`load1/load5/load15`、CPU 频率、`/robot/pose`、`/robot/pose_filtered`、可选 `/robot/pose_filtered_beta`、可选 `/robot/pose_filtered_stable`、`/map_lidar/quality`、normal/beta/stable 滤波状态、`/robot/yaw_fusion/status`、运动状态和静止窗口 XY 峰峰值。
    - 输出 `logs/autostart/latest/health_monitor.csv`、`health_monitor_summary.json`、`health_monitor_run.json`、`health_monitor_stop.json` 与 `health_events.jsonl`，用于判断定位抖动是否和热/负载/地图匹配质量正相关。
    - 增加 `spike_candidate`、`sustained_motion` 和 `static_context_*` 字段，避免静止时单帧尖峰被误判成持续运动后把证据清掉。
    - `health_events.jsonl` 在 raw/filter/map/filter-status 出现跳变、拒绝、恢复或 bad fitness 时写入事件前后窗口摘要；`RC_HEALTH_MONITOR_EVENT_CONTEXT_CSV=1` 可额外保存逐点上下文。

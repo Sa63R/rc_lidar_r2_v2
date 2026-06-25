@@ -15,6 +15,11 @@ def generate_launch_description():
     reference_pose_enabled = LaunchConfiguration("reference_pose_enabled")
     reference_frame_id = LaunchConfiguration("reference_frame_id")
     output_stamp_mode = LaunchConfiguration("output_stamp_mode")
+    yaw_fusion_enabled = LaunchConfiguration("yaw_fusion_enabled")
+    fast_odom_topic = LaunchConfiguration("fast_odom_topic")
+    yaw_fusion_publish_on_fast_odom = LaunchConfiguration("yaw_fusion_publish_on_fast_odom")
+    yaw_fusion_max_fast_age_sec = LaunchConfiguration("yaw_fusion_max_fast_age_sec")
+    yaw_fusion_map_correction_alpha = LaunchConfiguration("yaw_fusion_map_correction_alpha")
 
     return LaunchDescription(
         [
@@ -35,6 +40,11 @@ def generate_launch_description():
             DeclareLaunchArgument("reference_pose_enabled", default_value="true"),
             DeclareLaunchArgument("reference_frame_id", default_value="robot_origin"),
             DeclareLaunchArgument("output_stamp_mode", default_value="now"),
+            DeclareLaunchArgument("yaw_fusion_enabled", default_value="false"),
+            DeclareLaunchArgument("fast_odom_topic", default_value="/Odometry"),
+            DeclareLaunchArgument("yaw_fusion_publish_on_fast_odom", default_value="true"),
+            DeclareLaunchArgument("yaw_fusion_max_fast_age_sec", default_value="0.50"),
+            DeclareLaunchArgument("yaw_fusion_map_correction_alpha", default_value="0.25"),
             Node(
                 package="lidar_localization",
                 executable="pose_from_odom",
@@ -56,6 +66,19 @@ def generate_launch_description():
                         ),
                         "reference_frame_id": reference_frame_id,
                         "output_stamp_mode": output_stamp_mode,
+                        "yaw_fusion_enabled": ParameterValue(
+                            yaw_fusion_enabled, value_type=bool
+                        ),
+                        "fast_odom_topic": fast_odom_topic,
+                        "yaw_fusion_publish_on_fast_odom": ParameterValue(
+                            yaw_fusion_publish_on_fast_odom, value_type=bool
+                        ),
+                        "yaw_fusion_max_fast_age_sec": ParameterValue(
+                            yaw_fusion_max_fast_age_sec, value_type=float
+                        ),
+                        "yaw_fusion_map_correction_alpha": ParameterValue(
+                            yaw_fusion_map_correction_alpha, value_type=float
+                        ),
                     },
                 ],
             ),

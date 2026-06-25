@@ -24,4 +24,13 @@ lidar_pose_from_odom:
     reference_frame_id: robot_origin
     reference_pose_xyz: [-0.240, 0.287302, -0.760]
     reference_pose_rpy: [0.0, 0.0, 1.5707963267948966]
+    # Relocalization yaw can lag because /map_lidar/odom waits for scan matching.
+    # This optional fusion keeps map-localized XY but uses FAST-LIO /Odometry yaw
+    # increments between map updates for lower steering latency.
+    yaw_fusion_enabled: false
+    fast_odom_topic: /Odometry
+    yaw_fusion_publish_on_fast_odom: true
+    yaw_fusion_max_fast_age_sec: 0.50
+    yaw_fusion_map_correction_alpha: 0.25
+    yaw_fusion_status_topic: /robot/yaw_fusion/status
     log_period_sec: 1.0

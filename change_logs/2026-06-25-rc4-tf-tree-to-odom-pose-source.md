@@ -146,6 +146,85 @@ RC_ROBOT_POSE_SOURCE=tf ./autostart/start_all_terminals.sh
 
 回退路径只用于对比和诊断，不建议作为生产调车默认链路。
 
+## Rc 4.8 Low-Latency Yaw Fusion
+
+后续实车观察发现，Rc 4.2 的 odom-derived `/robot/pose` 已经把静态 XY 精度恢复到接近旧版本，但无头车自转时仍有明显 yaw 延迟。进一步排查后确认：
+
+- `RC_POSE_FILTER_USE_RAW_YAW=1` 已经让 `/robot/pose_filtered` 的 yaw 直接取 `/robot/pose`，滤波门控不再是主要延迟来源。
+- 但 `/robot/pose` 的 yaw 来自 `/map_lidar/odom`，而 `/map_lidar/odom` 是地图重定位后的位姿，不是 FAST-LIO 最原始的高频 yaw。
+- 健康日志里 `map_quality_scan_age_sec`、`map_quality_odom_age_sec` 和 `map_quality_align_ms` 可以解释一部分 map-localizer 链路延迟。
+
+因此新增低延迟 yaw 融合，不改变 XY 来源：
+
+```text
+XY:
+  /map_lidar/odom
+  -> pose_from_odom
+  -> robot_origin-relative x/y/z
+
+yaw:
+  latest map yaw reference
+  + FAST-LIO /Odometry yaw delta since that reference
+```
+
+核心公式：
+
+```text
+fused_yaw =
+  yaw_map_at_last_good_update
+  + wrap(yaw_fastlio_now - yaw_fastlio_at_last_good_update)
+```
+
+每次新的 `/map_lidar/odom` 到来时，不是直接硬跳到新的 map yaw，而是按 `RC_ROBOT_POSE_YAW_FUSION_MAP_CORRECTION_ALPHA` 做小步全局校正；两次 map 更新之间，则由 FAST-LIO `/Odometry` 回调快速发布新 yaw。这样：
+
+- 地图重定位继续负责全局方向，不让 yaw 长期漂掉。
+- FAST-LIO 高频 yaw 负责短时间转向响应。
+- `/robot/pose` 的 XY 仍保持地图重定位结果，不引入 FAST-LIO 纯里程计平移漂移。
+
+新增默认参数：
+
+```bash
+RC_ROBOT_POSE_YAW_FUSION=1
+RC_ROBOT_POSE_FAST_ODOM_TOPIC=/Odometry
+RC_ROBOT_POSE_YAW_FUSION_PUBLISH_ON_FAST_ODOM=1
+RC_ROBOT_POSE_YAW_FUSION_MAX_FAST_AGE=0.50
+RC_ROBOT_POSE_YAW_FUSION_MAP_CORRECTION_ALPHA=0.25
+```
+
+回退旧 map yaw：
+
+```bash
+RC_ROBOT_POSE_YAW_FUSION=0 ./autostart/start_all_terminals.sh
+```
+
+新增诊断 topic：
+
+```text
+/robot/yaw_fusion/status
+```
+
+字段含义：
+
+```text
+data[0] enabled
+data[1] ready
+data[2] source_code: 1=map update, 2=fast odom update
+data[3] fast_age_sec
+data[4] map_age_sec
+data[5] map_ref_yaw_rad
+data[6] fast_yaw_rad
+data[7] fused_yaw_rad
+data[8] fast_delta_yaw_rad
+data[9] map_correction_alpha
+```
+
+PlotJuggler 和健康日志都同步加入 `/robot/yaw_fusion/status`。后续判断 yaw 延迟时，优先看：
+
+- `yaw_fusion_ready` 是否为 1。
+- `yaw_fusion_fast_age_sec` 是否长期很小。
+- `yaw_fusion_map_age_sec` 是否远大于 fast age。
+- `/robot/pose` 和 `/robot/pose_filtered` 的 yaw 是否仍有明显延迟。
+
 ## Files And Impact
 
 ### Startup Scripts
@@ -459,3 +538,13 @@ ros2 topic echo /tf_compare/robot_origin_to_robot_base_highrate --once
     - 发给电控的 CAN 消息。
     - 以及其他所有相关链路。
    用户要求把这些修改细节都说明清楚。
+
+28. 用户继续追问 yaw 延迟：“我现在用的 yaw 角是原始的吗？理论上原始 yaw 角 FAST-LIO 延迟是多少？电控说原始 yaw 给无头车做坐标参考基本不会有延迟，但现在依旧有一秒左右延迟。”这促使区分 `/robot/pose` 的“原始 yaw”其实来自 map-localized `/map_lidar/odom`，不是 FAST-LIO 最上游 `/Odometry`。
+
+29. 用户问：“全局 map localization 的 yaw 是什么意思？既然 `/Odometry` 很快而且很准，是不是只要把 odom 坐标逆时针旋转 90° 再传给电控就可以？”这个问题推动说明 `/Odometry` 快但只知道本次启动局部坐标，`/map_lidar/odom` 慢但知道地图全局位置；最终方案应使用地图给全局基准、FAST-LIO 给低延迟增量。
+
+30. 用户进一步确认：“在建图坐标系里的 `/map_lidar/odom` 是不是就是 FAST-LIO 跑出来的雷达坐标？那直接旋转 90° 是不是就可以？”这促使明确 `/map_lidar/odom` 不是最原始 FAST-LIO 输出，而是地图匹配校正后的输出；直接旋转它仍然会保留 map-localizer 延迟。
+
+31. 用户担心融合会不会抖，并问其他仓库是否有类似策略。由此确认采用 ROS 常见的 `map` 全局校正 + `odom` 连续低延迟运动的思路，而不是在 map yaw 和 fast yaw 之间硬切换。
+
+32. 用户要求：“之前的提交了吗，如果提交了，就按你说的进行这次修改。”于是先确认当前代码已推到 `Rc 4.7: allow raw yaw passthrough`，只剩 `note.md` 未提交，然后实施 Rc 4.8 低延迟 yaw 融合。

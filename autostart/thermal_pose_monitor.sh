@@ -17,6 +17,7 @@ QUALITY_TOPIC="${RC_HEALTH_MONITOR_QUALITY_TOPIC:-${RC_THERMAL_POSE_MONITOR_QUAL
 FILTER_STATUS_TOPIC="${RC_HEALTH_MONITOR_FILTER_STATUS_TOPIC:-/lidar/pose_filter/status}"
 BETA_FILTER_STATUS_TOPIC="${RC_HEALTH_MONITOR_BETA_FILTER_STATUS_TOPIC:-/lidar/pose_filter_beta/status}"
 STABLE_FILTER_STATUS_TOPIC="${RC_HEALTH_MONITOR_STABLE_FILTER_STATUS_TOPIC:-/lidar/pose_filter_stable/status}"
+YAW_FUSION_STATUS_TOPIC="${RC_HEALTH_MONITOR_YAW_FUSION_STATUS_TOPIC:-/robot/yaw_fusion/status}"
 STATIC_SPEED="${RC_HEALTH_MONITOR_STATIC_SPEED:-0.015}"
 FULL_SPEED="${RC_HEALTH_MONITOR_FULL_SPEED:-0.12}"
 STATIC_YAW_RATE_DEG="${RC_HEALTH_MONITOR_STATIC_YAW_RATE_DEG:-5.0}"
@@ -60,6 +61,7 @@ echo "[health_monitor] quality_topic=$QUALITY_TOPIC"
 echo "[health_monitor] filter_status_topic=$FILTER_STATUS_TOPIC"
 echo "[health_monitor] beta_filter_status_topic=$BETA_FILTER_STATUS_TOPIC"
 echo "[health_monitor] stable_filter_status_topic=$STABLE_FILTER_STATUS_TOPIC"
+echo "[health_monitor] yaw_fusion_status_topic=$YAW_FUSION_STATUS_TOPIC"
 echo "[health_monitor] events=health_events.jsonl pre=${EVENT_PRE_SEC}s post=${EVENT_POST_SEC}s context_csv=$EVENT_CONTEXT_CSV"
 echo "[health_monitor] spike raw=$SPIKE_RAW_STEP filtered=$SPIKE_FILTERED_STEP map_jump=$SPIKE_MAP_JUMP fitness=$SPIKE_FITNESS sustained_motion=${SUSTAINED_MOTION_SEC}s"
 echo "[health_monitor] static_speed=$STATIC_SPEED full_speed=$FULL_SPEED static_yaw_rate_deg=$STATIC_YAW_RATE_DEG full_yaw_rate_deg=$FULL_YAW_RATE_DEG"
@@ -83,6 +85,7 @@ exec /usr/bin/env python3 -u "$RC_LIDAR_AUTOSTART/thermal_pose_monitor.py" \
   --filter-status-topic "$FILTER_STATUS_TOPIC" \
   --beta-filter-status-topic "$BETA_FILTER_STATUS_TOPIC" \
   --stable-filter-status-topic "$STABLE_FILTER_STATUS_TOPIC" \
+  --yaw-fusion-status-topic "$YAW_FUSION_STATUS_TOPIC" \
   --static-speed "$STATIC_SPEED" \
   --full-speed "$FULL_SPEED" \
   --static-yaw-rate-deg "$STATIC_YAW_RATE_DEG" \

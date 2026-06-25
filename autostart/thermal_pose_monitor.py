@@ -145,6 +145,16 @@ CSV_FIELDS = [
     "stable_filter_status_reason_code",
     "stable_filter_status_hold_state_code",
     "stable_filter_status_confirm_count",
+    "yaw_fusion_enabled",
+    "yaw_fusion_ready",
+    "yaw_fusion_source_code",
+    "yaw_fusion_fast_age_sec",
+    "yaw_fusion_map_age_sec",
+    "yaw_fusion_map_ref_yaw_deg",
+    "yaw_fusion_fast_yaw_deg",
+    "yaw_fusion_fused_yaw_deg",
+    "yaw_fusion_delta_yaw_deg",
+    "yaw_fusion_map_correction_alpha",
     "raw_age_sec",
     "filtered_age_sec",
     "beta_age_sec",
@@ -153,6 +163,7 @@ CSV_FIELDS = [
     "filter_status_age_sec",
     "beta_filter_status_age_sec",
     "stable_filter_status_age_sec",
+    "yaw_fusion_status_age_sec",
 ]
 
 
@@ -315,6 +326,7 @@ class ThermalPoseMonitor(Node):
         self.filter_status: tuple[float, list[float]] | None = None
         self.beta_filter_status: tuple[float, list[float]] | None = None
         self.stable_filter_status: tuple[float, list[float]] | None = None
+        self.yaw_fusion_status: tuple[float, list[float]] | None = None
         self.previous_raw_pose: PoseSample | None = None
         self.previous_filtered_pose: PoseSample | None = None
         self.previous_beta_pose: PoseSample | None = None
@@ -381,6 +393,7 @@ class ThermalPoseMonitor(Node):
         self.create_subscription(Float32MultiArray, args.filter_status_topic, self.on_filter_status, 20)
         self.create_subscription(Float32MultiArray, args.beta_filter_status_topic, self.on_beta_filter_status, 20)
         self.create_subscription(Float32MultiArray, args.stable_filter_status_topic, self.on_stable_filter_status, 20)
+        self.create_subscription(Float32MultiArray, args.yaw_fusion_status_topic, self.on_yaw_fusion_status, 20)
         self.timer = self.create_timer(args.interval, self.sample)
 
         self.get_logger().info(
@@ -388,7 +401,7 @@ class ThermalPoseMonitor(Node):
             f"events={self.event_path} raw={args.raw_topic} filtered={args.filtered_topic} "
             f"beta={args.beta_topic} stable={args.stable_topic} quality={args.quality_topic} "
             f"filter_status={args.filter_status_topic} beta_status={args.beta_filter_status_topic} "
-            f"stable_status={args.stable_filter_status_topic}"
+            f"stable_status={args.stable_filter_status_topic} yaw_fusion_status={args.yaw_fusion_status_topic}"
         )
         self.get_logger().info(
             f"health monitor markers run={self.run_marker_path} stop={self.stop_marker_path} "
@@ -429,6 +442,7 @@ class ThermalPoseMonitor(Node):
                 "filter_status_topic": self.args.filter_status_topic,
                 "beta_filter_status_topic": self.args.beta_filter_status_topic,
                 "stable_filter_status_topic": self.args.stable_filter_status_topic,
+                "yaw_fusion_status_topic": self.args.yaw_fusion_status_topic,
                 "interval_sec": self.args.interval,
                 "window_sec": self.args.window,
                 "summary_interval_sec": self.args.summary_interval,
@@ -673,6 +687,11 @@ class ThermalPoseMonitor(Node):
                     "stable_filter_hold_state_code": hold_state,
                 },
             )
+
+    def on_yaw_fusion_status(self, msg: Float32MultiArray) -> None:
+        now = time.monotonic()
+        values = [float(value) for value in msg.data]
+        self.yaw_fusion_status = (now, values)
 
     def start_event(self, reason: str, stamp: float, trigger: dict[str, Any]) -> None:
         last_stamp = self.last_event_by_reason.get(reason)
@@ -1005,6 +1024,33 @@ class ThermalPoseMonitor(Node):
             stable_filter_hold_state = values[18] if len(values) > 18 else math.nan
             stable_filter_confirm_count = values[19] if len(values) > 19 else math.nan
 
+        (
+            yaw_fusion_enabled,
+            yaw_fusion_ready,
+            yaw_fusion_source_code,
+            yaw_fusion_fast_age,
+            yaw_fusion_map_age,
+            yaw_fusion_map_ref_yaw,
+            yaw_fusion_fast_yaw,
+            yaw_fusion_fused_yaw,
+            yaw_fusion_delta_yaw,
+            yaw_fusion_map_correction_alpha,
+            yaw_fusion_status_age,
+        ) = (math.nan,) * 11
+        if self.yaw_fusion_status:
+            stamp, values = self.yaw_fusion_status
+            yaw_fusion_status_age = now - stamp
+            yaw_fusion_enabled = values[0] if len(values) > 0 else math.nan
+            yaw_fusion_ready = values[1] if len(values) > 1 else math.nan
+            yaw_fusion_source_code = values[2] if len(values) > 2 else math.nan
+            yaw_fusion_fast_age = values[3] if len(values) > 3 else math.nan
+            yaw_fusion_map_age = values[4] if len(values) > 4 else math.nan
+            yaw_fusion_map_ref_yaw = values[5] if len(values) > 5 else math.nan
+            yaw_fusion_fast_yaw = values[6] if len(values) > 6 else math.nan
+            yaw_fusion_fused_yaw = values[7] if len(values) > 7 else math.nan
+            yaw_fusion_delta_yaw = values[8] if len(values) > 8 else math.nan
+            yaw_fusion_map_correction_alpha = values[9] if len(values) > 9 else math.nan
+
         spike_candidate = bool(
             (math.isfinite(raw_step) and raw_step >= self.args.spike_raw_step)
             or (
@@ -1236,6 +1282,24 @@ class ThermalPoseMonitor(Node):
             "stable_filter_status_reason_code": stable_filter_reason_code,
             "stable_filter_status_hold_state_code": stable_filter_hold_state,
             "stable_filter_status_confirm_count": stable_filter_confirm_count,
+            "yaw_fusion_enabled": yaw_fusion_enabled,
+            "yaw_fusion_ready": yaw_fusion_ready,
+            "yaw_fusion_source_code": yaw_fusion_source_code,
+            "yaw_fusion_fast_age_sec": yaw_fusion_fast_age,
+            "yaw_fusion_map_age_sec": yaw_fusion_map_age,
+            "yaw_fusion_map_ref_yaw_deg": math.degrees(yaw_fusion_map_ref_yaw)
+            if math.isfinite(yaw_fusion_map_ref_yaw)
+            else math.nan,
+            "yaw_fusion_fast_yaw_deg": math.degrees(yaw_fusion_fast_yaw)
+            if math.isfinite(yaw_fusion_fast_yaw)
+            else math.nan,
+            "yaw_fusion_fused_yaw_deg": math.degrees(yaw_fusion_fused_yaw)
+            if math.isfinite(yaw_fusion_fused_yaw)
+            else math.nan,
+            "yaw_fusion_delta_yaw_deg": math.degrees(yaw_fusion_delta_yaw)
+            if math.isfinite(yaw_fusion_delta_yaw)
+            else math.nan,
+            "yaw_fusion_map_correction_alpha": yaw_fusion_map_correction_alpha,
             "raw_age_sec": raw_age,
             "filtered_age_sec": filtered_age,
             "beta_age_sec": beta_age,
@@ -1244,6 +1308,7 @@ class ThermalPoseMonitor(Node):
             "filter_status_age_sec": filter_status_age,
             "beta_filter_status_age_sec": beta_filter_status_age,
             "stable_filter_status_age_sec": stable_filter_status_age,
+            "yaw_fusion_status_age_sec": yaw_fusion_status_age,
         }
 
         self.rows.append(row)
@@ -1386,6 +1451,19 @@ class ThermalPoseMonitor(Node):
                     numeric_rows,
                     "stable_filter_status_motion_factor",
                 ),
+                "yaw_fusion_ready": series_stats(numeric_rows, "yaw_fusion_ready"),
+                "yaw_fusion_fast_age_sec": series_stats(
+                    numeric_rows,
+                    "yaw_fusion_fast_age_sec",
+                ),
+                "yaw_fusion_map_age_sec": series_stats(
+                    numeric_rows,
+                    "yaw_fusion_map_age_sec",
+                ),
+                "yaw_fusion_delta_yaw_deg": series_stats(
+                    numeric_rows,
+                    "yaw_fusion_delta_yaw_deg",
+                ),
                 "correlation": {
                     "temp_vs_raw_window_xy_p2p": pearson(temps, raw_p2p),
                     "temp_vs_filtered_window_xy_p2p": pearson(temps, filtered_p2p),
@@ -1469,6 +1547,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--filter-status-topic", default="/lidar/pose_filter/status")
     parser.add_argument("--beta-filter-status-topic", default="/lidar/pose_filter_beta/status")
     parser.add_argument("--stable-filter-status-topic", default="/lidar/pose_filter_stable/status")
+    parser.add_argument("--yaw-fusion-status-topic", default="/robot/yaw_fusion/status")
     parser.add_argument("--static-speed", type=float, default=0.015)
     parser.add_argument("--full-speed", type=float, default=0.12)
     parser.add_argument("--static-yaw-rate-deg", type=float, default=5.0)

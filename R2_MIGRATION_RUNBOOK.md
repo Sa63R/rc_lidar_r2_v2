@@ -600,6 +600,28 @@ RC_POSE_FILTER_USE_RAW_YAW=0
 
 默认 `0`，yaw 仍按 `RC_POSE_FILTER_YAW_ALPHA` 轻滤波，并随整帧质量门控一起 hold。设置为 `1` 时，`/robot/pose_filtered` 的 yaw 直接使用 `/robot/pose` 原始 yaw；即使 XY 因 `quality_gate` 被 hold，yaw 也继续更新。迁移到 R2 时这个开关不要默认打开，只有在确认 raw yaw 曲线稳定、但 filtered yaw 被 quality gate 卡死造成无头车转向延迟时再打开。beta/stable 候选可以分别用 `RC_POSE_FILTER_BETA_USE_RAW_YAW`、`RC_POSE_FILTER_STABLE_USE_RAW_YAW` 覆盖。
 
+Orange Pi Rc 4.8 进一步把低延迟 yaw 放到 `/robot/pose` 上游，而不是只在滤波器里绕过 yaw。重定位模式下 `pose_from_odom` 仍用 `/map_lidar/odom` 的地图重定位结果提供 XY，但 yaw 默认使用：
+
+```text
+fused_yaw = latest_map_yaw_reference + (fastlio_yaw_now - fastlio_yaw_at_reference)
+```
+
+也就是用地图 yaw 保证全局方向，用 FAST-LIO `/Odometry` 高频 yaw 增量降低无头车旋转延迟。R2 迁移时建议保留默认：
+
+```bash
+RC_ROBOT_POSE_YAW_FUSION=1
+RC_ROBOT_POSE_FAST_ODOM_TOPIC=/Odometry
+RC_ROBOT_POSE_YAW_FUSION_MAP_CORRECTION_ALPHA=0.25
+```
+
+如果 R2 现场发现 fused yaw 比旧 map yaw 更抖，可临时回退：
+
+```bash
+RC_ROBOT_POSE_YAW_FUSION=0 ./autostart/start_all_terminals.sh
+```
+
+同时观察 `/robot/yaw_fusion/status`：`data[1]` 为 ready，`data[3]` 为 FAST-LIO yaw 年龄，`data[4]` 为最近 map yaw 年龄，`data[8]` 为 fast yaw 增量。FAST-LIO 年龄长期变大时，说明低延迟 yaw 输入本身没跟上，不能继续调滤波来解决。
+
 当前 Orange Pi Rc 2.9 滤波已参考 r2 normal/beta 方案，但默认采用更保守的生产策略：
 
 ```bash
@@ -735,6 +757,7 @@ selected_topics=...
 /robot/pose_filtered
 /map_lidar/quality
 /lidar/pose_filter/status
+/robot/yaw_fusion/status
 /tf_compare/robot_origin_to_robot_base
 /tf_compare/robot_origin_to_robot_base_highrate
 /tf_compare/map_to_body
@@ -889,6 +912,10 @@ filter_status_accepted
 filter_status_alpha
 filter_status_motion_factor
 filter_status_recovered
+yaw_fusion_ready
+yaw_fusion_fast_age_sec
+yaw_fusion_map_age_sec
+yaw_fusion_delta_yaw_deg
 ```
 
 判断规则：
@@ -900,6 +927,7 @@ filter_status_recovered
 - `sustained_motion=1` 才表示连续运动足够久，静态漂移统计应暂停。
 - `static_context_*` 不会被单帧尖峰清空，适合排查“r2 没动但坐标突然跳了几厘米”。
 - `health_events.jsonl` 只在 raw/filter/map/filter-status 出现跳变、拒绝、恢复或 bad fitness 时写入事件前后窗口摘要。
+- `yaw_fusion_fast_age_sec` 长期很小但 `yaw_fusion_map_age_sec` 变大，说明 FAST-LIO 高频 yaw 正常、地图更新较慢；此时 fused yaw 应比纯 `/map_lidar/odom` yaw 更低延迟。
 - `/map_lidar/quality` 的 `reason_code` 为 `0 accepted, 1 too_few_points, 2 not_converged, 3 bad_fitness`。
 - `RC_MAP_QUALITY_OVERLAP=1` 可临时打开 scan/map 重合率诊断，默认保持 `0`，避免增加 r2 常态负载。
 - 如果低负载无抖动，高负载有尖峰，优先关掉 VS Code、Chromium、QQ、Clash GUI、RViz、PlotJuggler 等非必要负载。
