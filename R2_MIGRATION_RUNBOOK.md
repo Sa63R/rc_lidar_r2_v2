@@ -592,6 +592,14 @@ RC_POSE_FILTER_YAW_ALPHA=0.85
 
 这里的含义是：XY 继续由 `RC_POSE_FILTER_STATIC_ALPHA`、`RC_POSE_FILTER_MOVING_ALPHA` 和速度阈值控制，静止时压抖动；yaw 单独用 `0.85` 快速跟随。若 R2 现场 yaw 仍滞后，可临时调到 `1.0`；若 yaw 抖动明显，再回调到 `0.6~0.8`。beta/stable 候选分别可以用 `RC_POSE_FILTER_BETA_YAW_ALPHA`、`RC_POSE_FILTER_STABLE_YAW_ALPHA` 覆盖。
 
+Orange Pi Rc 4.7 又增加了一个更直接的无头车调试开关：
+
+```bash
+RC_POSE_FILTER_USE_RAW_YAW=0
+```
+
+默认 `0`，yaw 仍按 `RC_POSE_FILTER_YAW_ALPHA` 轻滤波，并随整帧质量门控一起 hold。设置为 `1` 时，`/robot/pose_filtered` 的 yaw 直接使用 `/robot/pose` 原始 yaw；即使 XY 因 `quality_gate` 被 hold，yaw 也继续更新。迁移到 R2 时这个开关不要默认打开，只有在确认 raw yaw 曲线稳定、但 filtered yaw 被 quality gate 卡死造成无头车转向延迟时再打开。beta/stable 候选可以分别用 `RC_POSE_FILTER_BETA_USE_RAW_YAW`、`RC_POSE_FILTER_STABLE_USE_RAW_YAW` 覆盖。
+
 当前 Orange Pi Rc 2.9 滤波已参考 r2 normal/beta 方案，但默认采用更保守的生产策略：
 
 ```bash

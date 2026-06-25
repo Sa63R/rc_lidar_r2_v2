@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from lidar_localization.pose_stability_filter import PoseFilterState
+from lidar_localization.pose_stability_filter import PoseFilterState, replace_pose_yaw
 
 
 class PoseFilterStateTest(unittest.TestCase):
@@ -55,6 +55,14 @@ class PoseFilterStateTest(unittest.TestCase):
         self.assertTrue(result.accepted)
         self.assertAlmostEqual(result.pose[0], 0.002, places=6)
         self.assertAlmostEqual(result.pose[5], 0.8, places=6)
+
+    def test_replace_pose_yaw_preserves_position_and_wraps_angle(self):
+        pose = (1.0, 2.0, 3.0, 0.1, 0.2, 0.3)
+
+        replaced = replace_pose_yaw(pose, 4.0)
+
+        self.assertEqual(replaced[:5], pose[:5])
+        self.assertAlmostEqual(replaced[5], -2.2831853071795862)
 
     def test_normal_large_stationary_spike_is_rejected_once(self):
         state = PoseFilterState(

@@ -18,6 +18,7 @@ OUTPUT_TOPIC="${RC_STABLE_FILTERED_POSE_TOPIC:-/robot/pose_filtered_stable}"
 ALIAS_TOPIC="${RC_POSE_FILTER_STABLE_ALIAS_TOPIC:-/lidar/pose_filtered_stable}"
 STATUS_TOPIC="${RC_POSE_FILTER_STABLE_STATUS_TOPIC:-/lidar/pose_filter_stable/status}"
 QUALITY_GATE="$(rc_bool "${RC_POSE_FILTER_STABLE_QUALITY_GATE:-${RC_POSE_FILTER_QUALITY_GATE:-1}}")"
+USE_RAW_YAW="$(rc_bool "${RC_POSE_FILTER_STABLE_USE_RAW_YAW:-${RC_POSE_FILTER_USE_RAW_YAW:-0}}")"
 
 echo "[pose_filter_stable] input=$INPUT_TOPIC"
 echo "[pose_filter_stable] output=$OUTPUT_TOPIC"
@@ -26,6 +27,7 @@ echo "[pose_filter_stable] status=$STATUS_TOPIC"
 echo "[pose_filter_stable] mode=stable"
 echo "[pose_filter_stable] quality_gate=$QUALITY_GATE"
 echo "[pose_filter_stable] yaw_alpha=${RC_POSE_FILTER_STABLE_YAW_ALPHA:-${RC_POSE_FILTER_YAW_ALPHA:-0.85}}"
+echo "[pose_filter_stable] use_raw_yaw=$USE_RAW_YAW"
 
 exec ros2 run lidar_localization pose_stability_filter \
   --ros-args \
@@ -43,6 +45,7 @@ exec ros2 run lidar_localization pose_stability_filter \
   -p static_alpha:="${RC_POSE_FILTER_STABLE_STATIC_ALPHA:-${RC_POSE_FILTER_STATIC_ALPHA:-0.12}}" \
   -p moving_alpha:="${RC_POSE_FILTER_STABLE_MOVING_ALPHA:-${RC_POSE_FILTER_MOVING_ALPHA:-0.92}}" \
   -p yaw_alpha:="${RC_POSE_FILTER_STABLE_YAW_ALPHA:-${RC_POSE_FILTER_YAW_ALPHA:-0.85}}" \
+  -p use_raw_yaw:="$USE_RAW_YAW" \
   -p static_speed_threshold:="${RC_POSE_FILTER_STABLE_STATIC_SPEED:-${RC_POSE_FILTER_STATIC_SPEED:-0.03}}" \
   -p full_speed_threshold:="${RC_POSE_FILTER_STABLE_FULL_SPEED:-${RC_POSE_FILTER_FULL_SPEED:-0.20}}" \
   -p static_yaw_rate_deg:="${RC_POSE_FILTER_STABLE_STATIC_YAW_RATE_DEG:-${RC_POSE_FILTER_STATIC_YAW_RATE_DEG:-8.0}}" \

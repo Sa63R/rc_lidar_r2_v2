@@ -1123,6 +1123,7 @@ PlotJuggler 里看机器人中心点滤波前后抖动，优先选这些曲线�
 - `/robot/pose_filtered_stable` 只有 `RC_POSE_FILTER_STABLE=1` 时发布，主要用于对付静止状态下 map localizer 输出的短时 1-4cm 跳变。它比 normal 更保守：短时跳点不会立刻被当成运动，但连续真实移动达到确认条件后会释放跟随。
 - 当前滤波用 `xy_speed` 和 `yaw_rate` 计算运动因子：静止时使用较强平滑，明显运动时快速跟随原始曲线，中间状态平滑过渡。
 - Rc 4.6 起，yaw 不再和 XY 共用同一个滤波 alpha。XY 仍按运动状态自适应平滑；yaw 使用独立的 `RC_POSE_FILTER_YAW_ALPHA`，默认 `0.85`，目的是在无头车转向时降低航向角延迟。若 yaw 仍滞后，可临时调到 `1.0` 接近原始 yaw；若 yaw 抖动明显，可调到 `0.6~0.8`。
+- Rc 4.7 起，增加 `RC_POSE_FILTER_USE_RAW_YAW`，默认 `0`。设置为 `1` 时，`/robot/pose_filtered` 的 yaw 直接使用 `/robot/pose` 原始 yaw，并且不受 `quality_gate` hold 影响；XY/Z/roll/pitch 仍按原滤波和地图质量门控保护。这个开关用于验证和降低无头车 yaw 延迟，打开后 `RC_POSE_FILTER_YAW_ALPHA` 对 yaw 不再生效。
 - 硬离群点仍会被短暂拒绝并保持旧输出；但如果连续拒绝超过默认 10 次，或持续超过默认 1 秒，会认为这已经不是单帧异常，而是位姿发生了真实变化，于是重新捕获当前位姿，避免输出永久停成水平线。
 - 当前生产策略是：重定位模式下 CAN 默认使用 `/robot/pose_filtered`，tracking 模式下才继续使用 TF 的 `robot_origin -> robot_base_highrate/robot_base`。因此调车时如果启用 `RC_LIDAR_MODE=relocalization`，滤波表现会直接影响电控收到的坐标。
 
@@ -1132,6 +1133,7 @@ PlotJuggler 里看机器人中心点滤波前后抖动，优先选这些曲线�
 RC_POSE_FILTER_STATIC_ALPHA=0.12
 RC_POSE_FILTER_MOVING_ALPHA=0.92
 RC_POSE_FILTER_YAW_ALPHA=0.85
+RC_POSE_FILTER_USE_RAW_YAW=0
 RC_POSE_FILTER_STATIC_SPEED=0.03
 RC_POSE_FILTER_FULL_SPEED=0.20
 RC_POSE_FILTER_STATIC_YAW_RATE_DEG=8.0
@@ -1146,10 +1148,12 @@ RC_POSE_FILTER_QUALITY_MAX_JUMP=0.08
 RC_POSE_FILTER_QUALITY_MAX_FITNESS=0.20
 RC_POSE_FILTER_BETA_SPIKE_STEP=0.012
 RC_POSE_FILTER_BETA_YAW_ALPHA=0.85
+RC_POSE_FILTER_BETA_USE_RAW_YAW=0
 RC_POSE_FILTER_BETA_CONFIRM_SAMPLES=3
 RC_POSE_FILTER_BETA_RETURN_TOLERANCE=0.006
 RC_POSE_FILTER_STABLE_SPIKE_STEP=0.012
 RC_POSE_FILTER_STABLE_YAW_ALPHA=0.85
+RC_POSE_FILTER_STABLE_USE_RAW_YAW=0
 RC_POSE_FILTER_STABLE_CONFIRM_SAMPLES=3
 RC_POSE_FILTER_STABLE_RETURN_TOLERANCE=0.006
 RC_POSE_FILTER_STABLE_RELEASE_DISTANCE=0.030
@@ -1186,6 +1190,7 @@ data[22] quality_age_sec，最近一次 `/map_lidar/quality` 到当前的时间�
 data[23] quality_fitness，最近一次地图匹配 fitness
 data[24] quality_output_jump_xy，最近一次地图定位输出 XY 单步跳变量
 data[25] yaw_alpha，当前 yaw 独立滤波系数；XY 的滤波系数仍看 data[7]
+data[26] use_raw_yaw，1 表示输出 yaw 直接使用原始 yaw，不受 quality_gate hold
 ```
 
 `/map_lidar/quality` 使用 `std_msgs/Float32MultiArray`，字段含义：
@@ -1560,6 +1565,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
    - Rc 3.8 修复 `pose_stability_filter` 在 accepted/rejected 日志之间切换 severity 时触发 `ValueError: Logger severity cannot be changed between calls` 并退出的问题。这个问题会导致 `/robot/pose_filtered` 运行一段时间后消失，看起来像定位链路“死掉”。
    - Rc 3.9 增加 `filter_mode=stable` 候选滤波，输出 `/robot/pose_filtered_stable` 和 `/lidar/pose_filter_stable/status`。stable 使用稳态锚点和持续运动确认，避免静止状态下 1-4cm 地图重定位跳点被瞬时速度误判为真实运动。普通一键脚本、开机自启和 CAN 重启默认都不启动 stable；需要对比时手动设置 `RC_POSE_FILTER_STABLE=1`，只有显式 `RC_POSE_FILTER_SELECTED=stable` 才切 CAN。
    - Rc 4.6 增加 yaw 独立低延迟滤波参数 `RC_POSE_FILTER_YAW_ALPHA`，默认 `0.85`。XY 仍使用静止强滤波和运动自适应 alpha；yaw 不再被静止 `static_alpha=0.12` 拖慢，用来降低无头车自转后航向角约 2 秒才跟上的问题。beta/stable 候选也支持各自覆盖 `RC_POSE_FILTER_BETA_YAW_ALPHA`、`RC_POSE_FILTER_STABLE_YAW_ALPHA`。
+   - Rc 4.7 增加 `RC_POSE_FILTER_USE_RAW_YAW`，默认关闭。打开后 yaw 直接取 `/robot/pose` 原始 yaw，并且即使 XY 因 `quality_gate` 被 hold，yaw 也继续更新；用于无头车需要快速航向响应的场景。该开关只绕过 yaw，不绕过 XY 的质量门控。
 
 21. `autostart/start_mapping_terminals.sh`、`autostart/save_fast_lio_map.sh`、`autostart/map_localizer.sh`、`autostart/pose_interface_mapping.sh`、`autostart/pose_interface_relocalization.sh`、`autostart/pose_stability_filter.sh`
    - 新增建图保存和地图重定位的一键脚本。

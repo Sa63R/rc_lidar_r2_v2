@@ -37,6 +37,20 @@ def finite_or_nan(values: list[float], index: int) -> float:
     return value if math.isfinite(value) else math.nan
 
 
+def replace_pose_yaw(
+    pose: tuple[float, float, float, float, float, float],
+    yaw: float,
+) -> tuple[float, float, float, float, float, float]:
+    return (
+        pose[0],
+        pose[1],
+        pose[2],
+        pose[3],
+        pose[4],
+        wrap_angle(float(yaw)),
+    )
+
+
 REASON_CODES = {
     "initial": 0.0,
     "accepted": 1.0,
@@ -742,6 +756,9 @@ class PoseStabilityFilter(Node):
         self.static_alpha = float(self.declare_parameter("static_alpha", 0.12).value)
         self.moving_alpha = float(self.declare_parameter("moving_alpha", 0.92).value)
         self.yaw_alpha = float(self.declare_parameter("yaw_alpha", 0.85).value)
+        self.use_raw_yaw = bool_param(
+            self.declare_parameter("use_raw_yaw", False).value
+        )
         self.static_speed_threshold = float(
             self.declare_parameter("static_speed_threshold", 0.03).value
         )
@@ -874,6 +891,7 @@ class PoseStabilityFilter(Node):
             f"static_alpha={self.static_alpha:.3f} "
             f"moving_alpha={self.moving_alpha:.3f} "
             f"yaw_alpha={self.state.yaw_alpha:.3f} "
+            f"use_raw_yaw={self.use_raw_yaw} "
             f"static_speed={self.static_speed_threshold:.3f} "
             f"full_speed={self.full_speed_threshold:.3f} "
             f"static_yaw_rate_deg={math.degrees(self.static_yaw_rate_rad):.1f} "
@@ -1030,11 +1048,23 @@ class PoseStabilityFilter(Node):
         else:
             self.first_reject_time = None
 
+        self.apply_raw_yaw_override(result, raw)
         output = self.pose_from_tuple(msg, result.pose)
         self.publish_filtered_pose(output)
         self.publish_status(msg, output, result)
         self.log_result(result)
         self.last_receive_time = receive_time
+
+    def apply_raw_yaw_override(
+        self,
+        result: FilterResult,
+        raw: tuple[float, float, float, float, float, float],
+    ) -> None:
+        if not self.use_raw_yaw:
+            return
+        result.pose = replace_pose_yaw(result.pose, raw[5])
+        if self.state.filtered is not None:
+            self.state.filtered = replace_pose_yaw(self.state.filtered, raw[5])
 
     def should_recover_from_rejects(self, reject_duration: float) -> bool:
         count_reached = (
@@ -1108,6 +1138,7 @@ class PoseStabilityFilter(Node):
             finite_or_nan(self.latest_quality or [], 2),
             finite_or_nan(self.latest_quality or [], 7),
             float(self.state.yaw_alpha),
+            1.0 if self.use_raw_yaw else 0.0,
         ]
         self.status_pub.publish(status)
 
@@ -1126,6 +1157,7 @@ class PoseStabilityFilter(Node):
             f"pose filter {result.reason}: step={result.raw_step_m:.4f}m "
             f"speed={result.speed_xy_mps:.3f}m/s alpha={result.alpha:.2f} "
             f"yaw_alpha={self.state.yaw_alpha:.2f} "
+            f"raw_yaw={1 if self.use_raw_yaw else 0} "
             f"motion={result.motion_factor:.2f} yaw_rate={math.degrees(result.yaw_rate_radps):.1f}deg/s "
             f"hold={result.hold_state} confirm={result.confirm_count} "
             f"rejects={self.state.reject_count}"
