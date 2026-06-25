@@ -56,11 +56,14 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
   bool yaw_pose_topic_enabled_{false};
   bool yaw_pose_topic_strict_{false};
+  bool yaw_ignore_quality_gate_{true};
   std::string yaw_pose_topic_;
   double yaw_pose_topic_timeout_sec_{0.5};
   std::mutex yaw_pose_mutex_;
   geometry_msgs::msg::PoseStamped::SharedPtr latest_yaw_pose_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr yaw_pose_sub_;
+  bool has_quality_passed_z_can_{false};
+  float last_quality_passed_z_can_{0.0f};
 
   // Relocalization quality gate
   bool quality_gate_enabled_{false};

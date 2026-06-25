@@ -255,6 +255,7 @@ RC_CAN_POSE_TOPIC=/robot/pose_filtered
 RC_CAN_USE_YAW_POSE_TOPIC=1
 RC_CAN_YAW_POSE_TOPIC=/robot/pose
 RC_CAN_YAW_POSE_TOPIC_STRICT=1
+RC_CAN_YAW_IGNORE_READY_GATE=1
 RC_CAN_REQUIRE_READY=1
 RC_CAN_READY_QUALITY_TOPIC=/map_lidar/quality
 RC_CAN_READY_MAX_FITNESS=0.05
@@ -264,6 +265,8 @@ RC_CAN_READY_MIN_ACCEPTS=5
 `RC_CAN_REQUIRE_READY=1` 表示 CAN 发送前必须看到 `/map_lidar/quality` 连续 accepted/converged、fitness 达标并且没有超时。迁移到 R2 时建议保留这个门控，避免重定位还没稳定时把早期假坐标发给电控。只有在临时排查 CAN 链路本身时，才考虑短时间设为 `0`。
 
 Orange Pi Rc 4.9 起，CAN 的位置和 yaw 来源分开：x/y/z 默认来自 `/robot/pose_filtered`，yaw 默认来自 `/robot/pose` 的低延迟融合 yaw。R2 迁移时建议保留这个结构，因为它能同时保留位置滤波稳定性和无头车旋转响应速度。如果 `/robot/pose` 不刷新，`RC_CAN_YAW_POSE_TOPIC_STRICT=1` 会让 CAN 暂停发送，避免回退到慢 yaw。
+
+Orange Pi Rc 4.10 起，`RC_CAN_YAW_IGNORE_READY_GATE=1` 是默认值：当 `/map_lidar/quality` 短暂不 ready 时，CAN 不再整包冻结，而是继续发送 `0x13` 的最新 yaw，并用最近一次质量通过时的可信 z；`0x12` 的 x/y 仍被 ready gate 挡住。迁移到 R2 时建议保留这个默认值，用来避免无头车旋转时因为地图质量短暂波动而航向冻结。
 
 临时回退旧 TF 链路：
 
@@ -633,9 +636,10 @@ Orange Pi Rc 4.9 起，CAN 也默认使用这个融合 yaw，而不是继续发�
 RC_CAN_USE_YAW_POSE_TOPIC=1
 RC_CAN_YAW_POSE_TOPIC=/robot/pose
 RC_CAN_YAW_POSE_TOPIC_STRICT=1
+RC_CAN_YAW_IGNORE_READY_GATE=1
 ```
 
-这个设置只影响 CAN 的 yaw 字段；x/y/z 仍按 `RC_CAN_POSE_TOPIC` 读取，默认 `/robot/pose_filtered`。R2 现场如果要回退旧行为，可以临时设置 `RC_CAN_USE_YAW_POSE_TOPIC=0`。
+这个设置只影响 CAN 的 yaw 字段；x/y/z 仍按 `RC_CAN_POSE_TOPIC` 读取，默认 `/robot/pose_filtered`。Rc 4.10 后，即使 ready gate 临时不通过，yaw 也可以继续更新；如果 R2 现场需要回退旧整包门控行为，可以设置 `RC_CAN_YAW_IGNORE_READY_GATE=0`。如果要完全回退旧 yaw 来源，可以临时设置 `RC_CAN_USE_YAW_POSE_TOPIC=0`。
 
 当前 Orange Pi Rc 2.9 滤波已参考 r2 normal/beta 方案，但默认采用更保守的生产策略：
 

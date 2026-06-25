@@ -227,6 +227,7 @@ void RCSerialDriver::getParams()
   yaw_pose_topic_ = declare_parameter<std::string>("yaw_pose_topic", "/robot/pose");
   yaw_pose_topic_timeout_sec_ = declare_parameter<double>("yaw_pose_topic_timeout_sec", 0.5);
   yaw_pose_topic_strict_ = declare_parameter<bool>("yaw_pose_topic_strict", false);
+  yaw_ignore_quality_gate_ = declare_parameter<bool>("yaw_ignore_quality_gate", true);
   quality_gate_enabled_ = declare_parameter<bool>("quality_gate_enabled", false);
   quality_topic_ = declare_parameter<std::string>("quality_topic", "/map_lidar/quality");
   quality_timeout_sec_ = declare_parameter<double>("quality_timeout_sec", 1.0);
@@ -260,6 +261,14 @@ void RCSerialDriver::getParams()
     pose_source_.c_str(),
     pose_topic_.c_str(),
     pose_topic_timeout_sec_);
+  RCLCPP_INFO(
+    get_logger(),
+    "CAN yaw topic override: %s (topic=%s timeout=%.2fs strict=%s ignore_quality_gate=%s)",
+    yaw_pose_topic_enabled_ ? "enabled" : "disabled",
+    yaw_pose_topic_.c_str(),
+    yaw_pose_topic_timeout_sec_,
+    yaw_pose_topic_strict_ ? "true" : "false",
+    yaw_ignore_quality_gate_ ? "true" : "false");
   RCLCPP_INFO(
     get_logger(),
     "Relocalization quality gate: %s (topic=%s timeout=%.2fs max_fitness=%.4f min_accepts=%d)",
@@ -359,15 +368,6 @@ void RCSerialDriver::sendMapBodyPose()
       return;
     }
 
-    if (!canSendPoseByQuality()) {
-      RCLCPP_WARN_THROTTLE(
-        get_logger(),
-        *get_clock(),
-        2000,
-        "Relocalization quality is not ready; holding CAN pose output.");
-      return;
-    }
-
     std::string yaw_source_used;
     if (yaw_pose_topic_enabled_) {
       float fused_yaw = 0.0f;
@@ -393,6 +393,44 @@ void RCSerialDriver::sendMapBodyPose()
       }
     }
 
+    const bool quality_ready = canSendPoseByQuality();
+    const bool yaw_can_bypass_quality =
+      !quality_ready &&
+      yaw_pose_topic_enabled_ &&
+      yaw_ignore_quality_gate_ &&
+      !yaw_source_used.empty();
+
+    if (!quality_ready && !yaw_can_bypass_quality) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(),
+        *get_clock(),
+        2000,
+        "Relocalization quality is not ready; holding CAN pose output.");
+      return;
+    }
+
+    if (quality_ready) {
+      has_quality_passed_z_can_ = true;
+      last_quality_passed_z_can_ = z_can;
+    } else {
+      if (!has_quality_passed_z_can_) {
+        RCLCPP_WARN_THROTTLE(
+          get_logger(),
+          *get_clock(),
+          1000,
+          "Relocalization quality is not ready and no trusted z is available; holding CAN yaw output.");
+        return;
+      }
+
+      z_can = last_quality_passed_z_can_;
+      RCLCPP_WARN_THROTTLE(
+        get_logger(),
+        *get_clock(),
+        2000,
+        "Relocalization quality is not ready; holding CAN x/y but sending yaw from %s with last trusted z.",
+        yaw_source_used.c_str());
+    }
+
     RCLCPP_DEBUG_STREAM(
       get_logger(),
       "Sending pose from " << source_used
@@ -403,21 +441,23 @@ void RCSerialDriver::sendMapBodyPose()
       << " yaw_left_positive=" << yaw_can
       << "]");
 
-    // === 帧1: x_can, y_can (ID = 0x12) ===
-    struct can_frame frame1;
-    frame1.can_id = can_id_frame1_;
-    frame1.can_dlc = 8;
-    std::memcpy(frame1.data + 0, &x_can, sizeof(float));
-    std::memcpy(frame1.data + 4, &y_can, sizeof(float));
+    if (quality_ready) {
+      // === 帧1: x_can, y_can (ID = 0x12) ===
+      struct can_frame frame1;
+      frame1.can_id = can_id_frame1_;
+      frame1.can_dlc = 8;
+      std::memcpy(frame1.data + 0, &x_can, sizeof(float));
+      std::memcpy(frame1.data + 4, &y_can, sizeof(float));
 
-    ssize_t bytes_written = write(can_socket_, &frame1, sizeof(struct can_frame));
-    if (bytes_written < 0) {
-      if (isCanTxQueueFullError(errno)) {
-        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000, "CAN buffer full, dropping frame1");
-      } else {
-        RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 5000, "Failed to send frame1: %s", strerror(errno));
-        reopenPort();
-        return;
+      ssize_t bytes_written = write(can_socket_, &frame1, sizeof(struct can_frame));
+      if (bytes_written < 0) {
+        if (isCanTxQueueFullError(errno)) {
+          RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000, "CAN buffer full, dropping frame1");
+        } else {
+          RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 5000, "Failed to send frame1: %s", strerror(errno));
+          reopenPort();
+          return;
+        }
       }
     }
 
@@ -428,7 +468,7 @@ void RCSerialDriver::sendMapBodyPose()
     std::memcpy(frame2.data + 0, &z_can, sizeof(float));
     std::memcpy(frame2.data + 4, &yaw_can, sizeof(float));
 
-    bytes_written = write(can_socket_, &frame2, sizeof(struct can_frame));
+    ssize_t bytes_written = write(can_socket_, &frame2, sizeof(struct can_frame));
     if (bytes_written < 0) {
       if (isCanTxQueueFullError(errno)) {
         RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000, "CAN buffer full, dropping frame2");

@@ -20,6 +20,7 @@ def generate_launch_description():
     yaw_pose_topic = os.environ.get('RC_CAN_YAW_POSE_TOPIC', '/robot/pose')
     yaw_pose_topic_timeout_sec = float(os.environ.get('RC_CAN_YAW_POSE_TOPIC_TIMEOUT_SEC', '0.5'))
     yaw_pose_topic_strict = env_bool('RC_CAN_YAW_POSE_TOPIC_STRICT', '0')
+    yaw_ignore_quality_gate = env_bool('RC_CAN_YAW_IGNORE_READY_GATE', '1')
     quality_gate_enabled = env_bool('RC_CAN_REQUIRE_READY', '0')
     quality_topic = os.environ.get('RC_CAN_READY_QUALITY_TOPIC', '/map_lidar/quality')
     quality_timeout_sec = float(os.environ.get('RC_CAN_READY_TIMEOUT_SEC', '1.0'))
@@ -45,6 +46,7 @@ def generate_launch_description():
                 'yaw_pose_topic': yaw_pose_topic,
                 'yaw_pose_topic_timeout_sec': yaw_pose_topic_timeout_sec,
                 'yaw_pose_topic_strict': yaw_pose_topic_strict,
+                'yaw_ignore_quality_gate': yaw_ignore_quality_gate,
                 'quality_gate_enabled': quality_gate_enabled,
                 'quality_topic': quality_topic,
                 'quality_timeout_sec': quality_timeout_sec,

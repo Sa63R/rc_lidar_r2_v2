@@ -81,10 +81,12 @@ fi
 RC_CAN_YAW_POSE_TOPIC="${RC_CAN_YAW_POSE_TOPIC:-/robot/pose}"
 RC_CAN_YAW_POSE_TOPIC_TIMEOUT_SEC="${RC_CAN_YAW_POSE_TOPIC_TIMEOUT_SEC:-0.5}"
 RC_CAN_YAW_POSE_TOPIC_STRICT="${RC_CAN_YAW_POSE_TOPIC_STRICT:-1}"
+RC_CAN_YAW_IGNORE_READY_GATE="${RC_CAN_YAW_IGNORE_READY_GATE:-1}"
 export RC_CAN_USE_YAW_POSE_TOPIC
 export RC_CAN_YAW_POSE_TOPIC
 export RC_CAN_YAW_POSE_TOPIC_TIMEOUT_SEC
 export RC_CAN_YAW_POSE_TOPIC_STRICT
+export RC_CAN_YAW_IGNORE_READY_GATE
 
 if [ -z "${RC_CAN_REQUIRE_READY:-}" ]; then
   if [ "${RC_LIDAR_MODE:-tracking}" = "relocalization" ]; then
@@ -109,7 +111,7 @@ export RC_CAN_READY_REQUIRE_CONVERGED
 
 echo "[serial] Launching rc_serial_driver with CAN_INTERFACE=${CAN_INTERFACE:-unset}, CAN_BITRATE=$CAN_BITRATE"
 echo "[serial] pose_source=$RC_CAN_POSE_SOURCE pose_topic=$RC_CAN_POSE_TOPIC"
-echo "[serial] yaw_pose_topic_enabled=$RC_CAN_USE_YAW_POSE_TOPIC yaw_pose_topic=$RC_CAN_YAW_POSE_TOPIC yaw_timeout=$RC_CAN_YAW_POSE_TOPIC_TIMEOUT_SEC yaw_strict=$RC_CAN_YAW_POSE_TOPIC_STRICT"
+echo "[serial] yaw_pose_topic_enabled=$RC_CAN_USE_YAW_POSE_TOPIC yaw_pose_topic=$RC_CAN_YAW_POSE_TOPIC yaw_timeout=$RC_CAN_YAW_POSE_TOPIC_TIMEOUT_SEC yaw_strict=$RC_CAN_YAW_POSE_TOPIC_STRICT yaw_ignore_ready_gate=$RC_CAN_YAW_IGNORE_READY_GATE"
 echo "[serial] ready_gate=$RC_CAN_REQUIRE_READY quality_topic=$RC_CAN_READY_QUALITY_TOPIC max_fitness=$RC_CAN_READY_MAX_FITNESS min_accepts=$RC_CAN_READY_MIN_ACCEPTS"
 if [ "$RC_CAN_POSE_SOURCE" = "pose_topic" ]; then
   echo "[serial] strict pose-topic mode: no TF fallback will be used if $RC_CAN_POSE_TOPIC is stale or missing."

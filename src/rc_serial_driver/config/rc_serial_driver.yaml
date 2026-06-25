@@ -12,6 +12,7 @@
     yaw_pose_topic: "/robot/pose"
     yaw_pose_topic_timeout_sec: 0.5
     yaw_pose_topic_strict: false
+    yaw_ignore_quality_gate: true
     restart_enabled: true
     restart_script: "/home/orangepi/RC_LIDAR_NOW/autostart/restart_lidar_stack.sh"
     timestamp_offset: 0.0         # 时间戳偏移

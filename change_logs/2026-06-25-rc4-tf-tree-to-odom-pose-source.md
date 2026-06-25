@@ -487,6 +487,39 @@ ros2 topic echo /tf_compare/robot_origin_to_robot_base_highrate --once
 - CAN 坐标来源必须单一明确；不要让 CAN 在 topic 不存在时自动退回旧 TF，否则调试时很难判断电控到底收到哪条链路。
 - Orange Pi 上用 Codex 调试时通常会开 VS Code 和 Clash，这会显著增加 CPU 负载。判断滤波或定位质量时，应尽量使用 headless 低负载日志做最终依据。
 
+## Rc 4.10: CAN Yaw Bypasses Ready Gate
+
+实车继续排查无头车旋转延迟时，发现即使 CAN 的 yaw 已经单独读取 `/robot/pose`，它仍然会被 `RC_CAN_REQUIRE_READY=1` 的 `/map_lidar/quality` ready gate 一起冻结。也就是说，只要 map localizer 短暂不 ready，旧逻辑会整包 `return`，`0x12` 和 `0x13` 都不发。对电控来说，这等价于 yaw 短时间停在旧值，表现为车已经转了，但无头车逻辑还不知道朝向已经变了。
+
+Rc 4.10 把 CAN ready gate 拆开：
+
+```text
+0x12: x/y
+  继续受 /map_lidar/quality ready gate 保护。
+  quality 不 ready 时不发送新的 x/y。
+
+0x13: z/yaw
+  yaw 默认不受 ready gate 冻结。
+  quality 不 ready 时，继续发送 /robot/pose 的最新 yaw。
+  z 使用最近一次 quality 通过时保存的可信 z。
+```
+
+新增默认开关：
+
+```bash
+RC_CAN_YAW_IGNORE_READY_GATE=1
+```
+
+这个开关只绕过 CAN ready gate 对 yaw 的冻结，不关闭 `/robot/pose` 新鲜度检查。`RC_CAN_YAW_POSE_TOPIC_STRICT=1` 仍然有效：如果 `/robot/pose` 不存在或过期，CAN 仍会暂停，避免发送未知来源 yaw。
+
+如果现场想恢复旧行为，可以临时设置：
+
+```bash
+RC_CAN_YAW_IGNORE_READY_GATE=0
+```
+
+这个改动不是为了解决所有旋转延迟，而是为了排除一个明确风险：地图质量短暂波动时不应该让无头车航向角完全冻结。x/y 继续走 ready gate，避免低质量定位结果污染位置控制。
+
 ## Appendix: User Questions And Constraints
 
 以下内容按时间顺序整理本次大改相关的用户侧问题、判断和约束。重复发送的同一问题已合并；长启动命令、截图和终端日志只保留摘要。
@@ -596,3 +629,5 @@ ros2 topic echo /tf_compare/robot_origin_to_robot_base_highrate --once
 32. 用户要求：“之前的提交了吗，如果提交了，就按你说的进行这次修改。”于是先确认当前代码已推到 `Rc 4.7: allow raw yaw passthrough`，只剩 `note.md` 未提交，然后实施 Rc 4.8 低延迟 yaw 融合。
 
 33. 用户要求：“直接改 CAN 的 yaw 走融合后的坐标。”这促成 Rc 4.9：CAN 的位置字段继续读 `/robot/pose_filtered`，但 yaw 字段单独读 `/robot/pose` 的融合 yaw，并默认严格要求该 topic 新鲜，避免继续把滤波延迟带给电控。
+
+34. 用户提出新的怀疑：无头车旋转延迟可能不是 yaw topic 本身，而是 CAN ready gate 把整包输出冻结了。用户要求“yaw 不走 CAN 质量门控，其余继续走”，并且希望用参数控制，但默认 yaw 不走门控。这促成 Rc 4.10：`RC_CAN_YAW_IGNORE_READY_GATE=1` 默认开启，quality 不 ready 时只继续发 `0x13` 的 yaw，并保留 x/y 的 ready gate。
