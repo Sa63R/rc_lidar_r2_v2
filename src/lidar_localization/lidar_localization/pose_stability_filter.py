@@ -84,6 +84,7 @@ class PoseFilterState:
         self,
         static_alpha: float = 0.12,
         moving_alpha: float = 0.92,
+        yaw_alpha: float = 0.85,
         static_speed_threshold: float = 0.03,
         full_speed_threshold: float = 0.20,
         static_yaw_rate_rad: float = math.radians(8.0),
@@ -103,6 +104,7 @@ class PoseFilterState:
     ) -> None:
         self.static_alpha = float(static_alpha)
         self.moving_alpha = float(moving_alpha)
+        self.yaw_alpha = min(max(float(yaw_alpha), 0.0), 1.0)
         self.static_speed_threshold = float(static_speed_threshold)
         self.full_speed_threshold = float(full_speed_threshold)
         self.static_yaw_rate_rad = float(static_yaw_rate_rad)
@@ -679,7 +681,7 @@ class PoseFilterState:
             self.ema(previous[2], current[2], self.static_alpha),
             self.ema(previous[3], current[3], self.static_alpha),
             self.ema(previous[4], current[4], self.static_alpha),
-            blend_angle(previous[5], current[5], alpha),
+            blend_angle(previous[5], current[5], self.yaw_alpha),
         )
 
     def motion_factor(self, speed_xy: float, yaw_rate: float) -> float:
@@ -739,6 +741,7 @@ class PoseStabilityFilter(Node):
         ).lower()
         self.static_alpha = float(self.declare_parameter("static_alpha", 0.12).value)
         self.moving_alpha = float(self.declare_parameter("moving_alpha", 0.92).value)
+        self.yaw_alpha = float(self.declare_parameter("yaw_alpha", 0.85).value)
         self.static_speed_threshold = float(
             self.declare_parameter("static_speed_threshold", 0.03).value
         )
@@ -814,6 +817,7 @@ class PoseStabilityFilter(Node):
         self.state = PoseFilterState(
             static_alpha=self.static_alpha,
             moving_alpha=self.moving_alpha,
+            yaw_alpha=self.yaw_alpha,
             static_speed_threshold=self.static_speed_threshold,
             full_speed_threshold=self.full_speed_threshold,
             static_yaw_rate_rad=self.static_yaw_rate_rad,
@@ -869,6 +873,7 @@ class PoseStabilityFilter(Node):
             "filter params: "
             f"static_alpha={self.static_alpha:.3f} "
             f"moving_alpha={self.moving_alpha:.3f} "
+            f"yaw_alpha={self.state.yaw_alpha:.3f} "
             f"static_speed={self.static_speed_threshold:.3f} "
             f"full_speed={self.full_speed_threshold:.3f} "
             f"static_yaw_rate_deg={math.degrees(self.static_yaw_rate_rad):.1f} "
@@ -1102,6 +1107,7 @@ class PoseStabilityFilter(Node):
             float(self.quality_age_sec()),
             finite_or_nan(self.latest_quality or [], 2),
             finite_or_nan(self.latest_quality or [], 7),
+            float(self.state.yaw_alpha),
         ]
         self.status_pub.publish(status)
 
@@ -1119,6 +1125,7 @@ class PoseStabilityFilter(Node):
         message = (
             f"pose filter {result.reason}: step={result.raw_step_m:.4f}m "
             f"speed={result.speed_xy_mps:.3f}m/s alpha={result.alpha:.2f} "
+            f"yaw_alpha={self.state.yaw_alpha:.2f} "
             f"motion={result.motion_factor:.2f} yaw_rate={math.degrees(result.yaw_rate_radps):.1f}deg/s "
             f"hold={result.hold_state} confirm={result.confirm_count} "
             f"rejects={self.state.reject_count}"

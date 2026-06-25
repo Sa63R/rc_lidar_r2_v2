@@ -24,6 +24,7 @@ class PoseFilterStateTest(unittest.TestCase):
         state = PoseFilterState(
             static_alpha=0.2,
             moving_alpha=0.7,
+            yaw_alpha=0.8,
             static_speed_threshold=0.25,
             full_speed_threshold=1.0,
         )
@@ -35,6 +36,25 @@ class PoseFilterStateTest(unittest.TestCase):
         self.assertLess(result.motion_factor, 0.5)
         self.assertGreater(result.pose[0], 0.001)
         self.assertLess(result.pose[0], 0.01)
+
+    def test_yaw_alpha_is_independent_from_xy_alpha(self):
+        state = PoseFilterState(
+            static_alpha=0.2,
+            moving_alpha=0.2,
+            yaw_alpha=0.8,
+            static_speed_threshold=99.0,
+            full_speed_threshold=100.0,
+            static_yaw_rate_rad=99.0,
+            full_yaw_rate_rad=100.0,
+            spike_step_m=99.0,
+        )
+        state.update((0.0, 0.0, 0.0, 0.0, 0.0, 0.0), stamp_sec=1.0)
+
+        result = state.update((0.01, 0.0, 0.0, 0.0, 0.0, 1.0), stamp_sec=1.1)
+
+        self.assertTrue(result.accepted)
+        self.assertAlmostEqual(result.pose[0], 0.002, places=6)
+        self.assertAlmostEqual(result.pose[5], 0.8, places=6)
 
     def test_normal_large_stationary_spike_is_rejected_once(self):
         state = PoseFilterState(

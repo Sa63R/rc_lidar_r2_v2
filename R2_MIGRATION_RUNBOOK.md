@@ -584,6 +584,14 @@ RC_POSE_FILTER_QUALITY_MAX_JUMP=0.08
 RC_POSE_FILTER_QUALITY_MAX_FITNESS=0.20
 ```
 
+Orange Pi Rc 4.6 起，yaw 使用独立低延迟 EMA，避免无头车自转后航向角被 XY 静态强滤波拖慢。迁移到 R2 时建议先保留默认：
+
+```bash
+RC_POSE_FILTER_YAW_ALPHA=0.85
+```
+
+这里的含义是：XY 继续由 `RC_POSE_FILTER_STATIC_ALPHA`、`RC_POSE_FILTER_MOVING_ALPHA` 和速度阈值控制，静止时压抖动；yaw 单独用 `0.85` 快速跟随。若 R2 现场 yaw 仍滞后，可临时调到 `1.0`；若 yaw 抖动明显，再回调到 `0.6~0.8`。beta/stable 候选分别可以用 `RC_POSE_FILTER_BETA_YAW_ALPHA`、`RC_POSE_FILTER_STABLE_YAW_ALPHA` 覆盖。
+
 当前 Orange Pi Rc 2.9 滤波已参考 r2 normal/beta 方案，但默认采用更保守的生产策略：
 
 ```bash
