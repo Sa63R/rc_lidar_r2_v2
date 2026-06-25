@@ -15,9 +15,12 @@ Environment=RC_AUTOSTART_HEADLESS=1
 Environment=RC_AUTOSTART_PLOTJUGGLER=0
 Environment=RC_CAN_POSE_SOURCE=pose_topic
 Environment=RC_CAN_POSE_TOPIC=/robot/pose_filtered
-Environment=RC_CAN_USE_YAW_POSE_TOPIC=1
-Environment=RC_CAN_YAW_POSE_TOPIC=/robot/pose
-Environment=RC_CAN_YAW_POSE_TOPIC_STRICT=1
+Environment=RC_CAN_USE_YAW_POSE_TOPIC=0
+Environment=RC_CAN_USE_RAW_ODOM_YAW=1
+Environment=RC_CAN_RAW_ODOM_YAW_TOPIC=/Odometry
+Environment=RC_CAN_RAW_ODOM_YAW_STRICT=1
+Environment=RC_CAN_RAW_ODOM_YAW_OFFSET_RAD=0.0
+Environment=RC_CAN_RAW_ODOM_YAW_IGNORE_READY_GATE=1
 Environment=RC_CAN_REQUIRE_READY=1
 Environment=RC_CAN_READY_QUALITY_TOPIC=/map_lidar/quality
 Environment=RC_CAN_READY_MAX_FITNESS=0.05

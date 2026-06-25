@@ -238,13 +238,19 @@ RC_AUTOSTART_TF_COMPARE=auto
 RC_AUTOSTART_LIDAR_XYZR=auto
 RC_CAN_POSE_SOURCE=pose_topic
 RC_CAN_POSE_TOPIC=/robot/pose_filtered
+RC_CAN_USE_YAW_POSE_TOPIC=0
+RC_CAN_USE_RAW_ODOM_YAW=1
+RC_CAN_RAW_ODOM_YAW_TOPIC=/Odometry
+RC_CAN_RAW_ODOM_YAW_STRICT=1
+RC_CAN_RAW_ODOM_YAW_OFFSET_RAD=0.0
+RC_CAN_RAW_ODOM_YAW_IGNORE_READY_GATE=1
 RC_POSE_FILTER_STABLE=0
 RC_HEALTH_MONITOR=1
 RC_READY_NOTIFY=1
 RC_READY_NOTIFY_POPUP=0
 ```
 
-也就是说，开机后会自动用当前已验证的小场地图 `maps/mid360_map_20260625_064655.pcd` 做重定位，启动 TF、Livox、FAST-LIO、地图匹配、位姿接口、normal 位姿滤波、CAN 和健康日志等核心链路；CAN 默认仍发 `/robot/pose_filtered`。stable 候选滤波默认不启动，后续需要对比时再手动设置 `RC_POSE_FILTER_STABLE=1`，并且只有显式设置 `RC_POSE_FILTER_SELECTED=stable` 时 CAN 才会切到 stable。开机自启不会弹 RViz/PlotJuggler 界面，也不会弹 ready 终端窗口，只写 `relocalization_ready.json`；即使没有外接显示器也应能走 headless 后台启动。TF 对比发布节点和点云调试打印也会随 PlotJuggler/headless 策略默认跳过，避免香橙派 CPU 被调试工具抢走。需要临时开图形调试时，手动运行一键脚本并覆盖这些环境变量即可。
+也就是说，开机后会自动用当前已验证的小场地图 `maps/mid360_map_20260625_064655.pcd` 做重定位，启动 TF、Livox、FAST-LIO、地图匹配、位姿接口、normal 位姿滤波、CAN 和健康日志等核心链路；CAN 的 `x/y/z` 默认来自 `/robot/pose_filtered`，`yaw` 默认直接来自 FAST-LIO `/Odometry` 原始 yaw，偏置为 `0`，用于优先保证无头车转向实时性。stable 候选滤波默认不启动，后续需要对比时再手动设置 `RC_POSE_FILTER_STABLE=1`，并且只有显式设置 `RC_POSE_FILTER_SELECTED=stable` 时 CAN 才会切到 stable。开机自启不会弹 RViz/PlotJuggler 界面，也不会弹 ready 终端窗口，只写 `relocalization_ready.json`；即使没有外接显示器也应能走 headless 后台启动。TF 对比发布节点和点云调试打印也会随 PlotJuggler/headless 策略默认跳过，避免香橙派 CPU 被调试工具抢走。需要临时开图形调试时，手动运行一键脚本并覆盖这些环境变量即可。
 
 检查开机自启是否触发：
 
@@ -887,7 +893,7 @@ ls -lh maps/mid360_map.pcd
 
 2026-06-24 实测可用检查点：使用只绕小场地建出的 `/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260624_190419.pcd`，不做裁剪，并用 `RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1` 从建图原点附近启动，重定位表现正确。这是当前优先复刻方案。
 
-当前开机低功耗自启和 CAN 重启默认使用 2026-06-25 实测的小场地图 `maps/mid360_map_20260625_064655.pcd`，保持 `RC_AUTOSTART_PLOTJUGGLER=0`，并默认不启动 stable 候选滤波 `RC_POSE_FILTER_STABLE=0`。CAN 默认发送 normal `/robot/pose_filtered`。手动调试时如果需要 PlotJuggler，只额外把 `RC_AUTOSTART_PLOTJUGGLER=1` 打开即可；如果需要对比 stable，再额外设置 `RC_POSE_FILTER_STABLE=1`。
+当前开机低功耗自启和 CAN 重启默认使用 2026-06-25 实测的小场地图 `maps/mid360_map_20260625_064655.pcd`，保持 `RC_AUTOSTART_PLOTJUGGLER=0`，并默认不启动 stable 候选滤波 `RC_POSE_FILTER_STABLE=0`。CAN 默认 `x/y/z` 发送 normal `/robot/pose_filtered`，`yaw` 发送 FAST-LIO `/Odometry` 原始 yaw，`RC_CAN_RAW_ODOM_YAW_OFFSET_RAD=0.0`。手动调试时如果需要 PlotJuggler，只额外把 `RC_AUTOSTART_PLOTJUGGLER=1` 打开即可；如果需要对比 stable，再额外设置 `RC_POSE_FILTER_STABLE=1`。
 
 现在默认不再假设当前启动点就是地图原点；重定位启动后，如果没有初始位姿，`MAP_LOCALIZER.log` 会提示等待 `/initialpose` 或 `RC_RELOCALIZATION_INITIAL_GUESS=1`，并且不会发布看起来像 0 的假定位结果。
 

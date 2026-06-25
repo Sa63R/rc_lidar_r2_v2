@@ -648,6 +648,41 @@ RC_CAN_RAW_ODOM_YAW_OFFSET_RAD=1.5707963267948966
 RC_CAN_RAW_ODOM_YAW_OFFSET_RAD=3.141592653589793
 ```
 
+## Rc 4.15: boot autostart fixed to low-load raw-odom-yaw relocalization
+
+用户要求把当前可用启动命令设置为开机启动：
+
+```bash
+cd "/home/orangepi/RC_LIDAR_NOW"
+RC_LIDAR_MODE=relocalization \
+RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
+RC_AUTOSTART_HEADLESS=1 \
+RC_AUTOSTART_PLOTJUGGLER=0 \
+RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd" \
+./autostart/start_all_terminals.sh
+```
+
+因此开机入口 `boot_start.sh` 和 user systemd 模板 `rc-lidar-autostart.service` 明确固定为：
+
+```text
+RC_LIDAR_MODE=relocalization
+RC_LIDAR_MAP_PATH=/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd
+RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1
+RC_AUTOSTART_HEADLESS=1
+RC_AUTOSTART_PLOTJUGGLER=0
+RC_CAN_POSE_SOURCE=pose_topic
+RC_CAN_POSE_TOPIC=/robot/pose_filtered
+RC_CAN_USE_YAW_POSE_TOPIC=0
+RC_CAN_USE_RAW_ODOM_YAW=1
+RC_CAN_RAW_ODOM_YAW_TOPIC=/Odometry
+RC_CAN_RAW_ODOM_YAW_STRICT=1
+RC_CAN_RAW_ODOM_YAW_OFFSET_RAD=0.0
+RC_CAN_RAW_ODOM_YAW_IGNORE_READY_GATE=1
+RC_POSE_FILTER_STABLE=0
+```
+
+这表示开机和无显示器场景下，核心链路仍然 headless 后台启动；CAN 的 `x/y/z` 走 normal `/robot/pose_filtered`，`yaw` 走 FAST-LIO 原始 `/Odometry` yaw，偏置为 0。旧的 `/robot/pose` yaw topic override 不再作为开机默认，以避免读文档和日志时误判 yaw 来源。
+
 ## Appendix: User Questions And Constraints
 
 以下内容按时间顺序整理本次大改相关的用户侧问题、判断和约束。重复发送的同一问题已合并；长启动命令、截图和终端日志只保留摘要。
@@ -781,3 +816,5 @@ RC_CAN_RAW_ODOM_YAW_OFFSET_RAD=3.141592653589793
 44. 用户随后怀疑 `+90°` 不够，并说明：“现在 ODOM 的 Y 指向地图的右方，但是我要它指向车的前方，所以理论上应该再转个 90°。”因此 Rc 4.13 把 raw odom CAN yaw 默认偏置从 `+pi/2` 改为 `+pi`，只影响 CAN yaw 字段，不改 TF 和 `/robot/pose`。
 
 45. 用户进一步追问“旋转 Odom 的意义是什么”，并确认如果电控只需要 `/Odometry` 的原始 yaw 旋转角，且正方向一致，那么不应该额外加零点偏置。用户要求“那就改回 0”，因此 Rc 4.14 将 `RC_CAN_RAW_ODOM_YAW_OFFSET_RAD` 默认值改成 `0.0`。
+
+46. 用户要求把当前可用低负载启动命令设置为开机启动：`RC_LIDAR_MODE=relocalization`、`RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1`、`RC_AUTOSTART_HEADLESS=1`、`RC_AUTOSTART_PLOTJUGGLER=0`、指定 `maps/mid360_map_20260625_064655.pcd`。同时要求开机只用这一套逻辑，不要多入口重复启动。因此 Rc 4.15 明确更新 `boot_start.sh` 与 user systemd 模板，并保留 boot_id guard 防止 XDG/systemd 双入口时重复真实启动。

@@ -417,7 +417,7 @@ CAN 重启脚本也应保持同样默认策略：
 grep -n "RC_LIDAR_MODE\\|RC_CAN_POSE_TOPIC\\|RC_HEALTH_MONITOR" autostart/restart_lidar_stack.sh
 ```
 
-Orange Pi 当前生产默认已经固定为小场地图 `/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd`，不开 PlotJuggler，ready 只写 json 不弹窗口，并默认不启动 stable 候选滤波，CAN 发 normal `/robot/pose_filtered`。R2 不能照搬这个绝对路径，但应该采用同样策略：把 `boot_start.sh`、`rc-lidar-autostart.service` 和 `restart_lidar_stack.sh` 的默认 `RC_LIDAR_MAP_PATH` 都指向 R2 自己验证过的小场 PCD，并保持 `RC_POSE_FILTER_STABLE=0`；开机入口只保留 user systemd，只有需要曲线对比时才手动设置 `RC_AUTOSTART_PLOTJUGGLER=1` 或 `RC_POSE_FILTER_STABLE=1`。
+Orange Pi 当前生产默认已经固定为小场地图 `/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd`，不开 PlotJuggler，ready 只写 json 不弹窗口，并默认不启动 stable 候选滤波。CAN 的 `x/y/z` 发 normal `/robot/pose_filtered`，`yaw` 发 FAST-LIO `/Odometry` 原始 yaw，偏置为 `0`。R2 不能照搬这个绝对路径，但应该采用同样策略：把 `boot_start.sh`、`rc-lidar-autostart.service` 和 `restart_lidar_stack.sh` 的默认 `RC_LIDAR_MAP_PATH` 都指向 R2 自己验证过的小场 PCD，并保持 `RC_POSE_FILTER_STABLE=0`；开机入口只保留 user systemd，只有需要曲线对比时才手动设置 `RC_AUTOSTART_PLOTJUGGLER=1` 或 `RC_POSE_FILTER_STABLE=1`。
 
 ## 6. 建图、保存地图和地图质量
 
