@@ -225,6 +225,47 @@ PlotJuggler 和健康日志都同步加入 `/robot/yaw_fusion/status`。后续�
 - `yaw_fusion_map_age_sec` 是否远大于 fast age。
 - `/robot/pose` 和 `/robot/pose_filtered` 的 yaw 是否仍有明显延迟。
 
+## Rc 4.9 CAN Uses Fused Yaw Directly
+
+Rc 4.8 后，`/robot/pose` 的 yaw 已经是地图 yaw 基准加 FAST-LIO 高频 yaw 增量；但 CAN 仍默认整帧读取 `/robot/pose_filtered`。实车现象是：即使 `/robot/pose` 的 yaw 响应明显快了，电控拿到的 yaw 仍可能被滤波链路拖慢。
+
+因此 Rc 4.9 把 CAN 的位置和 yaw 来源拆开：
+
+```text
+CAN x/y/z:
+  /robot/pose_filtered
+
+CAN yaw:
+  /robot/pose
+```
+
+也就是：
+
+```bash
+RC_CAN_POSE_SOURCE=pose_topic
+RC_CAN_POSE_TOPIC=/robot/pose_filtered
+RC_CAN_USE_YAW_POSE_TOPIC=1
+RC_CAN_YAW_POSE_TOPIC=/robot/pose
+RC_CAN_YAW_POSE_TOPIC_STRICT=1
+```
+
+这样电控仍然拿到滤波后的稳定位置，但航向角直接来自融合 yaw，避免无头车自转时继续受 `/robot/pose_filtered` 的 yaw 延迟影响。
+
+`RC_CAN_YAW_POSE_TOPIC_STRICT=1` 的含义是：如果 `/robot/pose` 的 yaw topic 不存在或超时，CAN 直接暂停发送，而不是悄悄回退到 `/robot/pose_filtered` 的慢 yaw。这样调车时来源更明确，出问题也更容易从 `CAN_SERIAL.log` 里看出来。
+
+回退旧行为：
+
+```bash
+RC_CAN_USE_YAW_POSE_TOPIC=0 ./autostart/start_all_terminals.sh
+```
+
+这次修改不改变 CAN 帧格式，仍然是：
+
+```text
+0x12: float x, float y
+0x13: float z, float yaw
+```
+
 ## Files And Impact
 
 ### Startup Scripts
@@ -310,11 +351,13 @@ CAN 帧格式不变：
 0x13: float z, float yaw
 ```
 
-重定位模式默认仍是：
+重定位模式默认位置来源仍是：
 
 ```text
 RC_CAN_POSE_SOURCE=pose_topic
 RC_CAN_POSE_TOPIC=/robot/pose_filtered
+RC_CAN_USE_YAW_POSE_TOPIC=1
+RC_CAN_YAW_POSE_TOPIC=/robot/pose
 ```
 
 因此电控收到的是：
@@ -325,10 +368,13 @@ RC_CAN_POSE_TOPIC=/robot/pose_filtered
 -> /robot/pose
 -> normal/stable/beta filter
 -> /robot/pose_filtered
--> CAN
+-> CAN x/y/z
+
+/robot/pose
+-> CAN yaw
 ```
 
-如果 `/robot/pose_filtered` 不存在或不刷新，CAN 会暂停发送，不会悄悄退回 TF 链路，避免坐标来源混乱。
+如果 `/robot/pose_filtered` 不存在或不刷新，CAN 会暂停发送，不会悄悄退回 TF 链路，避免坐标来源混乱。Rc 4.9 起，如果 `/robot/pose` 的 yaw 不存在或不刷新，默认也会暂停发送。
 
 ### Health Logs
 
@@ -548,3 +594,5 @@ ros2 topic echo /tf_compare/robot_origin_to_robot_base_highrate --once
 31. 用户担心融合会不会抖，并问其他仓库是否有类似策略。由此确认采用 ROS 常见的 `map` 全局校正 + `odom` 连续低延迟运动的思路，而不是在 map yaw 和 fast yaw 之间硬切换。
 
 32. 用户要求：“之前的提交了吗，如果提交了，就按你说的进行这次修改。”于是先确认当前代码已推到 `Rc 4.7: allow raw yaw passthrough`，只剩 `note.md` 未提交，然后实施 Rc 4.8 低延迟 yaw 融合。
+
+33. 用户要求：“直接改 CAN 的 yaw 走融合后的坐标。”这促成 Rc 4.9：CAN 的位置字段继续读 `/robot/pose_filtered`，但 yaw 字段单独读 `/robot/pose` 的融合 yaw，并默认严格要求该 topic 新鲜，避免继续把滤波延迟带给电控。

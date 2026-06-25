@@ -252,6 +252,9 @@ yaw_can = 左转为正
 ```text
 RC_CAN_POSE_SOURCE=pose_topic
 RC_CAN_POSE_TOPIC=/robot/pose_filtered
+RC_CAN_USE_YAW_POSE_TOPIC=1
+RC_CAN_YAW_POSE_TOPIC=/robot/pose
+RC_CAN_YAW_POSE_TOPIC_STRICT=1
 RC_CAN_REQUIRE_READY=1
 RC_CAN_READY_QUALITY_TOPIC=/map_lidar/quality
 RC_CAN_READY_MAX_FITNESS=0.05
@@ -259,6 +262,8 @@ RC_CAN_READY_MIN_ACCEPTS=5
 ```
 
 `RC_CAN_REQUIRE_READY=1` 表示 CAN 发送前必须看到 `/map_lidar/quality` 连续 accepted/converged、fitness 达标并且没有超时。迁移到 R2 时建议保留这个门控，避免重定位还没稳定时把早期假坐标发给电控。只有在临时排查 CAN 链路本身时，才考虑短时间设为 `0`。
+
+Orange Pi Rc 4.9 起，CAN 的位置和 yaw 来源分开：x/y/z 默认来自 `/robot/pose_filtered`，yaw 默认来自 `/robot/pose` 的低延迟融合 yaw。R2 迁移时建议保留这个结构，因为它能同时保留位置滤波稳定性和无头车旋转响应速度。如果 `/robot/pose` 不刷新，`RC_CAN_YAW_POSE_TOPIC_STRICT=1` 会让 CAN 暂停发送，避免回退到慢 yaw。
 
 临时回退旧 TF 链路：
 
@@ -621,6 +626,16 @@ RC_ROBOT_POSE_YAW_FUSION=0 ./autostart/start_all_terminals.sh
 ```
 
 同时观察 `/robot/yaw_fusion/status`：`data[1]` 为 ready，`data[3]` 为 FAST-LIO yaw 年龄，`data[4]` 为最近 map yaw 年龄，`data[8]` 为 fast yaw 增量。FAST-LIO 年龄长期变大时，说明低延迟 yaw 输入本身没跟上，不能继续调滤波来解决。
+
+Orange Pi Rc 4.9 起，CAN 也默认使用这个融合 yaw，而不是继续发送 `/robot/pose_filtered` 里的 yaw：
+
+```bash
+RC_CAN_USE_YAW_POSE_TOPIC=1
+RC_CAN_YAW_POSE_TOPIC=/robot/pose
+RC_CAN_YAW_POSE_TOPIC_STRICT=1
+```
+
+这个设置只影响 CAN 的 yaw 字段；x/y/z 仍按 `RC_CAN_POSE_TOPIC` 读取，默认 `/robot/pose_filtered`。R2 现场如果要回退旧行为，可以临时设置 `RC_CAN_USE_YAW_POSE_TOPIC=0`。
 
 当前 Orange Pi Rc 2.9 滤波已参考 r2 normal/beta 方案，但默认采用更保守的生产策略：
 

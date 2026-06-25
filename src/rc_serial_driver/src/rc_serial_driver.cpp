@@ -138,6 +138,12 @@ RCSerialDriver::RCSerialDriver(const rclcpp::NodeOptions & options)
     pose_topic_,
     10,
     std::bind(&RCSerialDriver::poseCallback, this, std::placeholders::_1));
+  if (yaw_pose_topic_enabled_) {
+    yaw_pose_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
+      yaw_pose_topic_,
+      20,
+      std::bind(&RCSerialDriver::yawPoseCallback, this, std::placeholders::_1));
+  }
 
   if (quality_gate_enabled_) {
     quality_sub_ = create_subscription<std_msgs::msg::Float32MultiArray>(
@@ -217,6 +223,10 @@ void RCSerialDriver::getParams()
   pose_source_ = declare_parameter<std::string>("pose_source", "tf");
   pose_topic_ = declare_parameter<std::string>("pose_topic", "/lidar/pose");
   pose_topic_timeout_sec_ = declare_parameter<double>("pose_topic_timeout_sec", 0.5);
+  yaw_pose_topic_enabled_ = declare_parameter<bool>("yaw_pose_topic_enabled", false);
+  yaw_pose_topic_ = declare_parameter<std::string>("yaw_pose_topic", "/robot/pose");
+  yaw_pose_topic_timeout_sec_ = declare_parameter<double>("yaw_pose_topic_timeout_sec", 0.5);
+  yaw_pose_topic_strict_ = declare_parameter<bool>("yaw_pose_topic_strict", false);
   quality_gate_enabled_ = declare_parameter<bool>("quality_gate_enabled", false);
   quality_topic_ = declare_parameter<std::string>("quality_topic", "/map_lidar/quality");
   quality_timeout_sec_ = declare_parameter<double>("quality_timeout_sec", 1.0);
@@ -358,9 +368,35 @@ void RCSerialDriver::sendMapBodyPose()
       return;
     }
 
+    std::string yaw_source_used;
+    if (yaw_pose_topic_enabled_) {
+      float fused_yaw = 0.0f;
+      if (readYawFromTopic(fused_yaw)) {
+        yaw_can = fused_yaw;
+        yaw_source_used = yaw_pose_topic_;
+      } else if (yaw_pose_topic_strict_) {
+        RCLCPP_WARN_THROTTLE(
+          get_logger(),
+          *get_clock(),
+          1000,
+          "CAN yaw topic %s is not ready; holding CAN pose output.",
+          yaw_pose_topic_.c_str());
+        return;
+      } else {
+        RCLCPP_WARN_THROTTLE(
+          get_logger(),
+          *get_clock(),
+          2000,
+          "CAN yaw topic %s is not ready; using yaw from %s.",
+          yaw_pose_topic_.c_str(),
+          source_used.c_str());
+      }
+    }
+
     RCLCPP_DEBUG_STREAM(
       get_logger(),
       "Sending pose from " << source_used
+      << (yaw_source_used.empty() ? "" : (" yaw_from=" + yaw_source_used))
       << ": can_output[x_right=" << x_can
       << " y_forward=" << y_can
       << " z_up=" << z_can
@@ -415,6 +451,12 @@ void RCSerialDriver::poseCallback(const geometry_msgs::msg::PoseStamped::SharedP
 {
   std::lock_guard<std::mutex> lock(pose_mutex_);
   latest_pose_ = msg;
+}
+
+void RCSerialDriver::yawPoseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg)
+{
+  std::lock_guard<std::mutex> lock(yaw_pose_mutex_);
+  latest_yaw_pose_ = msg;
 }
 
 void RCSerialDriver::qualityCallback(const std_msgs::msg::Float32MultiArray::SharedPtr msg)
@@ -513,6 +555,37 @@ bool RCSerialDriver::readPoseFromTopic(float & x, float & y, float & z, float & 
   y = static_cast<float>(pose_msg->pose.position.y);
   z = static_cast<float>(pose_msg->pose.position.z);
   yaw = yawFromQuaternion(pose_msg->pose.orientation);
+  return true;
+}
+
+bool RCSerialDriver::readYawFromTopic(float & yaw)
+{
+  geometry_msgs::msg::PoseStamped::SharedPtr yaw_msg;
+  {
+    std::lock_guard<std::mutex> lock(yaw_pose_mutex_);
+    yaw_msg = latest_yaw_pose_;
+  }
+
+  if (!yaw_msg) {
+    return false;
+  }
+
+  const rclcpp::Time stamp(yaw_msg->header.stamp);
+  if (stamp.nanoseconds() != 0) {
+    const double age_sec = (now() - stamp).seconds();
+    if (age_sec > yaw_pose_topic_timeout_sec_) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(),
+        *get_clock(),
+        1000,
+        "CAN yaw topic %s is stale: age=%.3fs",
+        yaw_pose_topic_.c_str(),
+        age_sec);
+      return false;
+    }
+  }
+
+  yaw = yawFromQuaternion(yaw_msg->pose.orientation);
   return true;
 }
 

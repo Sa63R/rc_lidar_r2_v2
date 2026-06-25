@@ -201,9 +201,12 @@ close_terminal_windows_by_title() {
     RC_POSE_FILTER_BETA="${RC_POSE_FILTER_BETA:-0}" \
     RC_BETA_FILTERED_POSE_TOPIC="${RC_BETA_FILTERED_POSE_TOPIC:-/robot/pose_filtered_beta}" \
     RC_POSE_FILTER_STABLE="${RC_POSE_FILTER_STABLE:-0}" \
-    RC_STABLE_FILTERED_POSE_TOPIC="${RC_STABLE_FILTERED_POSE_TOPIC:-/robot/pose_filtered_stable}" \
-    RC_CAN_POSE_SOURCE="${RC_CAN_POSE_SOURCE:-pose_topic}" \
-    RC_HEALTH_MONITOR="${RC_HEALTH_MONITOR:-1}" \
+	    RC_STABLE_FILTERED_POSE_TOPIC="${RC_STABLE_FILTERED_POSE_TOPIC:-/robot/pose_filtered_stable}" \
+	    RC_CAN_POSE_SOURCE="${RC_CAN_POSE_SOURCE:-pose_topic}" \
+	    RC_CAN_USE_YAW_POSE_TOPIC="${RC_CAN_USE_YAW_POSE_TOPIC:-1}" \
+	    RC_CAN_YAW_POSE_TOPIC="${RC_CAN_YAW_POSE_TOPIC:-/robot/pose}" \
+	    RC_CAN_YAW_POSE_TOPIC_STRICT="${RC_CAN_YAW_POSE_TOPIC_STRICT:-1}" \
+	    RC_HEALTH_MONITOR="${RC_HEALTH_MONITOR:-1}" \
     RESTART_LOG="$LOG" \
     nohup "$DIR/start_all_terminals.sh" >> "$LOG" 2>&1 &
 

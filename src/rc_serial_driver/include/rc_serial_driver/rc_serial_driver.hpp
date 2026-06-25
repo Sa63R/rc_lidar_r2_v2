@@ -28,8 +28,10 @@ private:
   void sendMapBodyPose();       // ← 必须声明
   void reopenPort();
   void poseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
+  void yawPoseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
   void qualityCallback(const std_msgs::msg::Float32MultiArray::SharedPtr msg);
   bool readPoseFromTopic(float & x, float & y, float & z, float & yaw);
+  bool readYawFromTopic(float & yaw);
   bool readPoseFromTf(float & x, float & y, float & z, float & yaw);
   bool canSendPoseByQuality();
 
@@ -52,6 +54,13 @@ private:
   std::mutex pose_mutex_;
   geometry_msgs::msg::PoseStamped::SharedPtr latest_pose_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
+  bool yaw_pose_topic_enabled_{false};
+  bool yaw_pose_topic_strict_{false};
+  std::string yaw_pose_topic_;
+  double yaw_pose_topic_timeout_sec_{0.5};
+  std::mutex yaw_pose_mutex_;
+  geometry_msgs::msg::PoseStamped::SharedPtr latest_yaw_pose_;
+  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr yaw_pose_sub_;
 
   // Relocalization quality gate
   bool quality_gate_enabled_{false};
