@@ -1029,6 +1029,15 @@ RC_CAN_POSE_SOURCE=tf ./autostart/start_all_terminals.sh
 
 `/robot/pose_filtered` 是低延迟自适应滤波后的机器人中心点位姿，主要用于观察是否能降低地图重定位输出的毫米到厘米级抖动，以及拒绝少数硬离群点。它不会让原始点云匹配本身变得更准；判断原始定位质量仍要看 `/robot/pose`、`/map_lidar/quality` 和现场地图质量。
 
+Rc 4.4 起，`/robot/pose` 和 `/robot/pose_filtered` 默认使用“本机发布时刻”作为 header stamp，而不是继续继承 `/map_lidar/odom` 的旧 stamp。这样健康日志和 CAN 的 stale 判断会反映 topic 是否真的还在刷新，不会因为上游 odom stamp 比较老而误报 1-3 秒延迟。这个改动不改变坐标数值，只修正时间戳语义；需要回退旧行为时可以设置：
+
+```bash
+RC_ROBOT_POSE_STAMP_MODE=input
+RC_POSE_FILTER_STAMP_MODE=input
+```
+
+同一版还给 normal/beta/stable 滤波增加了保守的 `/map_lidar/quality` 门控：如果 quality 明确显示本帧 rejected、not converged、bad fitness，或者 `map_quality_jump_xy_m` 超过默认 `0.08m`，滤波会短暂保持上一帧输出，避免明显错误的地图匹配尖峰直接进入 `/robot/pose_filtered` 和 CAN。这个门控是 fail-open：如果 quality topic 不存在或超时，不会阻断定位。它只挡非常明显的异常帧，不负责把普通 5mm-15mm 抖动“滤没”。
+
 Rc 2.9 起，滤波核心参考 r2 仓库的 normal/beta 方案：
 
 - normal 仍是默认生产链路，输出 `/robot/pose_filtered`，CAN 默认继续发这个 topic。
@@ -1122,6 +1131,10 @@ RC_POSE_FILTER_MAX_XY_JUMP=0.50
 RC_POSE_FILTER_MAX_XY_SPEED=5.0
 RC_POSE_FILTER_MAX_YAW_JUMP_DEG=90.0
 RC_POSE_FILTER_SPIKE_STEP=0.05
+RC_POSE_FILTER_QUALITY_GATE=1
+RC_POSE_FILTER_QUALITY_TIMEOUT=1.0
+RC_POSE_FILTER_QUALITY_MAX_JUMP=0.08
+RC_POSE_FILTER_QUALITY_MAX_FITNESS=0.20
 RC_POSE_FILTER_BETA_SPIKE_STEP=0.012
 RC_POSE_FILTER_BETA_CONFIRM_SAMPLES=3
 RC_POSE_FILTER_BETA_RETURN_TOLERANCE=0.006

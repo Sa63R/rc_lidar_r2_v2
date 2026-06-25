@@ -15,7 +15,8 @@ case "$POSE_SOURCE" in
       zero_on_first_pose:=false \
       zero_frame_id:="$ZERO_FRAME" \
       reference_pose_enabled:=true \
-      reference_frame_id:="$ZERO_FRAME"
+      reference_frame_id:="$ZERO_FRAME" \
+      output_stamp_mode:="${RC_ROBOT_POSE_STAMP_MODE:-now}"
     ;;
   tf)
     TARGET_FRAME="${RC_ROBOT_POSE_TARGET_FRAME:-robot_origin}"

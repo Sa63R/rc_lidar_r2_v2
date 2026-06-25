@@ -561,6 +561,22 @@ tail -n 120 logs/autostart/latest/CAN_SERIAL.log
 - `CAN_SERIAL.log` 显示 `pose_source=pose_topic pose_topic=/robot/pose_filtered`。
 - `CAN_SERIAL.log` 显示 ready gate enabled；`/map_lidar/quality` 未稳定时 CAN 应暂停发送，稳定后 TX 计数才持续增加。
 
+Orange Pi Rc 4.4 起，`/robot/pose` 和 `/robot/pose_filtered` 默认使用本机发布时刻作为 header stamp，避免 `/map_lidar/odom` 的旧 stamp 让 CAN 和健康日志误判 topic stale。迁移到 R2 时建议保留这个默认值；只有为了复现实验才回退：
+
+```bash
+RC_ROBOT_POSE_STAMP_MODE=input
+RC_POSE_FILTER_STAMP_MODE=input
+```
+
+同一版给 normal/beta/stable 滤波增加 `/map_lidar/quality` 保守门控。默认只在本帧质量明确 rejected/not converged/bad fitness，或 `map_quality_jump_xy_m > 0.08m` 时 hold 上一帧；如果 quality topic 不存在或超时，门控 fail-open，不阻断定位。迁移时先保留这些默认值，再按 r2 现场日志调小或调大：
+
+```bash
+RC_POSE_FILTER_QUALITY_GATE=1
+RC_POSE_FILTER_QUALITY_TIMEOUT=1.0
+RC_POSE_FILTER_QUALITY_MAX_JUMP=0.08
+RC_POSE_FILTER_QUALITY_MAX_FITNESS=0.20
+```
+
 当前 Orange Pi Rc 2.9 滤波已参考 r2 normal/beta 方案，但默认采用更保守的生产策略：
 
 ```bash

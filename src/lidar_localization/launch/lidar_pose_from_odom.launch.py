@@ -14,6 +14,7 @@ def generate_launch_description():
     zero_frame_id = LaunchConfiguration("zero_frame_id")
     reference_pose_enabled = LaunchConfiguration("reference_pose_enabled")
     reference_frame_id = LaunchConfiguration("reference_frame_id")
+    output_stamp_mode = LaunchConfiguration("output_stamp_mode")
 
     return LaunchDescription(
         [
@@ -33,6 +34,7 @@ def generate_launch_description():
             DeclareLaunchArgument("zero_frame_id", default_value="robot_origin"),
             DeclareLaunchArgument("reference_pose_enabled", default_value="true"),
             DeclareLaunchArgument("reference_frame_id", default_value="robot_origin"),
+            DeclareLaunchArgument("output_stamp_mode", default_value="now"),
             Node(
                 package="lidar_localization",
                 executable="pose_from_odom",
@@ -53,6 +55,7 @@ def generate_launch_description():
                             reference_pose_enabled, value_type=bool
                         ),
                         "reference_frame_id": reference_frame_id,
+                        "output_stamp_mode": output_stamp_mode,
                     },
                 ],
             ),

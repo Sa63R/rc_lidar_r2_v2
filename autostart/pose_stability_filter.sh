@@ -27,6 +27,12 @@ exec ros2 run lidar_localization pose_stability_filter \
   -p output_pose_alias_topic:="$ALIAS_TOPIC" \
   -p status_topic:="$STATUS_TOPIC" \
   -p filter_mode:=normal \
+  -p output_stamp_mode:="${RC_POSE_FILTER_STAMP_MODE:-now}" \
+  -p quality_gate_enabled:="${RC_POSE_FILTER_QUALITY_GATE:-1}" \
+  -p quality_topic:="${RC_POSE_FILTER_QUALITY_TOPIC:-/map_lidar/quality}" \
+  -p quality_timeout_sec:="${RC_POSE_FILTER_QUALITY_TIMEOUT:-1.0}" \
+  -p quality_max_jump_m:="${RC_POSE_FILTER_QUALITY_MAX_JUMP:-0.08}" \
+  -p quality_max_fitness:="${RC_POSE_FILTER_QUALITY_MAX_FITNESS:-0.20}" \
   -p static_alpha:="${RC_POSE_FILTER_STATIC_ALPHA:-0.12}" \
   -p moving_alpha:="${RC_POSE_FILTER_MOVING_ALPHA:-0.92}" \
   -p static_speed_threshold:="${RC_POSE_FILTER_STATIC_SPEED:-0.03}" \

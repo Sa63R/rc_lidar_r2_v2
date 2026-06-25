@@ -60,6 +60,7 @@ class PoseFromOdom(Node):
         self.declare_parameter("reference_frame_id", "robot_origin")
         self.declare_parameter("reference_pose_xyz", [-0.240, 0.287302, -0.760])
         self.declare_parameter("reference_pose_rpy", [0.0, 0.0, math.pi / 2.0])
+        self.declare_parameter("output_stamp_mode", "now")
         self.declare_parameter("log_period_sec", 1.0)
 
         self.input_odom_topic = self.get_parameter("input_odom_topic").value
@@ -79,6 +80,14 @@ class PoseFromOdom(Node):
             self.get_parameter("reference_pose_enabled").value
         )
         self.reference_frame_id = self.get_parameter("reference_frame_id").value
+        self.output_stamp_mode = str(
+            self.get_parameter("output_stamp_mode").value
+        ).lower()
+        if self.output_stamp_mode not in {"now", "input"}:
+            self.get_logger().warn(
+                "output_stamp_mode must be 'now' or 'input'; falling back to 'now'"
+            )
+            self.output_stamp_mode = "now"
         self.log_period_sec = float(self.get_parameter("log_period_sec").value)
         self.initial_pose: Pose | None = None
         self.pending_origin_pose: Pose | None = None
@@ -156,8 +165,10 @@ class PoseFromOdom(Node):
             frame_id = self.reference_frame_id
 
         pose_msg = PoseStamped()
-        pose_msg.header = msg.header
         pose_msg.header.frame_id = frame_id
+        pose_msg.header.stamp = msg.header.stamp
+        if self.output_stamp_mode == "now":
+            pose_msg.header.stamp = self.get_clock().now().to_msg()
         pose_msg.pose = pose
         self.pose_pub.publish(pose_msg)
         if self.pose_alias_pub:

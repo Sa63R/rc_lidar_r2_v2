@@ -22,6 +22,21 @@ def blend_angle(previous: float, current: float, alpha: float) -> float:
     return wrap_angle(previous + alpha * wrap_angle(current - previous))
 
 
+def bool_param(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def finite_or_nan(values: list[float], index: int) -> float:
+    if index >= len(values):
+        return math.nan
+    value = float(values[index])
+    return value if math.isfinite(value) else math.nan
+
+
 REASON_CODES = {
     "initial": 0.0,
     "accepted": 1.0,
@@ -34,6 +49,7 @@ REASON_CODES = {
     "stable_hold": 8.0,
     "stable_spike_rejected": 9.0,
     "stable_confirmed_motion": 10.0,
+    "quality_gate": 11.0,
 }
 
 HOLD_STATE_CODES = {
@@ -771,6 +787,29 @@ class PoseStabilityFilter(Node):
         self.log_period_sec = float(
             self.declare_parameter("log_period_sec", 1.0).value
         )
+        self.output_stamp_mode = str(
+            self.declare_parameter("output_stamp_mode", "now").value
+        ).lower()
+        if self.output_stamp_mode not in {"now", "input"}:
+            self.get_logger().warn(
+                "output_stamp_mode must be 'now' or 'input'; falling back to 'now'"
+            )
+            self.output_stamp_mode = "now"
+        self.quality_gate_enabled = bool_param(
+            self.declare_parameter("quality_gate_enabled", True).value
+        )
+        self.quality_topic = str(
+            self.declare_parameter("quality_topic", "/map_lidar/quality").value
+        )
+        self.quality_timeout_sec = float(
+            self.declare_parameter("quality_timeout_sec", 1.0).value
+        )
+        self.quality_max_jump_m = float(
+            self.declare_parameter("quality_max_jump_m", 0.08).value
+        )
+        self.quality_max_fitness = float(
+            self.declare_parameter("quality_max_fitness", 0.20).value
+        )
 
         self.state = PoseFilterState(
             static_alpha=self.static_alpha,
@@ -796,6 +835,8 @@ class PoseStabilityFilter(Node):
         self.last_receive_time: Optional[Time] = None
         self.first_reject_time: Optional[Time] = None
         self.last_log_time = self.get_clock().now()
+        self.latest_quality_time: Optional[Time] = None
+        self.latest_quality: Optional[list[float]] = None
 
         self.pose_pub = self.create_publisher(PoseStamped, self.output_pose_topic, 20)
         self.pose_alias_pub = (
@@ -810,6 +851,14 @@ class PoseStabilityFilter(Node):
             self.pose_callback,
             20,
         )
+        self.quality_sub = None
+        if self.quality_gate_enabled and self.quality_topic:
+            self.quality_sub = self.create_subscription(
+                Float32MultiArray,
+                self.quality_topic,
+                self.quality_callback,
+                20,
+            )
 
         self.get_logger().info(
             f"pose stability filter ready: {self.input_pose_topic} -> {self.output_pose_topic}"
@@ -834,7 +883,11 @@ class PoseStabilityFilter(Node):
             f"stable_return_tolerance={self.state.stable_return_tolerance_m:.3f} "
             f"stable_release_distance={self.state.stable_release_distance_m:.3f} "
             f"stable_window_size={self.stable_window_size} "
-            f"stable_moving_hold_sec={self.stable_moving_hold_sec:.2f}"
+            f"stable_moving_hold_sec={self.stable_moving_hold_sec:.2f} "
+            f"stamp_mode={self.output_stamp_mode} "
+            f"quality_gate={self.quality_gate_enabled} "
+            f"quality_max_jump={self.quality_max_jump_m:.3f} "
+            f"quality_max_fitness={self.quality_max_fitness:.3f}"
         )
 
     def pose_stamp(self, msg: PoseStamped) -> Time:
@@ -842,6 +895,91 @@ class PoseStabilityFilter(Node):
         if stamp.nanoseconds == 0:
             return self.get_clock().now()
         return stamp
+
+    def quality_callback(self, msg: Float32MultiArray) -> None:
+        self.latest_quality_time = self.get_clock().now()
+        self.latest_quality = [float(value) for value in msg.data]
+
+    def quality_gate_reason(self, receive_time: Time) -> str:
+        if not self.quality_gate_enabled or self.latest_quality is None:
+            return ""
+        if self.latest_quality_time is None:
+            return ""
+
+        age_sec = (receive_time - self.latest_quality_time).nanoseconds / 1e9
+        if age_sec > self.quality_timeout_sec:
+            return ""
+
+        values = self.latest_quality
+        accepted = finite_or_nan(values, 0)
+        converged = finite_or_nan(values, 1)
+        fitness = finite_or_nan(values, 2)
+        jump_xy = finite_or_nan(values, 7)
+        reason_code = finite_or_nan(values, 10)
+
+        if math.isfinite(accepted) and accepted < 0.5:
+            return "quality_gate"
+        if math.isfinite(converged) and converged < 0.5:
+            return "quality_gate"
+        if (
+            self.quality_max_fitness > 0.0
+            and math.isfinite(fitness)
+            and fitness > self.quality_max_fitness
+        ):
+            return "quality_gate"
+        if (
+            self.quality_max_jump_m > 0.0
+            and math.isfinite(jump_xy)
+            and jump_xy > self.quality_max_jump_m
+        ):
+            return "quality_gate"
+        if math.isfinite(reason_code) and int(reason_code) != 0:
+            return "quality_gate"
+        return ""
+
+    def quality_gate_result(
+        self,
+        raw: tuple[float, float, float, float, float, float],
+        stamp_sec: float,
+        reason: str,
+    ) -> Optional[FilterResult]:
+        if not reason or self.state.filtered is None or self.state.last_raw is None:
+            return None
+
+        dt = max(stamp_sec - float(self.state.last_stamp_sec or stamp_sec), 1e-3)
+        xy_step = math.hypot(
+            float(raw[0]) - self.state.last_raw[0],
+            float(raw[1]) - self.state.last_raw[1],
+        )
+        speed_xy = xy_step / dt
+        yaw_step = abs(wrap_angle(float(raw[5]) - self.state.last_raw[5]))
+        yaw_rate = yaw_step / dt
+        motion_factor = self.state.motion_factor(speed_xy, yaw_rate)
+
+        self.state.last_raw = (
+            float(raw[0]),
+            float(raw[1]),
+            float(raw[2]),
+            float(raw[3]),
+            float(raw[4]),
+            wrap_angle(float(raw[5])),
+        )
+        self.state.last_stamp_sec = float(stamp_sec)
+        self.state.reject_count += 1
+        self.state.consecutive_rejects += 1
+
+        return FilterResult(
+            self.state.filtered,
+            False,
+            reason,
+            motion_factor,
+            True,
+            xy_step,
+            speed_xy,
+            yaw_rate,
+            0.0,
+            hold_state="holding",
+        )
 
     def pose_callback(self, msg: PoseStamped) -> None:
         receive_time = self.get_clock().now()
@@ -857,7 +995,10 @@ class PoseStabilityFilter(Node):
             yaw,
         )
 
-        result = self.state.update(raw, stamp_sec)
+        gate_reason = self.quality_gate_reason(receive_time)
+        result = self.quality_gate_result(raw, stamp_sec, gate_reason)
+        if result is None:
+            result = self.state.update(raw, stamp_sec)
         if result.recoverable:
             if self.first_reject_time is None:
                 self.first_reject_time = receive_time
@@ -906,13 +1047,15 @@ class PoseStabilityFilter(Node):
         if self.pose_alias_pub:
             self.pose_alias_pub.publish(msg)
 
-    @staticmethod
     def pose_from_tuple(
+        self,
         source: PoseStamped,
         pose: tuple[float, float, float, float, float, float],
     ) -> PoseStamped:
         output = PoseStamped()
         output.header = source.header
+        if self.output_stamp_mode == "now":
+            output.header.stamp = self.get_clock().now().to_msg()
         output.pose.position.x = pose[0]
         output.pose.position.y = pose[1]
         output.pose.position.z = pose[2]
@@ -955,8 +1098,17 @@ class PoseStabilityFilter(Node):
             float(HOLD_STATE_CODES.get(result.hold_state, -1.0)),
             float(result.confirm_count),
             1.0 if result.spike_candidate else 0.0,
+            1.0 if result.reason == "quality_gate" else 0.0,
+            float(self.quality_age_sec()),
+            finite_or_nan(self.latest_quality or [], 2),
+            finite_or_nan(self.latest_quality or [], 7),
         ]
         self.status_pub.publish(status)
+
+    def quality_age_sec(self) -> float:
+        if self.latest_quality_time is None:
+            return math.nan
+        return (self.get_clock().now() - self.latest_quality_time).nanoseconds / 1e9
 
     def log_result(self, result: FilterResult) -> None:
         now = self.get_clock().now()
