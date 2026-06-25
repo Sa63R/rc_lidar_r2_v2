@@ -860,10 +860,31 @@ filter_status_recovered
 - `/map_lidar/quality` 的 `reason_code` 为 `0 accepted, 1 too_few_points, 2 not_converged, 3 bad_fitness`。
 - `RC_MAP_QUALITY_OVERLAP=1` 可临时打开 scan/map 重合率诊断，默认保持 `0`，避免增加 r2 常态负载。
 - 如果低负载无抖动，高负载有尖峰，优先关掉 VS Code、Chromium、QQ、Clash GUI、RViz、PlotJuggler 等非必要负载。
+- Codex 现场调代码时通常必须开 VS Code 和 Clash，有时还会开 QQ、浏览器或 PlotJuggler；这个状态会显著提高 CPU/温度负载，不能直接代表开机 headless 低负载状态。R2 复刻时，判断滤波、TF 或地图质量之前，先做一轮不开 GUI 调试工具的 headless 日志对照。
+- 如果 `/robot/pose` 原始位姿已经出现厘米级跳变，并且 `/map_lidar/quality` 的 `map_quality_jump_xy_m` 或 fitness 同步变差，问题优先看地图匹配/初值/场地结构/负载调度，滤波只能后处理，不能从根上修正错误局部匹配。
+- 如果健康日志 5Hz 且 `health_events.jsonl` 高频刷事件，在高负载现场它本身也可能变成可见开销。排查性能时可临时设置 `RC_HEALTH_MONITOR_INTERVAL=1.0`，并关闭 beta/stable 候选，只保留 normal 链路做基线。
 - `health_monitor_run.json` 启动即写，用于确认本轮 `RUN_REASON` 是 `manual`、`boot` 还是 `can_restart`。
 - `health_monitor_stop.json` 只有正常收到停止信号并收尾时才出现。CAN 重启一般会保留 stop marker；直接断电再开机通常没有上一轮 stop marker。
 - CSV 每行 flush，默认每 5 秒 fsync；summary 使用临时文件原子替换。直接断电时仍可能丢最后几秒数据，但不应影响已经落盘的大部分记录。
 - 健康日志文件默认保留 7 天：`health_monitor.csv`、`health_monitor_summary.json`、`health_monitor_run.json`、`health_monitor_stop.json`、`health_events.jsonl`、`health_event_context.csv`。
+
+低负载基线对照命令：
+
+```bash
+cd "$R2_WS"
+./autostart/stop_all.sh
+
+RC_LIDAR_MODE=relocalization \
+RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
+RC_AUTOSTART_HEADLESS=1 \
+RC_AUTOSTART_PLOTJUGGLER=0 \
+RC_POSE_FILTER_STABLE=0 \
+RC_HEALTH_MONITOR_INTERVAL=1.0 \
+RC_LIDAR_MAP_PATH="<R2 verified small-field map path>" \
+./autostart/start_all_terminals.sh
+```
+
+这条命令用于排查“normal 滤波本身是否可靠”和“地图重定位源头是否已经在跳”。它不降低雷达频率，只减少调试节点和日志压力。
 - 原始运行日志目录也会做保守清理：`logs/autostart/run_*` 默认保留 30 天，并额外保留最近 10 次、`latest` 指向的当前运行、`latest_restart` 指向的最近重启日志。它不会删除 `maps/`、`logs/calibration/`、`report_assets/`，也不会按文件名去删 PCD 或校准报告。
 - 每次一键启动会把原始日志清理结果写到当前运行目录的 `log_cleanup.log`。
 

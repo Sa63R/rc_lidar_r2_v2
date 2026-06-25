@@ -29,7 +29,7 @@ source install/setup.bash
 ros2 run fastlio_world_init rotation_extrinsic_calibrator \
   --duration 40 \
   --rate 50
-   
+
 # Rc 3.4 无头车 TF 树验证：
 # map 是 PCD 地图坐标，Y 正方向是无头车世界正方向。
 # robot_origin 是机器人业务原点，robot_base_highrate 是机器人当前高频中心。
@@ -84,15 +84,6 @@ RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.p
 ./autostart/start_all_terminals.sh
 
 # 确认 stable 更稳且运动不卡顿后，才让 CAN 发送 /robot/pose_filtered_stable
-cd "/home/orangepi/RC_LIDAR_NOW"
-RC_LIDAR_MODE=relocalization \
-RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
-RC_AUTOSTART_HEADLESS=1 \
-RC_AUTOSTART_PLOTJUGGLER=1 \
-RC_POSE_FILTER_STABLE=1 \
-RC_POSE_FILTER_SELECTED=stable \
-RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd" \
-./autostart/start_all_terminals.sh
 
 
 # 如果车确实放回建图开始原点附近：
@@ -157,3 +148,35 @@ RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
 我刚刚重启了两次，现在是第三次的开机，应该此时还有一个正在运行的雷达程序。理论上，现在应该有两个已经新生成的低负载日志和一个正在运行的高负载日志，你帮我判断一下前两次的低负载日志。分析一下具体坐标情况，以及波动情况
 
 我刚刚在静止状态下不同情况低功耗启动了两次。都维持静止，你帮我对比这两次有没有区别？现在是第三次的开机，
+
+
+跑通现在的CAN链路，另外，现在的滤波算法开销很大，除去VSCODE和clash也占满了CPU,先1后2
+
+
+# 调试负载注意
+
+用 Codex 查问题时，通常必须开 VS Code 和 Clash，有时还会开 QQ、浏览器或 PlotJuggler，这会显著提高 CPU/温度负载；低功耗开机自启不会开这些，所以不能直接把 Codex 调试状态下的 2-5cm 抖动当成生产低负载状态。
+
+判断滤波问题时优先做 headless 对照：
+
+cd "/home/orangepi/RC_LIDAR_NOW"
+./autostart/stop_all.sh
+
+RC_LIDAR_MODE=relocalization \
+RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
+RC_AUTOSTART_HEADLESS=1 \
+RC_AUTOSTART_PLOTJUGGLER=0 \
+RC_POSE_FILTER_STABLE=0 \
+RC_HEALTH_MONITOR_INTERVAL=1.0 \
+RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd" \
+./autostart/start_all_terminals.sh
+
+看日志时先分清：
+- /robot/pose 原始位姿是否已经跳；
+- /map_lidar/quality 的 fitness 和 map_quality_jump_xy_m 是否同步变差；
+- /robot/pose_filtered 是否只是被原始位姿拉着走。
+
+
+# temperature
+
+cat

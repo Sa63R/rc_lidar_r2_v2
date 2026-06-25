@@ -606,7 +606,7 @@ PLOTJUGGLER_TF_LAYOUT="$PWD/src/fastlio_world_init/config/tf_compare_plotjuggler
 
 ### 健康日志：温度、负载与定位稳定性
 
-每次一键启动都会默认启动轻量健康日志节点。它不订阅点云，只低频记录机器人位姿 topic、地图匹配质量和系统状态，目的是事后判断“抖动变大”是否和温度、CPU 负载、CPU 频率下降或地图匹配质量有关。
+每次一键启动都会默认启动健康日志节点。它不订阅点云，只记录机器人位姿 topic、地图匹配质量和系统状态，目的是事后判断“抖动变大”是否和温度、CPU 负载、CPU 频率下降或地图匹配质量有关。正常低事件密度时它的开销应远小于 FAST-LIO / map localizer；但如果处在高负载、频繁尖峰、`health_events.jsonl` 持续刷事件的状态，5Hz 日志本身也可能变成不可忽略的 CPU 消耗。做最终性能判断时，优先使用开机 headless 低负载日志，而不是打开 VS Code / Clash / QQ / PlotJuggler 后的现场观察。
 
 最近一次启动的日志路径是：
 
@@ -697,7 +697,32 @@ correlation.load1_vs_stationary_filtered_window_xy_p2p
 correlation.temp_vs_map_quality_jump_xy
 ```
 
-如果温度或 `load1` 上升时，静止窗口峰峰值、`map_quality_jump_xy_m` 也同步上升，并且相关系数明显为正，就说明定位抖动很可能和热/负载相关。这个监测脚本本身很轻量；主要负载通常来自 PlotJuggler、RViz、VS Code、QQ、Clash、桌面环境和定位链路本身。
+如果温度或 `load1` 上升时，静止窗口峰峰值、`map_quality_jump_xy_m` 也同步上升，并且相关系数明显为正，就说明定位抖动很可能和热/负载相关。主要负载通常来自 FAST-LIO、map localizer、PlotJuggler、RViz、VS Code、QQ、Clash、桌面环境和高频诊断节点共同叠加。
+
+调试结论必须区分两种运行环境：
+
+- Codex 现场改代码时通常会同时开 VS Code 和 Clash，有时还会开 QQ、浏览器或 PlotJuggler。这会显著提高 CPU、GPU、内存和温度负载，不能直接代表开机低功耗运行状态。
+- 实车比赛/电控调车的低功耗启动不会开 VS Code、Clash、QQ、RViz、PlotJuggler，负载应明显更低。判断“滤波是否导致定位变差”或“温度是否导致漂移”时，优先看这种 headless 运行留下的 `health_monitor_summary.json` 和 `health_events.jsonl`。
+- 如果只在 Codex 调试状态下看到 2-5cm 抖动，不能马上归因于 TF 或滤波参数；需要拿同一地图、同一启动点、同一静止状态下的 headless 日志做对照。
+- 如果 `/robot/pose` 原始位姿本身已经有 2-3cm 跳变，并且 `/map_lidar/quality` 里的 `map_quality_jump_xy_m` 同时变大，滤波只能后处理，不能从根上消除地图匹配源头的跳动。
+
+低负载对照实验建议：
+
+```bash
+cd "/home/orangepi/RC_LIDAR_NOW"
+./autostart/stop_all.sh
+
+RC_LIDAR_MODE=relocalization \
+RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
+RC_AUTOSTART_HEADLESS=1 \
+RC_AUTOSTART_PLOTJUGGLER=0 \
+RC_POSE_FILTER_STABLE=0 \
+RC_HEALTH_MONITOR_INTERVAL=1.0 \
+RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd" \
+./autostart/start_all_terminals.sh
+```
+
+这条命令不改变雷达频率，只是关掉 PlotJuggler 和 stable 候选滤波，并把健康日志降到 1Hz，用来判断 normal 滤波与地图重定位源头在低负载下的真实表现。需要恢复默认开机生产配置时，使用 `RC_POSE_FILTER_STABLE=1` 和默认 5Hz 健康日志即可。
 
 日志抗断电策略：
 
