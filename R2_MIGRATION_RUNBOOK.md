@@ -185,6 +185,17 @@ arping -I "$R2_LIVOX_IFACE" -c 3 192.168.1.124
 
 ## 4. 适配 r2 CAN 链路
 
+当前 Orange Pi 的 CAN 激活已经包含在一键启动里：`start_all_terminals.sh -> CAN_SERIAL -> serial_driver.sh -> can_setup.sh -> rc_serial_driver`。迁移到 r2 时也应保持这个结构，不要另写一套独立 CAN 启动流程。`can_setup.sh` 会自动检测第一个 `can*` / `slcan*`，并在有免密权限或 udev 自动配置时设置 `1000000` bit/s、`restart-ms 100`、`UP`。
+
+真正免密一键启动依赖一次性系统配置：
+
+```bash
+cd "$R2_WS"
+./autostart/install_one_click_network.sh
+```
+
+这个脚本会安装 USB-CAN udev 规则。之后 USB-CAN 枚举成 `can*` 时会由系统自动拉起 CAN；一键启动时 `can_setup.sh` 只需要检查并复用该接口。如果 r2 没有运行这个脚本，也没有免密 sudo，那么 `can0` 已经 `UP` 时可以继续启动，但 `can0` 存在却未 `UP` 时 `CAN_SERIAL` 会停止，避免卡在 sudo 密码。
+
 插上 USB-CAN 和电控接收端，检测接口：
 
 ```bash
@@ -222,6 +233,8 @@ dmesg --ctime | grep -Ei 'can|peak|pcan|xcan|0c72|usb.*disconnect|error -71|erro
 3. 使用带供电 HUB。
 4. 在另一台 Ubuntu 上运行 `can_setup.sh --check-only` 交叉验证适配器。
 5. 确认接收端供电、CANH/CANL、终端电阻和波特率。
+
+如果 `lsusb` 显示 `0483:df11 STMicroelectronics STM Device in DFU Mode` 或 `STM32 BOOTLOADER`，说明 USB-CAN 处在 BOOT/DFU 模式，不会生成 `can0/can1`。把开关拨回正常 CAN 模式后必须重新插拔或复位，期望看到 `0c72:000c PEAK System PCAN-USB / XCAN-USB`，随后 `ip -details link show type can` 应出现 `can0`。
 
 当前 CAN 报文语义：
 
@@ -902,7 +915,7 @@ ip -details -statistics link show type can
 tail -n 120 logs/autostart/latest/CAN_SERIAL.log
 ```
 
-如果没有 SocketCAN 接口，先处理 USB-CAN 枚举。若 TX 增加但接收端无反应，检查接收端波特率、终端电阻、CANH/CANL 和接收代码。
+如果没有 SocketCAN 接口，先处理 USB-CAN 枚举。若看到 `STM32 BOOTLOADER/DFU`，先拨回正常 CAN 模式并重新插拔。若 TX 增加但接收端无反应，检查接收端波特率、终端电阻、CANH/CANL、接收代码以及接收端是否处于 silent/listen-only 模式。
 
 重定位输出接近 0 但车不在原点：
 

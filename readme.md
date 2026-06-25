@@ -320,6 +320,17 @@ sudo ip link set can0 up
 ip -details -statistics link show can0
 ```
 
+这条 CAN 激活链路已经包含在一键启动里：`start_all_terminals.sh -> CAN_SERIAL -> serial_driver.sh -> can_setup.sh -> rc_serial_driver`。因此正常使用时不需要单独手动启动 CAN；只要 USB-CAN 已经枚举成 `can0/can1`，一键脚本会先检查并拉起 CAN，再启动发送节点。
+
+免密启动依赖两种情况之一：
+
+- 已运行过 `./autostart/install_one_click_network.sh`，安装了 udev 自动配置规则；USB-CAN 插入后会自动设置 `1000000` bit/s、`restart-ms 100` 并 `UP`。
+- 或者系统本身允许当前用户免密执行 `ip link set ...`；这时 `can_setup.sh` 会在启动时重新配置 CAN。
+
+如果当前用户没有免密 sudo，但 `can0` 已经是 `UP`，脚本会继续启动并提示“bitrate was not re-applied”；这次现场测试就是这种情况。如果 `can0` 存在但不是 `UP`，且没有免密权限，`CAN_SERIAL` 会停止启动并提示手动命令，避免弹 sudo 密码卡住一键启动。
+
+USB-CAN 模式也要正确：如果 `lsusb` 看到 `0483:df11 STMicroelectronics STM Device in DFU Mode` 或 `STM32 BOOTLOADER`，说明适配器在 BOOT/DFU 模式，不会生成 `can0`。把开关拨回正常 CAN 模式后需要重新插拔或复位，期望看到 `0c72:000c PEAK System PCAN-USB / XCAN-USB` 和 `can0`。
+
 也可以手动运行：
 
 ```bash
@@ -1366,7 +1377,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
    - 统一通过 `autostart/common_env.sh` 加载当前工作区环境。
    - 去掉旧路径 `/home/rc/...`、`/home/rc2/...`、`~/jwt/...`。
    - `start_all_terminals.sh` 改为自动定位当前 `autostart/`，日志写入本工作区的 `logs/autostart/`。
-   - `serial_driver.sh` 会尝试免密 sudo 拉起 CAN；如果没有权限，会打印手动命令并继续启动节点。
+   - `serial_driver.sh` 会先调用 `can_setup.sh`：有免密权限时自动配置并拉起 CAN；没有免密权限但 CAN 已经 `UP` 时继续启动；没有免密权限且 CAN 未 `UP` 时直接停止 `CAN_SERIAL`，避免一键启动卡在 sudo 密码。
    - `highrate_body.sh` 在缺少 `robot_localization` 时发布 `body -> body_highrate` 静态 TF 作为降级兜底。
 
 4. `src/my_static_tf/launch/lidar_to_base_highrate.launch.py`
@@ -1425,6 +1436,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
    - 新增 CAN 预检和恢复脚本：自动检测 `can*` / `slcan*`，存在时配置 `1000000` bit/s 和 `restart-ms 100`。
    - `start_all_terminals.sh` 会写入 `logs/autostart/latest/can_preflight.txt`。
    - 如果 USB-CAN 没有枚举出任何 CAN 接口，`CAN_SERIAL` 会停止启动并在日志里提示重插、换 USB 口或带供电 HUB。
+   - 明确 CAN 激活已经包含在一键启动链路中；真正免密依赖 `install_one_click_network.sh` 安装的 udev 自动配置，或系统已有免密 `sudo`。如果 USB-CAN 仍显示 `STM32 BOOTLOADER/DFU`，需要拨回正常 CAN 模式并重新插拔。
    - `rc_serial_driver` 发给电控的 CAN 坐标为 `X右/Y前/Z上`。tracking 模式默认使用 TF，relocalization 模式默认使用 `/robot/pose_filtered`，不再悄悄 fallback 到旧 TF 链路。
 
 16. `autostart/install_one_click_network.sh`
