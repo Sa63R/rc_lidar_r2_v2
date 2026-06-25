@@ -25,7 +25,7 @@ def generate_launch_description():
     raw_odom_yaw_topic = os.environ.get('RC_CAN_RAW_ODOM_YAW_TOPIC', '/Odometry')
     raw_odom_yaw_timeout_sec = float(os.environ.get('RC_CAN_RAW_ODOM_YAW_TIMEOUT_SEC', '0.5'))
     raw_odom_yaw_strict = env_bool('RC_CAN_RAW_ODOM_YAW_STRICT', '1')
-    raw_odom_yaw_offset_rad = float(os.environ.get('RC_CAN_RAW_ODOM_YAW_OFFSET_RAD', '3.141592653589793'))
+    raw_odom_yaw_offset_rad = float(os.environ.get('RC_CAN_RAW_ODOM_YAW_OFFSET_RAD', '0.0'))
     raw_odom_yaw_ignore_quality_gate = env_bool('RC_CAN_RAW_ODOM_YAW_IGNORE_READY_GATE', '1')
     quality_gate_enabled = env_bool('RC_CAN_REQUIRE_READY', '0')
     quality_topic = os.environ.get('RC_CAN_READY_QUALITY_TOPIC', '/map_lidar/quality')

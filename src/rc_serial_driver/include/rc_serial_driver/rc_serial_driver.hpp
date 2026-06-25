@@ -70,7 +70,7 @@ private:
   bool raw_odom_yaw_ignore_quality_gate_{true};
   std::string raw_odom_yaw_topic_;
   double raw_odom_yaw_timeout_sec_{0.5};
-  double raw_odom_yaw_offset_rad_{3.141592653589793};
+  double raw_odom_yaw_offset_rad_{0.0};
   std::mutex raw_odom_yaw_mutex_;
   nav_msgs::msg::Odometry::SharedPtr latest_raw_odom_yaw_;
   rclcpp::Time latest_raw_odom_yaw_wall_time_;

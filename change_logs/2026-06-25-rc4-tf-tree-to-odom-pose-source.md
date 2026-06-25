@@ -624,6 +624,30 @@ RC_CAN_RAW_ODOM_YAW_OFFSET_RAD=1.5707963267948966
 RC_CAN_USE_RAW_ODOM_YAW=0
 ```
 
+## Rc 4.14: raw odom CAN yaw offset reset to zero
+
+继续梳理后，用户意识到：如果电控需要的是“原始 odom yaw 的旋转角”，并且 `/Odometry` 与电控都按逆时针为正，那么雷达轴和车体轴之间的固定夹角不一定需要作为 yaw offset 加到 CAN。对 yaw 来说，刚体上任意一根固定轴的旋转增量相同；如果电控只关心旋转角/偏角，最直接的验证方式就是发原始 yaw。
+
+因此 Rc 4.14 把 raw odom CAN yaw 偏置改回 0：
+
+```bash
+RC_CAN_RAW_ODOM_YAW_OFFSET_RAD=0.0
+```
+
+当前 CAN yaw 公式为：
+
+```text
+yaw_can = wrap(yaw_from_/Odometry)
+```
+
+保留参数是为了现场继续试错。如果之后确认电控需要绝对零点偏置，不改代码也可以覆盖：
+
+```bash
+RC_CAN_RAW_ODOM_YAW_OFFSET_RAD=1.5707963267948966
+# 或
+RC_CAN_RAW_ODOM_YAW_OFFSET_RAD=3.141592653589793
+```
+
 ## Appendix: User Questions And Constraints
 
 以下内容按时间顺序整理本次大改相关的用户侧问题、判断和约束。重复发送的同一问题已合并；长启动命令、截图和终端日志只保留摘要。
@@ -755,3 +779,5 @@ RC_CAN_USE_RAW_ODOM_YAW=0
 43. 用户确认修改范围：“只改 yaw，如果没问题，打上 tag，然后改吧。”因此本次先打 tag `before-can-raw-odom-yaw-20260626`，再实现 `RC_CAN_USE_RAW_ODOM_YAW=1` 默认启用的 raw odom yaw CAN 输出。
 
 44. 用户随后怀疑 `+90°` 不够，并说明：“现在 ODOM 的 Y 指向地图的右方，但是我要它指向车的前方，所以理论上应该再转个 90°。”因此 Rc 4.13 把 raw odom CAN yaw 默认偏置从 `+pi/2` 改为 `+pi`，只影响 CAN yaw 字段，不改 TF 和 `/robot/pose`。
+
+45. 用户进一步追问“旋转 Odom 的意义是什么”，并确认如果电控只需要 `/Odometry` 的原始 yaw 旋转角，且正方向一致，那么不应该额外加零点偏置。用户要求“那就改回 0”，因此 Rc 4.14 将 `RC_CAN_RAW_ODOM_YAW_OFFSET_RAD` 默认值改成 `0.0`。

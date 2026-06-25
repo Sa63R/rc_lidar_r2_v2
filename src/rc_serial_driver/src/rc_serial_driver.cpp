@@ -244,7 +244,7 @@ void RCSerialDriver::getParams()
   raw_odom_yaw_timeout_sec_ = declare_parameter<double>("raw_odom_yaw_timeout_sec", 0.5);
   raw_odom_yaw_strict_ = declare_parameter<bool>("raw_odom_yaw_strict", true);
   raw_odom_yaw_offset_rad_ = declare_parameter<double>(
-    "raw_odom_yaw_offset_rad", 3.141592653589793);
+    "raw_odom_yaw_offset_rad", 0.0);
   raw_odom_yaw_ignore_quality_gate_ = declare_parameter<bool>(
     "raw_odom_yaw_ignore_quality_gate", true);
   quality_gate_enabled_ = declare_parameter<bool>("quality_gate_enabled", false);
