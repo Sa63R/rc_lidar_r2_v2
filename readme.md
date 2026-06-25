@@ -736,6 +736,8 @@ RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.p
 - 原始运行日志目录也会做保守清理：`logs/autostart/run_*` 默认保留 30 天，并额外保留最近 10 次、`latest` 指向的当前运行、`latest_restart` 指向的最近重启日志。它不会删除 `maps/`、`logs/calibration/`、`report_assets/`，也不会按文件名去删 PCD 或校准报告。
 - 每次一键启动会把原始日志清理结果写到当前运行目录的 `log_cleanup.log`。
 
+如果 `HEALTH_MONITOR.log` 里出现 `ModuleNotFoundError: No module named 'rclpy._rclpy_pybind11'`，优先检查是不是 conda/miniconda 把 `python3` 指到了非 ROS 版本。ROS 2 Humble 使用系统 Python 3.10；Miniconda Python 3.13 会导致 `rclpy` 导入失败。当前 `autostart/common_env.sh` 会在雷达启动脚本里清理 conda 相关环境变量并优先使用系统 Python，避免手动终端的 `(base)` 环境污染雷达链路。如果新开终端反复出现 `Ignoring configuration file ~/.condarc`，通常是 `~/.condarc` 损坏；先备份坏文件，再写入最小配置 `auto_activate_base: false`，不要在 `.bashrc` 里每次启动都执行 `conda config --set auto_activate false`。
+
 可调参数：
 
 ```bash

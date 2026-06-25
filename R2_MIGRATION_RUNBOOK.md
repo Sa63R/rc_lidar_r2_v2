@@ -951,6 +951,17 @@ tail -n 120 logs/autostart/latest/CAN_SERIAL.log
 
 如果没有 SocketCAN 接口，先处理 USB-CAN 枚举。若看到 `STM32 BOOTLOADER/DFU`，先拨回正常 CAN 模式并重新插拔。若 TX 增加但接收端无反应，检查接收端波特率、终端电阻、CANH/CANL、接收代码以及接收端是否处于 silent/listen-only 模式。
 
+健康日志或 ROS Python 节点报 `rclpy._rclpy_pybind11`：
+
+```bash
+command -v python3
+python3 --version
+echo "$CONDA_PREFIX"
+tail -n 120 logs/autostart/latest/HEALTH_MONITOR.log
+```
+
+ROS 2 Humble 应使用系统 Python 3.10。如果 r2 机器装过 conda/miniconda，且终端默认进入 `(base)` 或 `python3` 指向 conda，就可能导致 `rclpy` 导入失败。迁移时保留当前仓库的 `autostart/common_env.sh` conda 隔离逻辑；它会在雷达启动脚本里清理 conda 环境并优先使用系统 Python。若新开终端反复提示 `Ignoring configuration file ~/.condarc`，通常是用户目录的 `.condarc` 损坏；先备份，再写入最小合法配置 `auto_activate_base: false`，不要在 `.bashrc` 每次启动时反复执行 `conda config --set auto_activate false`。
+
 重定位输出接近 0 但车不在原点：
 
 ```bash
