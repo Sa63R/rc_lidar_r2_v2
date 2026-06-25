@@ -21,8 +21,6 @@ TOPICS=()
 if [ "${RC_LIDAR_MODE:-tracking}" = "relocalization" ]; then
   TOPICS+=(
     "/robot/pose"
-    "/Odometry"
-    "/high_frequency_odometry"
     "/map_lidar/quality"
     "/lidar/pose_filter/status"
     "/robot/yaw_fusion/status"

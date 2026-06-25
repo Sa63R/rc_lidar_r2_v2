@@ -860,11 +860,6 @@ public:
         this->declare_parameter<bool>("publish.scan_publish_en", true);
         this->declare_parameter<bool>("publish.dense_publish_en", true);
         this->declare_parameter<bool>("publish.scan_bodyframe_pub_en", true);
-        this->declare_parameter<bool>("publish.high_frequency_odometry_en", true);
-        this->declare_parameter<string>("publish.high_frequency_odometry_topic", "/high_frequency_odometry");
-        this->declare_parameter<double>("publish.high_frequency_odometry_rate", 200.0);
-        this->declare_parameter<string>("publish.high_frequency_odometry_frame_id", "camera_init");
-        this->declare_parameter<string>("publish.high_frequency_odometry_child_frame_id", "body_highrate");
         this->declare_parameter<int>("max_iteration", 4);
         this->declare_parameter<string>("map_file_path", "");
         this->declare_parameter<string>("common.lid_topic", "/livox/lidar");
@@ -901,31 +896,6 @@ public:
         this->get_parameter_or<bool>("publish.scan_publish_en", scan_pub_en, true);
         this->get_parameter_or<bool>("publish.dense_publish_en", dense_pub_en, true);
         this->get_parameter_or<bool>("publish.scan_bodyframe_pub_en", scan_body_pub_en, true);
-        bool high_frequency_odometry_en = true;
-        string high_frequency_odometry_topic = "/high_frequency_odometry";
-        double high_frequency_odometry_rate = 200.0;
-        string high_frequency_odometry_frame_id = "camera_init";
-        string high_frequency_odometry_child_frame_id = "body_highrate";
-        this->get_parameter_or<bool>(
-            "publish.high_frequency_odometry_en",
-            high_frequency_odometry_en,
-            true);
-        this->get_parameter_or<string>(
-            "publish.high_frequency_odometry_topic",
-            high_frequency_odometry_topic,
-            "/high_frequency_odometry");
-        this->get_parameter_or<double>(
-            "publish.high_frequency_odometry_rate",
-            high_frequency_odometry_rate,
-            200.0);
-        this->get_parameter_or<string>(
-            "publish.high_frequency_odometry_frame_id",
-            high_frequency_odometry_frame_id,
-            "camera_init");
-        this->get_parameter_or<string>(
-            "publish.high_frequency_odometry_child_frame_id",
-            high_frequency_odometry_child_frame_id,
-            "body_highrate");
         this->get_parameter_or<int>("max_iteration", NUM_MAX_ITERATIONS, 4);
         this->get_parameter_or<string>("map_file_path", map_file_path, "");
         this->get_parameter_or<string>("common.lid_topic", lid_topic, "/livox/lidar");
@@ -1018,25 +988,6 @@ public:
         pubLaserCloudEffect_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/cloud_effected", 20);
         pubLaserCloudMap_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/Laser_map", 20);
         pubOdomAftMapped_ = this->create_publisher<nav_msgs::msg::Odometry>("/Odometry", 20);
-        pubHighFrequencyOdom_ = this->create_publisher<nav_msgs::msg::Odometry>(
-            high_frequency_odometry_topic,
-            200);
-        const double high_frequency_odometry_min_period =
-            high_frequency_odometry_rate > 0.0 ? 1.0 / high_frequency_odometry_rate : 0.0;
-        p_imu->set_high_frequency_odometry_publisher(
-            pubHighFrequencyOdom_,
-            high_frequency_odometry_en,
-            high_frequency_odometry_min_period,
-            high_frequency_odometry_frame_id,
-            high_frequency_odometry_child_frame_id);
-        RCLCPP_INFO(
-            this->get_logger(),
-            "High frequency odometry: %s topic=%s rate_limit=%.1fHz frame=%s child=%s",
-            high_frequency_odometry_en ? "enabled" : "disabled",
-            high_frequency_odometry_topic.c_str(),
-            high_frequency_odometry_rate,
-            high_frequency_odometry_frame_id.c_str(),
-            high_frequency_odometry_child_frame_id.c_str());
         pubPath_ = this->create_publisher<nav_msgs::msg::Path>("/path", 20);
         tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
 
@@ -1250,7 +1201,6 @@ private:
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pubLaserCloudEffect_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pubLaserCloudMap_;
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pubOdomAftMapped_;
-    rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pubHighFrequencyOdom_;
     rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr pubPath_;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr sub_imu_;
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_pcl_pc_;
