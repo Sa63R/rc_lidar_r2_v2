@@ -21,6 +21,7 @@ RC_AUTOSTART_HEADLESS=1 \
 RC_AUTOSTART_PLOTJUGGLER=1 \
 RC_AUTOSTART_CANFD=1 \
 RC_CAN_DEBUG_CSV=1 \
+FASTLIO_RVIZ=true \
 RC_LIDAR_MAP_PATH="/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/mid360_map_20260625_005422.pcd" \
 ./autostart/start_all_terminals.sh
 
