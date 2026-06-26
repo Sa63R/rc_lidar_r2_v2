@@ -7,14 +7,14 @@ LOG_ROOT="${RC_LIDAR_LOG_ROOT:-$WORKSPACE_DIR/logs/autostart}"
 RESTART_LOG_DIR="$LOG_ROOT/restart"
 mkdir -p "$RESTART_LOG_DIR"
 
-RESTART_ID="$(date +%Y%m%d_%H%M%S)_can"
-LOG="$RESTART_LOG_DIR/restart_${RESTART_ID}.log"
-ln -sfn "$LOG" "$LOG_ROOT/latest_restart"
-
 LOCK="/tmp/rc_lidar_restart.lock"
 
 exec 9>"$LOCK"
 flock -n 9 || exit 0
+
+RESTART_ID="$(date +%Y%m%d_%H%M%S)_can"
+LOG="$RESTART_LOG_DIR/restart_${RESTART_ID}.log"
+ln -sfn "$LOG" "$LOG_ROOT/latest_restart"
 
 kill_pid_safely() {
   local pid="$1"
@@ -196,6 +196,11 @@ close_terminal_windows_by_title() {
 
   echo "[4/5] starting new stack..."
   cd "$DIR"
+
+  # Do not let the new LiDAR stack inherit the restart flock fd. If this fd is
+  # inherited by long-running ROS nodes, later CAN restart requests can never
+  # acquire the lock even though the restart script has already finished.
+  exec 9>&-
 
   RUN_REASON="can_restart" \
     RC_LIDAR_MODE="${RC_LIDAR_MODE:-relocalization}" \

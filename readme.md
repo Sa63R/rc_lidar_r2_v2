@@ -1682,6 +1682,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
    - Rc 4.21 起，CAN 当前调车默认进一步切到 `RC_CAN_POSE_SOURCE=raw_odom`，`0x12` 的 x/y 和 `0x13` 的 z/yaw 都来自 FAST-LIO `/Odometry`，不再只替换 yaw。
    - Rc 4.22 起，`rc_serial_driver` 发布 `/rc_serial_driver/can_pose_debug`，一键启动的 `CAN_MONITOR` 可实时打印 CAN 节点实际准备发送的 x/y/z/yaw；手动启动且有图形界面时默认打开，开机和 CAN 自动重启默认不弹窗口。
    - Rc 4.23 起，`raw_odom` CAN 默认不再裸发雷达原点 `/Odometry`，而是把 `/Odometry` 当作 `camera_init -> body`，套用当前 `body -> robot_base` 外参并减去 `robot_origin`，得到机器人中心业务坐标。可用 `RC_CAN_RAW_ODOM_APPLY_ROBOT_EXTRINSIC=0` 临时回退裸 `/Odometry`。
+   - Rc 4.24 修复 CAN 自动重启只能成功第一次的问题：`restart_lidar_stack.sh` 在成功拿到 `/tmp/rc_lidar_restart.lock` 后才更新 `latest_restart`，并且在 `nohup start_all_terminals.sh` 前关闭 flock 文件描述符，避免新启动的 ROS 长进程继承重启锁。否则第一次 CAN 重启成功后，后续第二、第三次 CAN 重启会因为锁被旧栈持有而直接退出。
    - Rc 4.20 新增并行连续位姿链路 `continuous_robot_pose`，默认只在 `RC_LIDAR_MODE=relocalization` 时启动，输出 `/robot/pose_continuous`、`/robot/odom_continuous` 和 `/robot/pose_continuous/status`。它不直接使用 `/map_lidar/odom` 的阶梯 pose 作为控制位姿，而是用 `/map_lidar/odom` 与同时间附近的 FAST-LIO `/Odometry` 反推并平滑更新 `map -> camera_init` 校正，再用最新 `/Odometry` 连续发布机器人业务位姿。默认不替换 `/robot/pose`、`/robot/pose_filtered` 或 CAN；如果要临时让 CAN 试这条链路，显式设置 `RC_CAN_POSE_TOPIC=/robot/pose_continuous`，yaw 仍按当前 raw odom yaw 策略单独发送。
 
 21. `autostart/start_mapping_terminals.sh`、`autostart/save_fast_lio_map.sh`、`autostart/map_localizer.sh`、`autostart/pose_interface_mapping.sh`、`autostart/pose_interface_relocalization.sh`、`autostart/pose_stability_filter.sh`

@@ -422,6 +422,8 @@ CAN 重启脚本也应保持同样默认策略：
 grep -n "RC_LIDAR_MODE\\|RC_CAN_POSE_TOPIC\\|RC_HEALTH_MONITOR" autostart/restart_lidar_stack.sh
 ```
 
+重启脚本必须避免把 `/tmp/rc_lidar_restart.lock` 的 flock 文件描述符传给新雷达栈。正确结构是：先 `flock -n` 成功，再创建本次 `restart_*.log` 和更新 `latest_restart`，最后在 `nohup start_all_terminals.sh` 前执行 `exec 9>&-`。否则第一次 CAN 重启会成功，但新启动的 ROS 长进程会继承锁，第二、第三次 CAN 重启脚本拿不到锁就直接退出，看起来像电控重启命令失效。迁移到 r2 后可用 `flock -n /tmp/rc_lidar_restart.lock -c 'echo restart_lock_free'` 验证当前运行栈没有占住重启锁。
+
 Orange Pi 当前生产默认已经固定为小场地图 `/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd`，不开 PlotJuggler，ready 只写 json 不弹窗口，并默认不启动 stable 候选滤波。CAN 目前为电控调车临时默认整包发送 FAST-LIO 原始 `/Odometry`：`RC_CAN_POSE_SOURCE=raw_odom`、`RC_CAN_RAW_ODOM_POSE_TOPIC=/Odometry`、`RC_CAN_RAW_ODOM_POSE_STRICT=1`、`RC_CAN_RAW_ODOM_POSE_YAW_OFFSET_RAD=0.0`，且默认 `RC_CAN_REQUIRE_READY=0` 不等待 quality ready。R2 不能照搬这个绝对路径，但如果也是为了先调电控，可以采用同样 raw odom 策略；如果要回到地图坐标控制，应显式设置 `RC_CAN_POSE_SOURCE=pose_topic RC_CAN_POSE_TOPIC=/robot/pose_filtered`。
 
 ## 6. 建图、保存地图和地图质量
