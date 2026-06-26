@@ -270,7 +270,7 @@ RC_CAN_READY_MIN_ACCEPTS=5
 
 当前 Orange Pi 默认关闭 CAN ready gate：`RC_CAN_REQUIRE_READY=0`。这表示 CAN 不再等待 `/map_lidar/quality` 连续 accepted/converged 才发送，便于现场验证电控链路和避免 quality gate 对控制造成冻结。迁移到 R2 时如果更重视启动早期安全保护，可以设回 `RC_CAN_REQUIRE_READY=1`，让 CAN 在地图质量稳定后再发。
 
-Orange Pi Rc 4.21 起，为了方便电控调车，CAN 默认整包直接读取 FAST-LIO 原始 `/Odometry`：`0x12` 的 `x/y` 和 `0x13` 的 `z/yaw` 都不经过 map localizer、`/robot/pose_filtered`、TF 查询或滤波门控。R2 迁移时要明确这只是现场调车策略：它实时、简单、便于电控排查，但不是全局地图坐标，也没有雷达到机器人中心外参补偿。若 R2 要回到上一版地图/滤波位置 + raw odom yaw 的结构，设置 `RC_CAN_POSE_SOURCE=pose_topic RC_CAN_POSE_TOPIC=/robot/pose_filtered RC_CAN_USE_RAW_ODOM_YAW=1`。
+Orange Pi Rc 4.23 起，为了方便电控调车，CAN 默认整包读取 FAST-LIO `/Odometry` 后套用 `body -> robot_base` 外参和 `robot_origin` 参考位姿：`0x12` 的 `x/y` 和 `0x13` 的 `z/yaw` 是由原始 odom 推出来的机器人中心业务坐标，不经过 map localizer、`/robot/pose_filtered`、TF 查询或滤波门控。R2 迁移时要明确这只是现场调车策略：它实时、简单、便于电控排查，但不是 map localizer 校正后的全局坐标。若 R2 要回到上一版地图/滤波位置 + raw odom yaw 的结构，设置 `RC_CAN_POSE_SOURCE=pose_topic RC_CAN_POSE_TOPIC=/robot/pose_filtered RC_CAN_USE_RAW_ODOM_YAW=1`。
 
 Orange Pi Rc 4.10 起，`RC_CAN_YAW_IGNORE_READY_GATE=1` 是融合 yaw 的默认值；Rc 4.12 的 raw odom yaw 对应 `RC_CAN_RAW_ODOM_YAW_IGNORE_READY_GATE=1`。当 `/map_lidar/quality` 短暂不 ready 时，CAN 不再整包冻结，而是继续发送 `0x13` 的最新 yaw；`0x12` 的 x/y 仍被 ready gate 挡住。迁移到 R2 时建议保留这个默认值，用来避免无头车旋转时因为地图质量短暂波动而航向冻结。
 

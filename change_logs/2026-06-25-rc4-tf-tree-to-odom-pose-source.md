@@ -842,6 +842,35 @@ CAN #000123 x=...m y=...m z=...m yaw=...rad yaw=...deg xy_sent=1
 
 这个监视器不直接猜 `/Odometry`、`/robot/pose` 或 `/robot/pose_filtered`，而是订阅 CAN 节点自己发布的打包前数据，因此更接近“实际发给电控的 x/y/yaw”。
 
+## Rc 4.23: raw odom CAN packet applies robot-center extrinsic
+
+用户继续纠正 Rc 4.21 的语义：CAN 不能裸发雷达 `/Odometry` 的 x/y/yaw，而应该“仿照 map localizer 的写法”，把 FAST-LIO `/Odometry` 当作雷达 `camera_init -> body` 位姿，再套当前同一组 `body -> robot_base` 外参，并减去 `robot_origin` 参考位姿，得到机器人中心相对机器人业务原点的坐标。
+
+因此 `RC_CAN_POSE_SOURCE=raw_odom` 的默认行为改为：
+
+```text
+/Odometry
+  -> apply body -> robot_base extrinsic
+  -> subtract robot_origin reference
+  -> CAN 0x12 x/y, CAN 0x13 z/yaw
+```
+
+新增/记录参数：
+
+```text
+RC_CAN_RAW_ODOM_APPLY_ROBOT_EXTRINSIC=1
+raw_odom_lidar_to_base_xyz=[-0.240, 0.287302, -0.760]
+raw_odom_lidar_to_base_rpy=[0.0, 0.0, pi/2]
+raw_odom_reference_xyz=[-0.240, 0.287302, -0.760]
+raw_odom_reference_rpy=[0.0, 0.0, pi/2]
+```
+
+这个改动保持“不经过 map localizer、不经过滤波、不经过 TF 查询”的低延迟调车目标，但 CAN 输出不再是雷达原点，而是机器人中心业务坐标。需要临时回退裸 `/Odometry` 时，可设置：
+
+```text
+RC_CAN_RAW_ODOM_APPLY_ROBOT_EXTRINSIC=0
+```
+
 ## Appendix: User Questions And Constraints
 
 以下内容按时间顺序整理本次大改相关的用户侧问题、判断和约束。重复发送的同一问题已合并；长启动命令、截图和终端日志只保留摘要。
@@ -983,3 +1012,5 @@ CAN #000123 x=...m y=...m z=...m yaw=...rad yaw=...deg xy_sent=1
 48. 基于这个澄清，CAN 不能只做 raw odom yaw override，而要让 `0x12` 的 x/y 和 `0x13` 的 z/yaw 都来自 FAST-LIO `/Odometry`。旧的 `/robot/pose_filtered` 和 TF 链路保留为可手动回退路径，但默认调车链路切到 `RC_CAN_POSE_SOURCE=raw_odom`。
 
 49. 用户要求：“一键启动的时候除了参数控制的启动 PlotJuggler，还要启动一个终端实时打印发给 CAN 的 xy 和 yaw 的内容方便我观察。”因此新增 `CAN_MONITOR`，打印源使用 `rc_serial_driver` 自己发布的 `/rc_serial_driver/can_pose_debug`，避免误把上游 topic 当成实际 CAN payload。
+
+50. 用户纠正前述 raw odom CAN 语义：“我说的是你发给 CAN 的数据，不是打印脚本；发给 CAN 的是用 odom 变换得到的机器人坐标。”随后进一步说明：“就仿照 map localizer 的写法就行。”因此 Rc 4.23 把 `RC_CAN_POSE_SOURCE=raw_odom` 从“裸发雷达 `/Odometry`”改成“用 FAST-LIO `/Odometry` 套机器人中心外参并减去 `robot_origin` 后再发 CAN”。

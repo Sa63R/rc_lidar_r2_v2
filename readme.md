@@ -241,6 +241,7 @@ RC_CAN_POSE_TOPIC=/robot/pose_filtered
 RC_CAN_RAW_ODOM_POSE_TOPIC=/Odometry
 RC_CAN_RAW_ODOM_POSE_STRICT=1
 RC_CAN_RAW_ODOM_POSE_YAW_OFFSET_RAD=0.0
+RC_CAN_RAW_ODOM_APPLY_ROBOT_EXTRINSIC=1
 RC_CAN_USE_YAW_POSE_TOPIC=0
 RC_CAN_USE_RAW_ODOM_YAW=0
 RC_CAN_RAW_ODOM_YAW_TOPIC=/Odometry
@@ -253,7 +254,7 @@ RC_READY_NOTIFY=1
 RC_READY_NOTIFY_POPUP=0
 ```
 
-也就是说，开机后会自动用当前已验证的小场地图 `maps/mid360_map_20260625_064655.pcd` 做重定位，启动 TF、Livox、FAST-LIO、地图匹配、位姿接口、normal 位姿滤波、CAN 和健康日志等核心链路；但当前为了方便电控调车，CAN 默认整包直接读取 FAST-LIO 原始 `/Odometry`，`0x12` 的 `x/y` 和 `0x13` 的 `z/yaw` 都不经过 map localizer、`/robot/pose_filtered`、TF 拼接或滤波门控。`RC_CAN_RAW_ODOM_POSE_YAW_OFFSET_RAD=0.0`，也就是 yaw 不额外旋转或加偏置。stable 候选滤波默认不启动，后续需要对比时再手动设置 `RC_POSE_FILTER_STABLE=1`。开机自启不会弹 RViz/PlotJuggler 界面，也不会弹 ready 终端窗口，只写 `relocalization_ready.json`；即使没有外接显示器也应能走 headless 后台启动。TF 对比发布节点和点云调试打印也会随 PlotJuggler/headless 策略默认跳过，避免香橙派 CPU 被调试工具抢走。需要临时开图形调试时，手动运行一键脚本并覆盖这些环境变量即可。
+也就是说，开机后会自动用当前已验证的小场地图 `maps/mid360_map_20260625_064655.pcd` 做重定位，启动 TF、Livox、FAST-LIO、地图匹配、位姿接口、normal 位姿滤波、CAN 和健康日志等核心链路；但当前为了方便电控调车，CAN 默认整包读取 FAST-LIO `/Odometry` 后套用同一组 `body -> robot_base` 外参和 `robot_origin` 参考位姿，输出机器人中心业务坐标。`0x12` 的 `x/y` 和 `0x13` 的 `z/yaw` 不经过 map localizer、`/robot/pose_filtered`、TF 查询或滤波门控。`RC_CAN_RAW_ODOM_POSE_YAW_OFFSET_RAD=0.0`，也就是 yaw 不额外旋转或加偏置。stable 候选滤波默认不启动，后续需要对比时再手动设置 `RC_POSE_FILTER_STABLE=1`。开机自启不会弹 RViz/PlotJuggler 界面，也不会弹 ready 终端窗口，只写 `relocalization_ready.json`；即使没有外接显示器也应能走 headless 后台启动。TF 对比发布节点和点云调试打印也会随 PlotJuggler/headless 策略默认跳过，避免香橙派 CPU 被调试工具抢走。需要临时开图形调试时，手动运行一键脚本并覆盖这些环境变量即可。
 
 检查开机自启是否触发：
 
@@ -333,9 +334,10 @@ RC_CAN_POSE_SOURCE=raw_odom
 RC_CAN_RAW_ODOM_POSE_TOPIC=/Odometry
 RC_CAN_RAW_ODOM_POSE_STRICT=1
 RC_CAN_RAW_ODOM_POSE_YAW_OFFSET_RAD=0.0
+RC_CAN_RAW_ODOM_APPLY_ROBOT_EXTRINSIC=1
 ```
 
-也就是说，电控收到的是 FAST-LIO 原始雷达 odom 的 `x/y/z/yaw`，不经过 map localizer、不经过 `/robot/pose_filtered`、不经过 TF 查询和滤波门控。如果 `/Odometry` 没有刷新，CAN 会暂停发送，不会悄悄退回旧 TF 或旧滤波链路，避免调车时坐标来源混乱。这个模式用于电控验证原始 odom 控制手感；它不是全局地图坐标，也没有包含雷达到机器人中心的外参补偿。
+也就是说，电控收到的是由 FAST-LIO `/Odometry` 推出来的机器人中心业务坐标：先把 `/Odometry` 当作 `camera_init -> body`，再套 `body -> robot_base` 外参，最后减去 `robot_origin`。它不经过 map localizer、不经过 `/robot/pose_filtered`、不经过 TF 查询和滤波门控。如果 `/Odometry` 没有刷新，CAN 会暂停发送，不会悄悄退回旧 TF 或旧滤波链路，避免调车时坐标来源混乱。这个模式用于电控验证原始 odom 控制手感；它不是 map localizer 校正后的全局坐标，但已经包含雷达到机器人中心的外参补偿。
 
 CAN 帧格式保持不变：
 
@@ -1038,16 +1040,17 @@ ros2 topic echo /lidar/pose_filter/status --once
 ros2 topic echo /lidar/point --once
 ```
 
-重定位模式下，当前 CAN 默认直接使用 FAST-LIO 原始 `/Odometry` 作为整包来源：
+重定位模式下，当前 CAN 默认使用 FAST-LIO `/Odometry` 推算机器人中心业务坐标作为整包来源：
 
 ```text
 pose_source=raw_odom
 raw_odom_pose_topic=/Odometry
 raw_odom_pose_strict=true
 raw_odom_pose_yaw_offset=0.0
+raw_odom_apply_robot_extrinsic=true
 ```
 
-Rc 4.21 起，按电控现场要求，CAN 的 `x/y/z/yaw` 都直接从 FAST-LIO 原始 `/Odometry` 读取；这不是 `/map_lidar/odom`，也不是地图重定位后的 `/robot/pose_filtered`。该模式用于临时验证电控调车手感，完全绕开 map localizer、pose filter、TF 查询和 yaw fusion：
+Rc 4.23 起，按电控现场要求，CAN 的 `x/y/z/yaw` 都从 FAST-LIO `/Odometry` 推算，但默认会套用机器人中心外参：`/Odometry` 只作为雷达 `body` 的连续局部位姿，CAN 输出仍是机器人中心相对 `robot_origin` 的业务坐标。这不是 `/map_lidar/odom`，也不是地图重定位后的 `/robot/pose_filtered`。该模式用于临时验证电控调车手感，完全绕开 map localizer、pose filter、TF 查询和 yaw fusion：
 
 ```text
 RC_CAN_POSE_SOURCE=raw_odom
@@ -1055,6 +1058,7 @@ RC_CAN_RAW_ODOM_POSE_TOPIC=/Odometry
 RC_CAN_RAW_ODOM_POSE_TIMEOUT_SEC=0.5
 RC_CAN_RAW_ODOM_POSE_STRICT=1
 RC_CAN_RAW_ODOM_POSE_YAW_OFFSET_RAD=0.0
+RC_CAN_RAW_ODOM_APPLY_ROBOT_EXTRINSIC=1
 RC_CAN_USE_RAW_ODOM_YAW=0
 RC_CAN_USE_YAW_POSE_TOPIC=0
 ```
@@ -1675,8 +1679,9 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
    - Rc 4.9 起，CAN 的 yaw 单独读取 `/robot/pose`，而 x/y/z 仍读取当前 `RC_CAN_POSE_TOPIC`，默认 `/robot/pose_filtered`。这样电控仍拿到滤波后的稳定位置，但航向角直接使用 Rc 4.8 的低延迟融合 yaw。相关开关为 `RC_CAN_USE_YAW_POSE_TOPIC`、`RC_CAN_YAW_POSE_TOPIC`、`RC_CAN_YAW_POSE_TOPIC_STRICT`。
    - Rc 4.10 起，CAN yaw 默认不再被 `/map_lidar/quality` ready gate 冻住：`RC_CAN_YAW_IGNORE_READY_GATE=1`。quality 不 ready 时，`0x12` 的 x/y 不发，`0x13` 继续发最新 yaw，并沿用最近一次质量通过时的可信 z。这个改动用于降低无头车旋转时因为重定位质量短暂波动导致的航向冻结；如果要恢复旧行为，可设为 `0`。
    - Rc 4.12 起，CAN yaw 默认优先读取 FAST-LIO 原始 `/Odometry`。Rc 4.14 根据现场重新确认把偏置改为 `0`，也就是直接发原始 odom yaw：`RC_CAN_USE_RAW_ODOM_YAW=1`、`RC_CAN_RAW_ODOM_YAW_TOPIC=/Odometry`、`RC_CAN_RAW_ODOM_YAW_STRICT=0`、`RC_CAN_RAW_ODOM_YAW_OFFSET_RAD=0.0`。Rc 4.19 起，raw odom yaw 短暂 stale 时默认继续发送最后一帧原始 odom yaw，不因 stale check 直接冻结 CAN yaw；如需恢复超时保护，可设 `RC_CAN_RAW_ODOM_YAW_STRICT=1`。这个实验策略完全绕过 map yaw fusion 和 pose filter 对 yaw 的影响，用来验证电控无头车实时转向；x/y/z 仍按原生产链路走 `/robot/pose_filtered` 和 ready gate。若发现原始 odom yaw 漂移不可接受，可设置 `RC_CAN_USE_RAW_ODOM_YAW=0` 回退 Rc 4.9 的融合 yaw。
-   - Rc 4.21 起，CAN 当前调车默认进一步切到 `RC_CAN_POSE_SOURCE=raw_odom`，`0x12` 的 x/y 和 `0x13` 的 z/yaw 都直接来自 FAST-LIO `/Odometry`，不再只替换 yaw。需要回到上一条“x/y/z 走 `/robot/pose_filtered`，yaw 走 raw odom”的旧策略时，显式设置 `RC_CAN_POSE_SOURCE=pose_topic RC_CAN_POSE_TOPIC=/robot/pose_filtered RC_CAN_USE_RAW_ODOM_YAW=1`。
+   - Rc 4.21 起，CAN 当前调车默认进一步切到 `RC_CAN_POSE_SOURCE=raw_odom`，`0x12` 的 x/y 和 `0x13` 的 z/yaw 都来自 FAST-LIO `/Odometry`，不再只替换 yaw。
    - Rc 4.22 起，`rc_serial_driver` 发布 `/rc_serial_driver/can_pose_debug`，一键启动的 `CAN_MONITOR` 可实时打印 CAN 节点实际准备发送的 x/y/z/yaw；手动启动且有图形界面时默认打开，开机和 CAN 自动重启默认不弹窗口。
+   - Rc 4.23 起，`raw_odom` CAN 默认不再裸发雷达原点 `/Odometry`，而是把 `/Odometry` 当作 `camera_init -> body`，套用当前 `body -> robot_base` 外参并减去 `robot_origin`，得到机器人中心业务坐标。可用 `RC_CAN_RAW_ODOM_APPLY_ROBOT_EXTRINSIC=0` 临时回退裸 `/Odometry`。
    - Rc 4.20 新增并行连续位姿链路 `continuous_robot_pose`，默认只在 `RC_LIDAR_MODE=relocalization` 时启动，输出 `/robot/pose_continuous`、`/robot/odom_continuous` 和 `/robot/pose_continuous/status`。它不直接使用 `/map_lidar/odom` 的阶梯 pose 作为控制位姿，而是用 `/map_lidar/odom` 与同时间附近的 FAST-LIO `/Odometry` 反推并平滑更新 `map -> camera_init` 校正，再用最新 `/Odometry` 连续发布机器人业务位姿。默认不替换 `/robot/pose`、`/robot/pose_filtered` 或 CAN；如果要临时让 CAN 试这条链路，显式设置 `RC_CAN_POSE_TOPIC=/robot/pose_continuous`，yaw 仍按当前 raw odom yaw 策略单独发送。
 
 21. `autostart/start_mapping_terminals.sh`、`autostart/save_fast_lio_map.sh`、`autostart/map_localizer.sh`、`autostart/pose_interface_mapping.sh`、`autostart/pose_interface_relocalization.sh`、`autostart/pose_stability_filter.sh`

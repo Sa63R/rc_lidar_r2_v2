@@ -12,6 +12,7 @@
 
 #include <chrono>
 #include <mutex>
+#include <vector>
 
 
 namespace rc_serial_driver
@@ -66,6 +67,11 @@ private:
   double raw_odom_pose_timeout_sec_{0.5};
   bool raw_odom_pose_strict_{true};
   double raw_odom_pose_yaw_offset_rad_{0.0};
+  bool raw_odom_apply_robot_extrinsic_{true};
+  std::vector<double> raw_odom_lidar_to_base_xyz_{-0.240, 0.287302, -0.760};
+  std::vector<double> raw_odom_lidar_to_base_rpy_{0.0, 0.0, 1.5707963267948966};
+  std::vector<double> raw_odom_reference_xyz_{-0.240, 0.287302, -0.760};
+  std::vector<double> raw_odom_reference_rpy_{0.0, 0.0, 1.5707963267948966};
   std::mutex raw_odom_pose_mutex_;
   nav_msgs::msg::Odometry::SharedPtr latest_raw_odom_pose_;
   rclcpp::Time latest_raw_odom_pose_wall_time_;

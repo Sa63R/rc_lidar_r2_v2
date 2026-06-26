@@ -92,6 +92,14 @@ float wrapYaw(float yaw)
   return static_cast<float>(std::atan2(std::sin(yaw), std::cos(yaw)));
 }
 
+double vectorValueOrDefault(const std::vector<double> & values, size_t index, double default_value)
+{
+  if (index < values.size() && std::isfinite(values[index])) {
+    return values[index];
+  }
+  return default_value;
+}
+
 void requestRadarRestart(const rclcpp::Logger & logger)
 {
   const auto now = std::chrono::steady_clock::now();
@@ -252,6 +260,16 @@ void RCSerialDriver::getParams()
   raw_odom_pose_strict_ = declare_parameter<bool>("raw_odom_pose_strict", true);
   raw_odom_pose_yaw_offset_rad_ = declare_parameter<double>(
     "raw_odom_pose_yaw_offset_rad", 0.0);
+  raw_odom_apply_robot_extrinsic_ = declare_parameter<bool>(
+    "raw_odom_apply_robot_extrinsic", true);
+  raw_odom_lidar_to_base_xyz_ = declare_parameter<std::vector<double>>(
+    "raw_odom_lidar_to_base_xyz", raw_odom_lidar_to_base_xyz_);
+  raw_odom_lidar_to_base_rpy_ = declare_parameter<std::vector<double>>(
+    "raw_odom_lidar_to_base_rpy", raw_odom_lidar_to_base_rpy_);
+  raw_odom_reference_xyz_ = declare_parameter<std::vector<double>>(
+    "raw_odom_reference_xyz", raw_odom_reference_xyz_);
+  raw_odom_reference_rpy_ = declare_parameter<std::vector<double>>(
+    "raw_odom_reference_rpy", raw_odom_reference_rpy_);
   yaw_pose_topic_enabled_ = declare_parameter<bool>("yaw_pose_topic_enabled", false);
   yaw_pose_topic_ = declare_parameter<std::string>("yaw_pose_topic", "/robot/pose");
   yaw_pose_topic_timeout_sec_ = declare_parameter<double>("yaw_pose_topic_timeout_sec", 0.5);
@@ -300,14 +318,15 @@ void RCSerialDriver::getParams()
   RCLCPP_INFO(get_logger(), "CAN pose debug topic: %s", can_pose_debug_topic_.c_str());
   RCLCPP_INFO(
     get_logger(),
-    "Pose source: %s (pose_topic=%s timeout=%.2fs raw_odom_topic=%s raw_odom_timeout=%.2fs raw_odom_strict=%s raw_odom_yaw_offset=%.6frad)",
+    "Pose source: %s (pose_topic=%s timeout=%.2fs raw_odom_topic=%s raw_odom_timeout=%.2fs raw_odom_strict=%s raw_odom_yaw_offset=%.6frad raw_odom_apply_robot_extrinsic=%s)",
     pose_source_.c_str(),
     pose_topic_.c_str(),
     pose_topic_timeout_sec_,
     raw_odom_pose_topic_.c_str(),
     raw_odom_pose_timeout_sec_,
     raw_odom_pose_strict_ ? "true" : "false",
-    raw_odom_pose_yaw_offset_rad_);
+    raw_odom_pose_yaw_offset_rad_,
+    raw_odom_apply_robot_extrinsic_ ? "true" : "false");
   RCLCPP_INFO(
     get_logger(),
     "CAN yaw topic override: %s (topic=%s timeout=%.2fs strict=%s ignore_quality_gate=%s)",
@@ -728,11 +747,45 @@ bool RCSerialDriver::readPoseFromRawOdom(float & x, float & y, float & z, float 
     }
   }
 
-  x = static_cast<float>(odom_msg->pose.pose.position.x);
-  y = static_cast<float>(odom_msg->pose.pose.position.y);
-  z = static_cast<float>(odom_msg->pose.pose.position.z);
-  yaw = wrapYaw(yawFromQuaternion(odom_msg->pose.pose.orientation) +
-    static_cast<float>(raw_odom_pose_yaw_offset_rad_));
+  const double lidar_x = odom_msg->pose.pose.position.x;
+  const double lidar_y = odom_msg->pose.pose.position.y;
+  const double lidar_z = odom_msg->pose.pose.position.z;
+  const double lidar_yaw = yawFromQuaternion(odom_msg->pose.pose.orientation);
+
+  if (!raw_odom_apply_robot_extrinsic_) {
+    x = static_cast<float>(lidar_x);
+    y = static_cast<float>(lidar_y);
+    z = static_cast<float>(lidar_z);
+    yaw = wrapYaw(static_cast<float>(lidar_yaw + raw_odom_pose_yaw_offset_rad_));
+    return true;
+  }
+
+  const double ex_x = vectorValueOrDefault(raw_odom_lidar_to_base_xyz_, 0, -0.240);
+  const double ex_y = vectorValueOrDefault(raw_odom_lidar_to_base_xyz_, 1, 0.287302);
+  const double ex_z = vectorValueOrDefault(raw_odom_lidar_to_base_xyz_, 2, -0.760);
+  const double ex_yaw = vectorValueOrDefault(
+    raw_odom_lidar_to_base_rpy_, 2, 1.5707963267948966);
+  const double ref_x = vectorValueOrDefault(raw_odom_reference_xyz_, 0, -0.240);
+  const double ref_y = vectorValueOrDefault(raw_odom_reference_xyz_, 1, 0.287302);
+  const double ref_z = vectorValueOrDefault(raw_odom_reference_xyz_, 2, -0.760);
+  const double ref_yaw = vectorValueOrDefault(raw_odom_reference_rpy_, 2, 1.5707963267948966);
+
+  const double c_lidar = std::cos(lidar_yaw);
+  const double s_lidar = std::sin(lidar_yaw);
+  const double robot_x = lidar_x + c_lidar * ex_x - s_lidar * ex_y;
+  const double robot_y = lidar_y + s_lidar * ex_x + c_lidar * ex_y;
+  const double robot_z = lidar_z + ex_z;
+  const double robot_yaw = lidar_yaw + ex_yaw;
+
+  const double dx = robot_x - ref_x;
+  const double dy = robot_y - ref_y;
+  const double c_ref = std::cos(ref_yaw);
+  const double s_ref = std::sin(ref_yaw);
+
+  x = static_cast<float>(c_ref * dx + s_ref * dy);
+  y = static_cast<float>(-s_ref * dx + c_ref * dy);
+  z = static_cast<float>(robot_z - ref_z);
+  yaw = wrapYaw(static_cast<float>(robot_yaw - ref_yaw + raw_odom_pose_yaw_offset_rad_));
   return true;
 }
 

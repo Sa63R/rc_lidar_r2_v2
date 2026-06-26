@@ -21,6 +21,7 @@ def generate_launch_description():
     raw_odom_pose_timeout_sec = float(os.environ.get('RC_CAN_RAW_ODOM_POSE_TIMEOUT_SEC', '0.5'))
     raw_odom_pose_strict = env_bool('RC_CAN_RAW_ODOM_POSE_STRICT', '1')
     raw_odom_pose_yaw_offset_rad = float(os.environ.get('RC_CAN_RAW_ODOM_POSE_YAW_OFFSET_RAD', '0.0'))
+    raw_odom_apply_robot_extrinsic = env_bool('RC_CAN_RAW_ODOM_APPLY_ROBOT_EXTRINSIC', '1')
     yaw_pose_topic_enabled = env_bool('RC_CAN_USE_YAW_POSE_TOPIC', '0')
     yaw_pose_topic = os.environ.get('RC_CAN_YAW_POSE_TOPIC', '/robot/pose')
     yaw_pose_topic_timeout_sec = float(os.environ.get('RC_CAN_YAW_POSE_TOPIC_TIMEOUT_SEC', '0.5'))
@@ -58,6 +59,7 @@ def generate_launch_description():
                 'raw_odom_pose_timeout_sec': raw_odom_pose_timeout_sec,
                 'raw_odom_pose_strict': raw_odom_pose_strict,
                 'raw_odom_pose_yaw_offset_rad': raw_odom_pose_yaw_offset_rad,
+                'raw_odom_apply_robot_extrinsic': raw_odom_apply_robot_extrinsic,
                 'yaw_pose_topic_enabled': yaw_pose_topic_enabled,
                 'yaw_pose_topic': yaw_pose_topic,
                 'yaw_pose_topic_timeout_sec': yaw_pose_topic_timeout_sec,
