@@ -139,10 +139,18 @@ RCSerialDriver::RCSerialDriver(const rclcpp::NodeOptions & options)
   tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
   tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
-  pose_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
-    pose_topic_,
-    10,
-    std::bind(&RCSerialDriver::poseCallback, this, std::placeholders::_1));
+  if (pose_source_ == "pose_topic" || pose_source_ == "auto") {
+    pose_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
+      pose_topic_,
+      10,
+      std::bind(&RCSerialDriver::poseCallback, this, std::placeholders::_1));
+  }
+  if (pose_source_ == "raw_odom") {
+    raw_odom_pose_sub_ = create_subscription<nav_msgs::msg::Odometry>(
+      raw_odom_pose_topic_,
+      50,
+      std::bind(&RCSerialDriver::rawOdomPoseCallback, this, std::placeholders::_1));
+  }
   if (yaw_pose_topic_enabled_) {
     yaw_pose_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
       yaw_pose_topic_,
@@ -234,6 +242,11 @@ void RCSerialDriver::getParams()
   pose_source_ = declare_parameter<std::string>("pose_source", "tf");
   pose_topic_ = declare_parameter<std::string>("pose_topic", "/lidar/pose");
   pose_topic_timeout_sec_ = declare_parameter<double>("pose_topic_timeout_sec", 0.5);
+  raw_odom_pose_topic_ = declare_parameter<std::string>("raw_odom_pose_topic", "/Odometry");
+  raw_odom_pose_timeout_sec_ = declare_parameter<double>("raw_odom_pose_timeout_sec", 0.5);
+  raw_odom_pose_strict_ = declare_parameter<bool>("raw_odom_pose_strict", true);
+  raw_odom_pose_yaw_offset_rad_ = declare_parameter<double>(
+    "raw_odom_pose_yaw_offset_rad", 0.0);
   yaw_pose_topic_enabled_ = declare_parameter<bool>("yaw_pose_topic_enabled", false);
   yaw_pose_topic_ = declare_parameter<std::string>("yaw_pose_topic", "/robot/pose");
   yaw_pose_topic_timeout_sec_ = declare_parameter<double>("yaw_pose_topic_timeout_sec", 0.5);
@@ -255,10 +268,15 @@ void RCSerialDriver::getParams()
   quality_require_accepted_ = declare_parameter<bool>("quality_require_accepted", true);
   quality_require_converged_ = declare_parameter<bool>("quality_require_converged", true);
 
-  if (pose_source_ != "tf" && pose_source_ != "pose_topic" && pose_source_ != "auto") {
+  if (
+    pose_source_ != "tf" &&
+    pose_source_ != "pose_topic" &&
+    pose_source_ != "raw_odom" &&
+    pose_source_ != "auto")
+  {
     RCLCPP_WARN(
       get_logger(),
-      "Unknown pose_source '%s', falling back to 'tf'. Expected tf, pose_topic, or auto.",
+      "Unknown pose_source '%s', falling back to 'tf'. Expected tf, pose_topic, raw_odom, or auto.",
       pose_source_.c_str());
     pose_source_ = "tf";
   }
@@ -276,10 +294,14 @@ void RCSerialDriver::getParams()
   RCLCPP_INFO(get_logger(), "Expected CAN Bitrate: %d bit/s (ensure pre-configured)", can_bitrate_);
   RCLCPP_INFO(
     get_logger(),
-    "Pose source: %s (pose_topic=%s timeout=%.2fs)",
+    "Pose source: %s (pose_topic=%s timeout=%.2fs raw_odom_topic=%s raw_odom_timeout=%.2fs raw_odom_strict=%s raw_odom_yaw_offset=%.6frad)",
     pose_source_.c_str(),
     pose_topic_.c_str(),
-    pose_topic_timeout_sec_);
+    pose_topic_timeout_sec_,
+    raw_odom_pose_topic_.c_str(),
+    raw_odom_pose_timeout_sec_,
+    raw_odom_pose_strict_ ? "true" : "false",
+    raw_odom_pose_yaw_offset_rad_);
   RCLCPP_INFO(
     get_logger(),
     "CAN yaw topic override: %s (topic=%s timeout=%.2fs strict=%s ignore_quality_gate=%s)",
@@ -374,13 +396,19 @@ void RCSerialDriver::sendMapBodyPose()
     float yaw_can = 0.0f;
     std::string source_used;
 
-    if (pose_source_ == "pose_topic" || pose_source_ == "auto") {
+    if (pose_source_ == "raw_odom") {
+      if (readPoseFromRawOdom(x_can, y_can, z_can, yaw_can)) {
+        source_used = raw_odom_pose_topic_;
+      }
+    }
+
+    if (source_used.empty() && (pose_source_ == "pose_topic" || pose_source_ == "auto")) {
       if (readPoseFromTopic(x_can, y_can, z_can, yaw_can)) {
         source_used = pose_topic_;
       }
     }
 
-    if (source_used.empty() && pose_source_ != "pose_topic") {
+    if (source_used.empty() && pose_source_ != "pose_topic" && pose_source_ != "raw_odom") {
       if (readPoseFromTf(x_can, y_can, z_can, yaw_can)) {
         source_used = "TF robot_origin->robot_base_highrate";
       }
@@ -440,7 +468,8 @@ void RCSerialDriver::sendMapBodyPose()
       }
     }
 
-    const bool quality_ready = canSendPoseByQuality();
+    const bool pose_source_bypasses_quality = pose_source_ == "raw_odom";
+    const bool quality_ready = pose_source_bypasses_quality || canSendPoseByQuality();
     const bool yaw_can_bypass_quality =
       !quality_ready &&
       yaw_source_bypasses_quality &&
@@ -543,6 +572,13 @@ void RCSerialDriver::yawPoseCallback(const geometry_msgs::msg::PoseStamped::Shar
 {
   std::lock_guard<std::mutex> lock(yaw_pose_mutex_);
   latest_yaw_pose_ = msg;
+}
+
+void RCSerialDriver::rawOdomPoseCallback(const nav_msgs::msg::Odometry::SharedPtr msg)
+{
+  std::lock_guard<std::mutex> lock(raw_odom_pose_mutex_);
+  latest_raw_odom_pose_ = msg;
+  latest_raw_odom_pose_wall_time_ = now();
 }
 
 void RCSerialDriver::rawOdomYawCallback(const nav_msgs::msg::Odometry::SharedPtr msg)
@@ -648,6 +684,45 @@ bool RCSerialDriver::readPoseFromTopic(float & x, float & y, float & z, float & 
   y = static_cast<float>(pose_msg->pose.position.y);
   z = static_cast<float>(pose_msg->pose.position.z);
   yaw = yawFromQuaternion(pose_msg->pose.orientation);
+  return true;
+}
+
+bool RCSerialDriver::readPoseFromRawOdom(float & x, float & y, float & z, float & yaw)
+{
+  nav_msgs::msg::Odometry::SharedPtr odom_msg;
+  rclcpp::Time wall_time;
+  {
+    std::lock_guard<std::mutex> lock(raw_odom_pose_mutex_);
+    odom_msg = latest_raw_odom_pose_;
+    wall_time = latest_raw_odom_pose_wall_time_;
+  }
+
+  if (!odom_msg) {
+    return false;
+  }
+
+  if (wall_time.nanoseconds() != 0) {
+    const double age_sec = (now() - wall_time).seconds();
+    if (age_sec > raw_odom_pose_timeout_sec_) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(),
+        *get_clock(),
+        1000,
+        "CAN raw odom pose topic %s is stale: receive_age=%.3fs%s",
+        raw_odom_pose_topic_.c_str(),
+        age_sec,
+        raw_odom_pose_strict_ ? "" : "; using last raw odom pose");
+      if (raw_odom_pose_strict_) {
+        return false;
+      }
+    }
+  }
+
+  x = static_cast<float>(odom_msg->pose.pose.position.x);
+  y = static_cast<float>(odom_msg->pose.pose.position.y);
+  z = static_cast<float>(odom_msg->pose.pose.position.z);
+  yaw = wrapYaw(yawFromQuaternion(odom_msg->pose.pose.orientation) +
+    static_cast<float>(raw_odom_pose_yaw_offset_rad_));
   return true;
 }
 

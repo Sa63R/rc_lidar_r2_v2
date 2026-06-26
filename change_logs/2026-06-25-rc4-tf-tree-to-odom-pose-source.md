@@ -774,6 +774,39 @@ data[19] reject_reason
 
 这个节点的目的不是让 map localizer 算得更快，而是避免把低频/离散 map pose 直接作为控制位姿。它把 map localizer 的输出变成一条平滑更新的全局校正，控制输出则跟随最新 FAST-LIO odom。
 
+## Rc 4.21: CAN raw FAST-LIO odom packet for electrical tuning
+
+用户澄清这里的“原始 odom”不是 map localizer 输出的 `/map_lidar/odom`，而是 FAST-LIO 直接发布的 `/Odometry`。为了方便电控调车，CAN 新增 `pose_source=raw_odom`，并且重定位模式默认切到这个模式：
+
+```text
+RC_CAN_POSE_SOURCE=raw_odom
+RC_CAN_RAW_ODOM_POSE_TOPIC=/Odometry
+RC_CAN_RAW_ODOM_POSE_STRICT=1
+RC_CAN_RAW_ODOM_POSE_YAW_OFFSET_RAD=0.0
+RC_CAN_USE_RAW_ODOM_YAW=0
+RC_CAN_USE_YAW_POSE_TOPIC=0
+```
+
+这个模式下：
+
+- `0x12` 直接发送 `/Odometry.pose.pose.position.x/y`。
+- `0x13` 直接发送 `/Odometry.pose.pose.position.z` 和 `/Odometry.pose.pose.orientation` 解出的 yaw。
+- yaw 不再额外加 `+90°`、`+180°` 或其他偏置，默认 offset 为 `0`。
+- 不读取 `/robot/pose_filtered`。
+- 不经过 map localizer 输出、TF 查询、pose filter、yaw fusion 或 quality gate。
+- 如果 `/Odometry` 超时，默认整包停发，不继续发送旧 x/y/z/yaw。
+
+这是一条明确的电控调车链路，不是最终高精度全局机器人中心输出。它牺牲地图全局坐标、雷达到机器人中心外参补偿和滤波稳定性，换取最直接的 FAST-LIO odom 响应。需要回到上一版“地图/滤波位置 + raw odom yaw”时，启动时覆盖：
+
+```text
+RC_CAN_POSE_SOURCE=pose_topic
+RC_CAN_POSE_TOPIC=/robot/pose_filtered
+RC_CAN_USE_RAW_ODOM_YAW=1
+RC_CAN_RAW_ODOM_YAW_TOPIC=/Odometry
+RC_CAN_RAW_ODOM_YAW_STRICT=0
+RC_CAN_RAW_ODOM_YAW_OFFSET_RAD=0.0
+```
+
 ## Appendix: User Questions And Constraints
 
 以下内容按时间顺序整理本次大改相关的用户侧问题、判断和约束。重复发送的同一问题已合并；长启动命令、截图和终端日志只保留摘要。
@@ -909,3 +942,7 @@ data[19] reject_reason
 45. 用户进一步追问“旋转 Odom 的意义是什么”，并确认如果电控只需要 `/Odometry` 的原始 yaw 旋转角，且正方向一致，那么不应该额外加零点偏置。用户要求“那就改回 0”，因此 Rc 4.14 将 `RC_CAN_RAW_ODOM_YAW_OFFSET_RAD` 默认值改成 `0.0`。
 
 46. 用户要求把当前可用低负载启动命令设置为开机启动：`RC_LIDAR_MODE=relocalization`、`RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1`、`RC_AUTOSTART_HEADLESS=1`、`RC_AUTOSTART_PLOTJUGGLER=0`、指定 `maps/mid360_map_20260625_064655.pcd`。同时要求开机只用这一套逻辑，不要多入口重复启动。因此 Rc 4.15 明确更新 `boot_start.sh` 与 user systemd 模板，并保留 boot_id guard 防止 XDG/systemd 双入口时重复真实启动。
+
+47. 用户要求：“你现在先改一下给 CAN 发的数据，就先直接用 odom 的原始数据，方便电控调车。”随后特别澄清：“这里指的原始数据不是 Map localizer 的原始 Odom，而是说就是雷达的原始 Odom，没有经过建图的数据。”因此本次不能使用 `/map_lidar/odom`，必须直接使用 FAST-LIO `/Odometry`。
+
+48. 基于这个澄清，CAN 不能只做 raw odom yaw override，而要让 `0x12` 的 x/y 和 `0x13` 的 z/yaw 都来自 FAST-LIO `/Odometry`。旧的 `/robot/pose_filtered` 和 TF 链路保留为可手动回退路径，但默认调车链路切到 `RC_CAN_POSE_SOURCE=raw_odom`。

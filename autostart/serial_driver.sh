@@ -48,13 +48,15 @@ sleep 3
 
 if [ -z "${RC_CAN_POSE_SOURCE:-}" ]; then
   if [ "${RC_LIDAR_MODE:-tracking}" = "relocalization" ]; then
-    RC_CAN_POSE_SOURCE="pose_topic"
+    RC_CAN_POSE_SOURCE="raw_odom"
   else
     RC_CAN_POSE_SOURCE="tf"
   fi
 fi
 if [ -z "${RC_CAN_POSE_TOPIC:-}" ]; then
-  if [ "$RC_CAN_POSE_SOURCE" != "tf" ] && [ "${RC_LIDAR_MODE:-tracking}" = "relocalization" ]; then
+  if [ "$RC_CAN_POSE_SOURCE" = "raw_odom" ]; then
+    RC_CAN_POSE_TOPIC="/robot/pose_filtered"
+  elif [ "$RC_CAN_POSE_SOURCE" != "tf" ] && [ "${RC_LIDAR_MODE:-tracking}" = "relocalization" ]; then
     if [ "${RC_POSE_FILTER:-1}" = "0" ]; then
       RC_CAN_POSE_TOPIC="${RC_RAW_POSE_TOPIC:-/robot/pose}"
     elif [ "${RC_POSE_FILTER_SELECTED:-normal}" = "beta" ]; then
@@ -70,6 +72,15 @@ if [ -z "${RC_CAN_POSE_TOPIC:-}" ]; then
 fi
 export RC_CAN_POSE_SOURCE
 export RC_CAN_POSE_TOPIC
+
+RC_CAN_RAW_ODOM_POSE_TOPIC="${RC_CAN_RAW_ODOM_POSE_TOPIC:-/Odometry}"
+RC_CAN_RAW_ODOM_POSE_TIMEOUT_SEC="${RC_CAN_RAW_ODOM_POSE_TIMEOUT_SEC:-0.5}"
+RC_CAN_RAW_ODOM_POSE_STRICT="${RC_CAN_RAW_ODOM_POSE_STRICT:-1}"
+RC_CAN_RAW_ODOM_POSE_YAW_OFFSET_RAD="${RC_CAN_RAW_ODOM_POSE_YAW_OFFSET_RAD:-0.0}"
+export RC_CAN_RAW_ODOM_POSE_TOPIC
+export RC_CAN_RAW_ODOM_POSE_TIMEOUT_SEC
+export RC_CAN_RAW_ODOM_POSE_STRICT
+export RC_CAN_RAW_ODOM_POSE_YAW_OFFSET_RAD
 
 if [ -z "${RC_CAN_USE_YAW_POSE_TOPIC:-}" ]; then
   if [ "${RC_LIDAR_MODE:-tracking}" = "relocalization" ] && [ "$RC_CAN_POSE_SOURCE" = "pose_topic" ]; then
@@ -126,10 +137,13 @@ export RC_CAN_READY_REQUIRE_CONVERGED
 
 echo "[serial] Launching rc_serial_driver with CAN_INTERFACE=${CAN_INTERFACE:-unset}, CAN_BITRATE=$CAN_BITRATE"
 echo "[serial] pose_source=$RC_CAN_POSE_SOURCE pose_topic=$RC_CAN_POSE_TOPIC"
+echo "[serial] raw_odom_pose_topic=$RC_CAN_RAW_ODOM_POSE_TOPIC raw_odom_pose_timeout=$RC_CAN_RAW_ODOM_POSE_TIMEOUT_SEC raw_odom_pose_strict=$RC_CAN_RAW_ODOM_POSE_STRICT raw_odom_pose_yaw_offset=$RC_CAN_RAW_ODOM_POSE_YAW_OFFSET_RAD"
 echo "[serial] yaw_pose_topic_enabled=$RC_CAN_USE_YAW_POSE_TOPIC yaw_pose_topic=$RC_CAN_YAW_POSE_TOPIC yaw_timeout=$RC_CAN_YAW_POSE_TOPIC_TIMEOUT_SEC yaw_strict=$RC_CAN_YAW_POSE_TOPIC_STRICT yaw_ignore_ready_gate=$RC_CAN_YAW_IGNORE_READY_GATE"
 echo "[serial] raw_odom_yaw=$RC_CAN_USE_RAW_ODOM_YAW raw_odom_yaw_topic=$RC_CAN_RAW_ODOM_YAW_TOPIC raw_odom_yaw_timeout=$RC_CAN_RAW_ODOM_YAW_TIMEOUT_SEC raw_odom_yaw_strict=$RC_CAN_RAW_ODOM_YAW_STRICT raw_odom_yaw_offset=$RC_CAN_RAW_ODOM_YAW_OFFSET_RAD raw_odom_yaw_ignore_ready_gate=$RC_CAN_RAW_ODOM_YAW_IGNORE_READY_GATE"
 echo "[serial] ready_gate=$RC_CAN_REQUIRE_READY quality_topic=$RC_CAN_READY_QUALITY_TOPIC max_fitness=$RC_CAN_READY_MAX_FITNESS min_accepts=$RC_CAN_READY_MIN_ACCEPTS"
 if [ "$RC_CAN_POSE_SOURCE" = "pose_topic" ]; then
   echo "[serial] strict pose-topic mode: no TF fallback will be used if $RC_CAN_POSE_TOPIC is stale or missing."
+elif [ "$RC_CAN_POSE_SOURCE" = "raw_odom" ]; then
+  echo "[serial] raw odom mode: CAN 0x12/0x13 are read directly from FAST-LIO $RC_CAN_RAW_ODOM_POSE_TOPIC."
 fi
 exec ros2 launch rc_serial_driver serial_driver.launch.py

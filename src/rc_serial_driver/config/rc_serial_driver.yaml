@@ -5,9 +5,13 @@
     can_id_frame1: 18    # 0x12 的十进制
     can_id_frame2: 19    # 0x13 的十进制
     can_id_restart: 48   # 0x30 的十进制
-    pose_source: "tf"    # tf / pose_topic / auto
+    pose_source: "tf"    # tf / pose_topic / raw_odom / auto
     pose_topic: "/lidar/pose"
     pose_topic_timeout_sec: 0.5
+    raw_odom_pose_topic: "/Odometry"
+    raw_odom_pose_timeout_sec: 0.5
+    raw_odom_pose_strict: true
+    raw_odom_pose_yaw_offset_rad: 0.0
     yaw_pose_topic_enabled: false
     yaw_pose_topic: "/robot/pose"
     yaw_pose_topic_timeout_sec: 0.5

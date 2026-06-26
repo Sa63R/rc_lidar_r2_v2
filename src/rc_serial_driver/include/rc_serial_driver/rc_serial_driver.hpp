@@ -30,9 +30,11 @@ private:
   void reopenPort();
   void poseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
   void yawPoseCallback(const geometry_msgs::msg::PoseStamped::SharedPtr msg);
+  void rawOdomPoseCallback(const nav_msgs::msg::Odometry::SharedPtr msg);
   void rawOdomYawCallback(const nav_msgs::msg::Odometry::SharedPtr msg);
   void qualityCallback(const std_msgs::msg::Float32MultiArray::SharedPtr msg);
   bool readPoseFromTopic(float & x, float & y, float & z, float & yaw);
+  bool readPoseFromRawOdom(float & x, float & y, float & z, float & yaw);
   bool readYawFromTopic(float & yaw);
   bool readRawOdomYaw(float & yaw);
   bool readPoseFromTf(float & x, float & y, float & z, float & yaw);
@@ -57,6 +59,14 @@ private:
   std::mutex pose_mutex_;
   geometry_msgs::msg::PoseStamped::SharedPtr latest_pose_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr pose_sub_;
+  std::string raw_odom_pose_topic_;
+  double raw_odom_pose_timeout_sec_{0.5};
+  bool raw_odom_pose_strict_{true};
+  double raw_odom_pose_yaw_offset_rad_{0.0};
+  std::mutex raw_odom_pose_mutex_;
+  nav_msgs::msg::Odometry::SharedPtr latest_raw_odom_pose_;
+  rclcpp::Time latest_raw_odom_pose_wall_time_;
+  rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr raw_odom_pose_sub_;
   bool yaw_pose_topic_enabled_{false};
   bool yaw_pose_topic_strict_{false};
   bool yaw_ignore_quality_gate_{true};
