@@ -6,7 +6,7 @@
 
 - 系统：Ubuntu 22.04.5 LTS, aarch64
 - ROS：ROS 2 Humble
-- 工作区路径：`/home/orangepi/RC_LIDAR_NOW`
+- 工作区路径：`/home/rc2/jwt_new_lidar/rc_lidar_r2_v2`
 - 已存在关键工具：`colcon`、`ros2`、`rosdep`
 - 已安装 PlotJuggler：`ros-humble-plotjuggler`、`ros-humble-plotjuggler-ros`
 - 已存在 Livox-SDK2：
@@ -72,7 +72,7 @@ sudo make install
 每次打开新终端，先进入工作区并加载 ROS：
 
 ```bash
-cd "/home/orangepi/RC_LIDAR_NOW"
+cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 source /opt/ros/humble/setup.bash
 ```
 
@@ -136,7 +136,7 @@ src/livox_ros_driver2/config/MID360_config.json
 其中默认：
 
 - 主机 IP：`192.168.1.5`
-- 雷达 IP：`192.168.1.124`
+- 雷达 IP：`192.168.1.168`
 
 当前机器实际活动网口是 `192.168.178.148/24`，不在 `192.168.1.0/24` 网段，所以启动 Livox 驱动时出现过：
 
@@ -147,29 +147,29 @@ Failed to init livox lidar sdk.
 
 这不是编译问题，是网口 IP 和配置文件不匹配。运行前需要把接雷达的网口配置到 `192.168.1.5/24`，或者把 `MID360_config.json` 里的 host IP 改成实际雷达网段内的本机 IP。
 
-当前 Orange Pi 上确认到 MID360 在 `eth0` 上，`arping -I eth0 192.168.1.124` 可以收到雷达回应。不要把同一个 `192.168.1.5/24` 同时配置到多个网口；否则 Linux 可能把去雷达的路由发到错误网口，导致 Livox 驱动启动但 `/livox/lidar` 和 `/livox/imu` 没有 publisher。
+当前 Orange Pi 上确认到 MID360 在 `enp4s0` 上，`arping -I enp4s0 192.168.1.168` 可以收到雷达回应。不要把同一个 `192.168.1.5/24` 同时配置到多个网口；否则 Linux 可能把去雷达的路由发到错误网口，导致 Livox 驱动启动但 `/livox/lidar` 和 `/livox/imu` 没有 publisher。
 
-一键启动时 `autostart/livox.sh` 会先调用 `autostart/setup_livox_net.sh`，默认把 `eth0` 配置为 `192.168.1.5/24` 并用 ARP 探测 `192.168.1.124`，成功后才启动 Livox 驱动。如果已经在系统网络管理里做了永久配置，可以用下面的环境变量跳过自动配置：
+一键启动时 `autostart/livox.sh` 会先调用 `autostart/setup_livox_net.sh`，默认把 `enp4s0` 配置为 `192.168.1.5/24` 并用 ARP 探测 `192.168.1.168`，成功后才启动 Livox 驱动。如果已经在系统网络管理里做了永久配置，可以用下面的环境变量跳过自动配置：
 
 ```bash
 RC_AUTOSTART_SETUP_LIVOX_NET=0 ./autostart/start_all_terminals.sh
 ```
 
-常见错误：如果 RViz 里显示 `Frame [camera_init] does not exist`，画面全黑，并且 `world_tf.log` 一直停在 `Waiting for TF camera_init -> body`，优先不要改 TF。先检查 Livox 是否真的起来了。一次实际排查中，根因只是雷达网线没插好，`eth0` 虽然已经有 `192.168.1.5/24`，但链路状态是 `NO-CARRIER`，`ethtool` 显示 `Link detected: no`，所以 Livox 驱动没有启动，FAST-LIO 也就不会发布 `camera_init`。
+常见错误：如果 RViz 里显示 `Frame [camera_init] does not exist`，画面全黑，并且 `world_tf.log` 一直停在 `Waiting for TF camera_init -> body`，优先不要改 TF。先检查 Livox 是否真的起来了。一次实际排查中，根因只是雷达网线没插好，`enp4s0` 虽然已经有 `192.168.1.5/24`，但链路状态是 `NO-CARRIER`，`ethtool` 显示 `Link detected: no`，所以 Livox 驱动没有启动，FAST-LIO 也就不会发布 `camera_init`。
 
 快速检查命令：
 
 ```bash
-cd "/home/orangepi/RC_LIDAR_NOW"
-ip -br link show eth0
-ethtool eth0 | grep -i "Link detected"
+cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
+ip -br link show enp4s0
+ethtool enp4s0 | grep -i "Link detected"
 tail -n 80 logs/autostart/latest/LIVOX.log
 ```
 
-正常情况下应看到 `Link detected: yes`，并且 `arping -I eth0 -c 3 192.168.1.124` 能收到雷达回应。如果看到 `NO-CARRIER` 或 `Link detected: no`，这是物理链路问题，优先检查雷达供电、网线、交换机/转接盒、网口是否插在 `eth0`。插好后建议清理旧进程再重启：
+正常情况下应看到 `Link detected: yes`，并且 `arping -I enp4s0 -c 3 192.168.1.168` 能收到雷达回应。如果看到 `NO-CARRIER` 或 `Link detected: no`，这是物理链路问题，优先检查雷达供电、网线、交换机/转接盒、网口是否插在 `enp4s0`。插好后建议清理旧进程再重启：
 
 ```bash
-cd "/home/orangepi/RC_LIDAR_NOW"
+cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 ./autostart/stop_all.sh
 ```
 RC_LIDAR_MODE=mapping ./autostart/start_all_terminals.sh
@@ -178,16 +178,16 @@ RC_LIDAR_MODE=mapping ./autostart/start_all_terminals.sh
 为了保证开机后一键启动时不再要求输入 sudo 密码，先运行一次：
 
 ```bash
-cd "/home/orangepi/RC_LIDAR_NOW"
+cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 ./autostart/install_one_click_network.sh
 ```
 
-这个脚本会把 `eth0` 的 `192.168.1.5/24` 写进 NetworkManager，并安装 udev 规则，让 USB-CAN 枚举成 `can*` 时自动配置 `1000000` bit/s 和 `restart-ms 100`。
+这个脚本会把 `enp4s0` 的 `192.168.1.5/24` 写进 NetworkManager，并安装 udev 规则，让 USB-CAN 枚举成 `can*` 时自动配置 `1000000` bit/s 和 `restart-ms 100`。
 
 设置开机自启：
 
 ```bash
-cd "/home/orangepi/RC_LIDAR_NOW"
+cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 ./autostart/install_user_systemd_autostart.sh
 ```
 
@@ -196,14 +196,14 @@ cd "/home/orangepi/RC_LIDAR_NOW"
 `install_user_systemd_autostart.sh` 会尝试启用当前用户的 systemd linger。这样即使没有外接显示器、没有图形桌面登录会话，用户级自启服务也能在开机时被 systemd 拉起。检查命令：
 
 ```bash
-loginctl show-user orangepi -p Linger
+loginctl show-user rc2 -p Linger
 systemctl --user is-enabled rc-lidar-autostart.service
 ```
 
 期望看到 `Linger=yes` 和 `enabled`。如果 linger 不是 `yes`，手动执行：
 
 ```bash
-loginctl enable-linger orangepi
+loginctl enable-linger rc2
 ```
 
 自启诊断日志写到：
@@ -230,7 +230,7 @@ systemctl --user is-enabled rc-lidar-autostart.service
 
 ```text
 RC_LIDAR_MODE=relocalization
-RC_LIDAR_MAP_PATH=/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd
+RC_LIDAR_MAP_PATH=/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/mid360_map.pcd
 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1
 RC_AUTOSTART_HEADLESS=1
 RC_AUTOSTART_PLOTJUGGLER=0
@@ -254,12 +254,12 @@ RC_READY_NOTIFY=1
 RC_READY_NOTIFY_POPUP=0
 ```
 
-也就是说，开机后会自动用当前已验证的小场地图 `maps/mid360_map_20260625_064655.pcd` 做重定位，启动 TF、Livox、FAST-LIO、地图匹配、位姿接口、normal 位姿滤波、CAN 和健康日志等核心链路；但当前为了方便电控调车，CAN 默认整包读取 FAST-LIO `/Odometry` 后套用同一组 `body -> robot_base` 外参和 `robot_origin` 参考位姿，输出机器人中心业务坐标。`0x12` 的 `x/y` 和 `0x13` 的 `z/yaw` 不经过 map localizer、`/robot/pose_filtered`、TF 查询或滤波门控。`RC_CAN_RAW_ODOM_POSE_YAW_OFFSET_RAD=0.0`，也就是 yaw 不额外旋转或加偏置。stable 候选滤波默认不启动，后续需要对比时再手动设置 `RC_POSE_FILTER_STABLE=1`。开机自启不会弹 RViz/PlotJuggler 界面，也不会弹 ready 终端窗口，只写 `relocalization_ready.json`；即使没有外接显示器也应能走 headless 后台启动。TF 对比发布节点和点云调试打印也会随 PlotJuggler/headless 策略默认跳过，避免香橙派 CPU 被调试工具抢走。需要临时开图形调试时，手动运行一键脚本并覆盖这些环境变量即可。
+也就是说，开机后会自动用当前已验证的小场地图 `maps/mid360_map.pcd` 做重定位，启动 TF、Livox、FAST-LIO、地图匹配、位姿接口、normal 位姿滤波、CAN 和健康日志等核心链路；但当前为了方便电控调车，CAN 默认整包读取 FAST-LIO `/Odometry` 后套用同一组 `body -> robot_base` 外参和 `robot_origin` 参考位姿，输出机器人中心业务坐标。`0x12` 的 `x/y` 和 `0x13` 的 `z/yaw` 不经过 map localizer、`/robot/pose_filtered`、TF 查询或滤波门控。`RC_CAN_RAW_ODOM_POSE_YAW_OFFSET_RAD=0.0`，也就是 yaw 不额外旋转或加偏置。stable 候选滤波默认不启动，后续需要对比时再手动设置 `RC_POSE_FILTER_STABLE=1`。开机自启不会弹 RViz/PlotJuggler 界面，也不会弹 ready 终端窗口，只写 `relocalization_ready.json`；即使没有外接显示器也应能走 headless 后台启动。TF 对比发布节点和点云调试打印也会随 PlotJuggler/headless 策略默认跳过，避免香橙派 CPU 被调试工具抢走。需要临时开图形调试时，手动运行一键脚本并覆盖这些环境变量即可。
 
 检查开机自启是否触发：
 
 ```bash
-cd "/home/orangepi/RC_LIDAR_NOW"
+cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 tail -n 80 logs/autostart/boot_attempts.log
 tail -n 120 logs/autostart/xdg_autostart.log
 systemctl --user status rc-lidar-autostart.service
@@ -274,7 +274,7 @@ find logs/autostart -maxdepth 1 -type d -name 'run_*' -printf '%TY-%Tm-%Td %TH:%
 ip -brief addr
 sudo ip link set <雷达网口名> up
 sudo ip addr add 192.168.1.5/24 dev <雷达网口名>
-ping 192.168.1.124
+ping 192.168.1.168
 ```
 
 如果提示地址已存在或网段冲突，先用 `ip addr show <雷达网口名>` 检查，再清理旧地址。
@@ -283,10 +283,10 @@ ping 192.168.1.124
 
 ```bash
 sudo ip addr del 192.168.1.5/24 dev enx427ccccb233b 2>/dev/null || true
-sudo ip link set eth0 up
-sudo ip addr add 192.168.1.5/24 dev eth0 2>/dev/null || true
-ip route get 192.168.1.124
-arping -I eth0 -c 3 192.168.1.124
+sudo ip link set enp4s0 up
+sudo ip addr add 192.168.1.5/24 dev enp4s0 2>/dev/null || true
+ip route get 192.168.1.168
+arping -I enp4s0 -c 3 192.168.1.168
 ```
 
 ### CAN 接口
@@ -307,7 +307,7 @@ z_tf = 上方
 yaw_tf = 左转为正，0 表示初始化朝向
 ```
 
-FAST-LIO / Livox 的原始 `camera_init`、`body`、`body_highrate` 帧仍保持雷达和算法原始坐标；机器人业务帧改为 `robot_origin`、`robot_base`、`robot_base_highrate`。其中 `map` 是 PCD 地图坐标，Y 正方向就是无头车的世界正方向；`map_localizer` 在重定位模式下发布 `map -> camera_init`。
+FAST-LIO / Livox 的原始 `camera_init`、`body`、`body_highrate` 帧仍保持雷达和算法原始坐标；机器人业务帧改为 `robot_origin`、`robot_base`、`robot_base_highrate`。其中 `map` 是 PCD 地图原始坐标，`map -> robot_origin` 固定带 `-90°` yaw，把地图轴转成无头车业务世界；业务坐标保持 `X` 向右、`Y` 向前。`map_localizer` 在重定位模式下发布 `map -> camera_init`。
 
 发到 CAN 的业务坐标语义是：
 
@@ -337,7 +337,7 @@ RC_CAN_RAW_ODOM_POSE_YAW_OFFSET_RAD=0.0
 RC_CAN_RAW_ODOM_APPLY_ROBOT_EXTRINSIC=1
 ```
 
-也就是说，电控收到的是由 FAST-LIO `/Odometry` 推出来的机器人中心业务坐标：先把 `/Odometry` 当作 `camera_init -> body`，再套 `body -> robot_base` 外参，最后减去 `robot_origin`。它不经过 map localizer、不经过 `/robot/pose_filtered`、不经过 TF 查询和滤波门控。如果 `/Odometry` 没有刷新，CAN 会暂停发送，不会悄悄退回旧 TF 或旧滤波链路，避免调车时坐标来源混乱。这个模式用于电控验证原始 odom 控制手感；它不是 map localizer 校正后的全局坐标，但已经包含雷达到机器人中心的外参补偿。
+也就是说，电控收到的是由 FAST-LIO `/Odometry` 推出来的机器人中心业务坐标：先把 `/Odometry` 当作 `camera_init -> body`，再套 `body -> robot_base` 外参，最后按 `map -> robot_origin` 的参考位姿扣掉业务原点和 `-90°` 地图 yaw。它不经过 map localizer、不经过 `/robot/pose_filtered`、不经过 TF 查询和滤波门控。如果 `/Odometry` 没有刷新，CAN 会暂停发送，不会悄悄退回旧 TF 或旧滤波链路，避免调车时坐标来源混乱。这个模式用于电控验证原始 odom 控制手感；它不是 map localizer 校正后的全局坐标，但已经包含雷达到机器人中心的外参补偿。
 
 CAN 帧格式保持不变：
 
@@ -420,7 +420,7 @@ src/rc_serial_driver/config/rc_serial_driver.yaml
 每个新终端都先执行：
 
 ```bash
-cd "/home/orangepi/RC_LIDAR_NOW"
+cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 source /opt/ros/humble/setup.bash
 source install/setup.bash
 ```
@@ -471,12 +471,12 @@ ros2 launch rc_serial_driver serial_driver.launch.py
 
 ## 一键启动
 
-当前 `autostart/` 脚本已经改成按脚本所在位置自动定位工作区，不再依赖旧的 `/home/rc/...` 路径。
+当前 `autostart/` 脚本已经改成按脚本所在位置自动定位工作区，不再依赖历史固定工作区路径。
 
 先做一次不打开终端的预检查：
 
 ```bash
-cd "/home/orangepi/RC_LIDAR_NOW"
+cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 RC_AUTOSTART_DRY_RUN=1 ./autostart/start_all_terminals.sh
 ```
 
@@ -485,14 +485,14 @@ dry-run 只用于检查将要启动哪些节点，不会更新真实运行指针
 确认输出里启动项都显示 `would launch` 后，再执行真正的一键启动：
 
 ```bash
-cd "/home/orangepi/RC_LIDAR_NOW"
+cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 ./autostart/start_all_terminals.sh
 ```
 
 日志会写到：
 
 ```text
-/home/orangepi/RC_LIDAR_NOW/logs/autostart/latest
+/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/logs/autostart/latest
 ```
 
 一键启动默认会先执行一次旧进程清理，避免重复运行脚本后出现两套 Livox / FAST-LIO / EKF / CAN 发送节点同时发布。清理日志在：
@@ -504,7 +504,7 @@ logs/autostart/latest/prestop.log
 如果只是想手动停止当前雷达定位栈：
 
 ```bash
-cd "/home/orangepi/RC_LIDAR_NOW"
+cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 ./autostart/stop_all.sh
 ```
 
@@ -756,7 +756,7 @@ correlation.temp_vs_map_quality_jump_xy
 低负载对照实验建议：
 
 ```bash
-cd "/home/orangepi/RC_LIDAR_NOW"
+cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 ./autostart/stop_all.sh
 
 RC_LIDAR_MODE=relocalization \
@@ -765,7 +765,7 @@ RC_AUTOSTART_HEADLESS=1 \
 RC_AUTOSTART_PLOTJUGGLER=0 \
 RC_POSE_FILTER_STABLE=0 \
 RC_HEALTH_MONITOR_INTERVAL=1.0 \
-RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd" \
+RC_LIDAR_MAP_PATH="/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/mid360_map.pcd" \
 ./autostart/start_all_terminals.sh
 ```
 
@@ -864,7 +864,7 @@ yaw = 左转为正
 先启动建图模式：
 
 ```bash
-cd "/home/orangepi/RC_LIDAR_NOW"
+cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 RC_LIDAR_MODE=mapping ./autostart/start_all_terminals.sh
 ```
 
@@ -889,7 +889,7 @@ maps/mid360_map.pcd
 如果这个文件已经存在，并且没有手动设置 `RC_FASTLIO_MAP_SAVE_PATH`，`autostart/fastlio.sh` 会自动选择一个不冲突的新文件名，例如：
 
 ```text
-maps/mid360_map_20260620_173012.pcd
+maps/mid360_map.pcd
 ```
 
 此外，FAST-LIO 的 `/map_save` 服务在真正写文件前也会检查目标文件是否已经存在；如果存在，会再次自动改成带时间戳的新文件名。因此同一次运行里连续保存多次，也不会覆盖旧地图。实际本次 FAST-LIO 启动时使用的请求路径会写入：
@@ -927,16 +927,16 @@ ls -lh maps/mid360_map.pcd
 
 大场地比赛时，不建议直接拿整张大场馆 PCD 做生产重定位。当前确认更稳的策略是：只绕比赛小场地建一张小 PCD 地图，不裁剪，机器人从固定上电点或接近建图原点的位置启动；如果不在原点启动，就必须给粗略初值。当前算法没有做 Scan Context、粒子全局搜索或多候选全局匹配，所以“拿全图自动找自己在哪里”不是它擅长的工作。
 
-2026-06-24 实测可用检查点：使用只绕小场地建出的 `/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260624_190419.pcd`，不做裁剪，并用 `RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1` 从建图原点附近启动，重定位表现正确。这是当前优先复刻方案。
+2026-06-24 实测可用检查点：使用只绕小场地建出的 `/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/mid360_map.pcd`，不做裁剪，并用 `RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1` 从建图原点附近启动，重定位表现正确。这是当前优先复刻方案。
 
-当前开机低功耗自启和 CAN 重启默认使用 2026-06-25 实测的小场地图 `maps/mid360_map_20260625_064655.pcd`，保持 `RC_AUTOSTART_PLOTJUGGLER=0`，并默认不启动 stable 候选滤波 `RC_POSE_FILTER_STABLE=0`。CAN 当前为电控调车默认整包发送 FAST-LIO 原始 `/Odometry` 的 `x/y/z/yaw`，`RC_CAN_RAW_ODOM_POSE_YAW_OFFSET_RAD=0.0`。手动调试时如果需要 PlotJuggler，只额外把 `RC_AUTOSTART_PLOTJUGGLER=1` 打开即可；如果需要对比 stable，再额外设置 `RC_POSE_FILTER_STABLE=1`。
+当前开机低功耗自启和 CAN 重启默认使用 2026-06-25 实测的小场地图 `maps/mid360_map.pcd`，保持 `RC_AUTOSTART_PLOTJUGGLER=0`，并默认不启动 stable 候选滤波 `RC_POSE_FILTER_STABLE=0`。CAN 当前为电控调车默认整包发送 FAST-LIO 原始 `/Odometry` 的 `x/y/z/yaw`，`RC_CAN_RAW_ODOM_POSE_YAW_OFFSET_RAD=0.0`。手动调试时如果需要 PlotJuggler，只额外把 `RC_AUTOSTART_PLOTJUGGLER=1` 打开即可；如果需要对比 stable，再额外设置 `RC_POSE_FILTER_STABLE=1`。
 
 现在默认不再假设当前启动点就是地图原点；重定位启动后，如果没有初始位姿，`MAP_LOCALIZER.log` 会提示等待 `/initialpose` 或 `RC_RELOCALIZATION_INITIAL_GUESS=1`，并且不会发布看起来像 0 的假定位结果。
 
 如果机器人确实放在建图开始时的原点附近，可以显式允许地图原点初值：
 
 ```bash
-cd "/home/orangepi/RC_LIDAR_NOW"
+cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 RC_LIDAR_MODE=relocalization \
 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
 ./autostart/start_all_terminals.sh
@@ -945,7 +945,7 @@ RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
 如果机器人不是从地图原点启动，需要给一个粗略初始位姿。下面的初值是 `map -> camera_init`，也就是 FAST-LIO 原始地图坐标系里的雷达/body 初始位姿，不是 `X右/Y前` 的业务坐标：
 
 ```bash
-cd "/home/orangepi/RC_LIDAR_NOW"
+cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 RC_LIDAR_MODE=relocalization \
 RC_RELOCALIZATION_INITIAL_GUESS=1 \
 RC_RELOCALIZATION_INITIAL_X=0.0 \
@@ -960,9 +960,9 @@ RC_RELOCALIZATION_INITIAL_YAW=0.0 \
 低负载重定位启动。这个模式不会降低雷达频率，只是不启动 PlotJuggler/RViz 等 GUI 调试负载：
 
 ```bash
-cd "/home/orangepi/RC_LIDAR_NOW"
+cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 RC_LIDAR_MODE=relocalization \
-RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260624_190419.pcd" \
+RC_LIDAR_MAP_PATH="/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/mid360_map.pcd" \
 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
 RC_AUTOSTART_HEADLESS=1 \
 RC_AUTOSTART_PLOTJUGGLER=0 \
@@ -1336,7 +1336,7 @@ maps/mid360_map.pcd
 如果建图时自动保存成了带时间戳的新文件，重定位时需要指定那份地图：
 
 ```bash
-RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260620_173012.pcd" \
+RC_LIDAR_MAP_PATH="/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/mid360_map.pcd" \
 RC_LIDAR_MODE=relocalization \
 ./autostart/start_all_terminals.sh
 ```
@@ -1344,14 +1344,14 @@ RC_LIDAR_MODE=relocalization \
 临时使用其他地图：
 
 ```bash
-RC_LIDAR_MAP_PATH=/home/orangepi/maps/site_a.pcd \
+RC_LIDAR_MAP_PATH=/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/site_a.pcd \
 RC_LIDAR_MODE=relocalization \
 ./autostart/start_all_terminals.sh
 ```
 
 ### 局部地图准备
 
-如果在大场地里只比赛一个小区域，首选方案是直接只绕比赛小场地建一张小 PCD 地图，不裁剪。Rc 3.2 的可用检查点就是这个方案：`maps/mid360_map_20260624_190419.pcd`，配合 `RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1` 从建图原点附近启动。
+如果在大场地里只比赛一个小区域，首选方案是直接只绕比赛小场地建一张小 PCD 地图，不裁剪。Rc 3.2 的可用检查点就是这个方案：`maps/mid360_map.pcd`，配合 `RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1` 从建图原点附近启动。
 
 `pcd_prepare_local_map` 裁剪工具仍保留，但这次可用方案没有用到它。它只作为备用：当手里只有一整张大场馆 PCD，来不及重新绕小场地建图时，再尝试从大图裁出比赛区域。迁移到 R2 时优先复刻“直接绕小场建小图”的流程，不要先在裁剪参数上浪费时间。
 
@@ -1360,7 +1360,7 @@ RC_LIDAR_MODE=relocalization \
 矩形裁剪示例，坐标单位是原始 PCD/FAST-LIO map 坐标系里的米：
 
 ```bash
-cd /home/orangepi/RC_LIDAR_NOW
+cd /home/rc2/jwt_new_lidar/rc_lidar_r2_v2
 source /opt/ros/humble/setup.bash
 source install/setup.bash
 
@@ -1393,9 +1393,9 @@ maps/competition_local.pcd.report.json
 报告里记录输入/输出路径、裁剪范围、原始点数、有效点数、裁剪后点数和降采样后点数。生产启动时指定这份局部图：
 
 ```bash
-cd /home/orangepi/RC_LIDAR_NOW
+cd /home/rc2/jwt_new_lidar/rc_lidar_r2_v2
 RC_LIDAR_MODE=relocalization \
-RC_LIDAR_MAP_PATH=/home/orangepi/RC_LIDAR_NOW/maps/competition_local.pcd \
+RC_LIDAR_MAP_PATH=/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/competition_local.pcd \
 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
 RC_AUTOSTART_HEADLESS=1 \
 RC_AUTOSTART_PLOTJUGGLER=0 \
@@ -1405,7 +1405,7 @@ RC_AUTOSTART_PLOTJUGGLER=0 \
 如果你明确想保存到某个固定路径，可以手动指定 FAST-LIO 保存路径：
 
 ```bash
-RC_FASTLIO_MAP_SAVE_PATH=/home/orangepi/maps/site_a.pcd \
+RC_FASTLIO_MAP_SAVE_PATH=/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/site_a.pcd \
 RC_LIDAR_MODE=mapping \
 ./autostart/start_all_terminals.sh
 ```
@@ -1417,7 +1417,7 @@ RC_LIDAR_MODE=mapping \
 可以离线检查 PCD 地图的基本质量：
 
 ```bash
-cd /home/orangepi/RC_LIDAR_NOW
+cd /home/rc2/jwt_new_lidar/rc_lidar_r2_v2
 source /opt/ros/humble/setup.bash
 source install/setup.bash
 
@@ -1434,7 +1434,7 @@ ros2 run lidar_map_localization pcd_quality_report \
 先正常启动低负载定位栈，等待重定位 ready 或确认 `robot_origin -> robot_base_highrate` 可查询，然后运行：
 
 ```bash
-cd "/home/orangepi/RC_LIDAR_NOW"
+cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 source /opt/ros/humble/setup.bash
 source install/setup.bash
 
@@ -1574,7 +1574,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
 
 3. `autostart/*.sh`
    - 统一通过 `autostart/common_env.sh` 加载当前工作区环境。
-   - 去掉旧路径 `/home/rc/...`、`/home/rc2/...`、`~/jwt/...`。
+   - 去掉历史固定工作区路径，统一从脚本所在目录自动定位当前工作区。
    - `start_all_terminals.sh` 改为自动定位当前 `autostart/`，日志写入本工作区的 `logs/autostart/`。
    - `serial_driver.sh` 会先调用 `can_setup.sh`：有免密权限时自动配置并拉起 CAN；没有免密权限但 CAN 已经 `UP` 时继续启动；没有免密权限且 CAN 未 `UP` 时直接停止 `CAN_SERIAL`，避免一键启动卡在 sudo 密码。
    - `highrate_body.sh` 在缺少 `robot_localization` 时发布 `body -> body_highrate` 静态 TF 作为降级兜底。
@@ -1640,7 +1640,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
 
 16. `autostart/install_one_click_network.sh`
    - 一次性配置免密码一键启动所需的网络环境。
-   - 持久化 `eth0 -> 192.168.1.5/24`。
+   - 持久化 `enp4s0 -> 192.168.1.5/24`。
    - 安装 udev 规则，USB-CAN 枚举为 `can*` 时自动拉起 CAN 口。
 
 17. `autostart/boot_start.sh`、`autostart/rc-lidar-autostart.service`、`autostart/install_user_systemd_autostart.sh`
@@ -1661,7 +1661,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
    - 当前帧名适配为 FAST-LIO 原始帧：`map -> camera_init -> body`。
    - 新增 `pcd_quality_report`，用于离线检查 PCD 地图点数、范围和体素密度。
    - Rc 3.0 新增 `pcd_prepare_local_map`，用于从大场馆 PCD 裁出比赛局部图并降采样；输出已存在时自动改名，避免覆盖原图或旧局部图。
-   - Rc 3.2 确认可用方案是“直接绕比赛小场地建小 PCD，不裁剪”。本机可用地图为 `maps/mid360_map_20260624_190419.pcd`，裁剪工具保留为备用但本检查点没有用到。
+   - Rc 3.2 确认可用方案是“直接绕比赛小场地建小 PCD，不裁剪”。本机可用地图为 `maps/mid360_map.pcd`，裁剪工具保留为备用但本检查点没有用到。
    - Rc 4.11 起，`map_localizer` 的 scan/odom 输入默认使用 `RC_MAP_LOCALIZER_INPUT_QUEUE_DEPTH=1`。如果地图匹配算不过来，ROS 输入队列只保留最新 scan/odom，旧帧会被覆盖，不再排队回放到 yaw/pose 修正链路。这个改动不按 header stamp 强丢弃结果，先避免历史点云积压；`scan_age_sec`、`odom_age_sec`、`align_ms` 仍通过 `/map_lidar/quality` 和健康日志记录，用来判断是否还存在真实延迟。
 
 20. `src/lidar_localization`

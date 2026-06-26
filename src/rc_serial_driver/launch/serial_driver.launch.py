@@ -1,3 +1,4 @@
+import ast
 import os
 
 from ament_index_python.packages import get_package_share_directory
@@ -12,6 +13,18 @@ def generate_launch_description():
     def env_bool(name, default):
         return os.environ.get(name, default).lower() in ('1', 'true', 'yes', 'on')
 
+    def env_float_list(name, default):
+        value = os.environ.get(name)
+        if value is None:
+            return default
+        try:
+            parsed = ast.literal_eval(value)
+        except (SyntaxError, ValueError):
+            parsed = value.split(',')
+        if len(parsed) != len(default):
+            raise RuntimeError(f'{name} must contain {len(default)} float values')
+        return [float(item) for item in parsed]
+
     can_interface = os.environ.get('CAN_INTERFACE', 'can0')
     can_bitrate = int(os.environ.get('CAN_BITRATE', '1000000'))
     can_pose_debug_topic = os.environ.get('RC_CAN_POSE_DEBUG_TOPIC', '/rc_serial_driver/can_pose_debug')
@@ -22,6 +35,14 @@ def generate_launch_description():
     raw_odom_pose_strict = env_bool('RC_CAN_RAW_ODOM_POSE_STRICT', '1')
     raw_odom_pose_yaw_offset_rad = float(os.environ.get('RC_CAN_RAW_ODOM_POSE_YAW_OFFSET_RAD', '0.0'))
     raw_odom_apply_robot_extrinsic = env_bool('RC_CAN_RAW_ODOM_APPLY_ROBOT_EXTRINSIC', '1')
+    raw_odom_lidar_to_base_xyz = env_float_list(
+        'RC_CAN_RAW_ODOM_LIDAR_TO_BASE_XYZ', [0.237488, -0.272804, -0.483])
+    raw_odom_lidar_to_base_rpy = env_float_list(
+        'RC_CAN_RAW_ODOM_LIDAR_TO_BASE_RPY', [0.0, 0.0, -1.5707963267948966])
+    raw_odom_reference_xyz = env_float_list(
+        'RC_CAN_RAW_ODOM_REFERENCE_XYZ', [-0.260, 0.262, -0.483])
+    raw_odom_reference_rpy = env_float_list(
+        'RC_CAN_RAW_ODOM_REFERENCE_RPY', [0.0, 0.0, -1.5707963267948966])
     yaw_pose_topic_enabled = env_bool('RC_CAN_USE_YAW_POSE_TOPIC', '0')
     yaw_pose_topic = os.environ.get('RC_CAN_YAW_POSE_TOPIC', '/robot/pose')
     yaw_pose_topic_timeout_sec = float(os.environ.get('RC_CAN_YAW_POSE_TOPIC_TIMEOUT_SEC', '0.5'))
@@ -68,6 +89,10 @@ def generate_launch_description():
                 'raw_odom_pose_strict': raw_odom_pose_strict,
                 'raw_odom_pose_yaw_offset_rad': raw_odom_pose_yaw_offset_rad,
                 'raw_odom_apply_robot_extrinsic': raw_odom_apply_robot_extrinsic,
+                'raw_odom_lidar_to_base_xyz': raw_odom_lidar_to_base_xyz,
+                'raw_odom_lidar_to_base_rpy': raw_odom_lidar_to_base_rpy,
+                'raw_odom_reference_xyz': raw_odom_reference_xyz,
+                'raw_odom_reference_rpy': raw_odom_reference_rpy,
                 'yaw_pose_topic_enabled': yaw_pose_topic_enabled,
                 'yaw_pose_topic': yaw_pose_topic,
                 'yaw_pose_topic_timeout_sec': yaw_pose_topic_timeout_sec,

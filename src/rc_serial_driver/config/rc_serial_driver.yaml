@@ -17,7 +17,7 @@
     raw_odom_lidar_to_base_xyz: [0.237488, -0.272804, -0.483]
     raw_odom_lidar_to_base_rpy: [0.0, 0.0, -1.5707963267948966]
     raw_odom_reference_xyz: [-0.260, 0.262, -0.483]
-    raw_odom_reference_rpy: [0.0, 0.0, 0.0]
+    raw_odom_reference_rpy: [0.0, 0.0, -1.5707963267948966]
     yaw_pose_topic_enabled: false
     yaw_pose_topic: "/robot/pose"
     yaw_pose_topic_timeout_sec: 0.5

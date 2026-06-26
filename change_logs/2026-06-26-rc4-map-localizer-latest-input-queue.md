@@ -189,7 +189,7 @@ Rc 4.11 解决的是“不要让历史 scan/odom 输入排队回放”。后续�
 静态检查：
 
 ```bash
-cd "/home/orangepi/RC_LIDAR_NOW"
+cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 
 bash -n \
   autostart/map_localizer.sh \

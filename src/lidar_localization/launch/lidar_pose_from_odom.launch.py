@@ -1,3 +1,5 @@
+from typing import List
+
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
@@ -19,6 +21,8 @@ def generate_launch_description():
     zero_frame_id = LaunchConfiguration("zero_frame_id")
     reference_pose_enabled = LaunchConfiguration("reference_pose_enabled")
     reference_frame_id = LaunchConfiguration("reference_frame_id")
+    reference_pose_xyz = LaunchConfiguration("reference_pose_xyz")
+    reference_pose_rpy = LaunchConfiguration("reference_pose_rpy")
     output_stamp_mode = LaunchConfiguration("output_stamp_mode")
     yaw_fusion_enabled = LaunchConfiguration("yaw_fusion_enabled")
     fast_odom_topic = LaunchConfiguration("fast_odom_topic")
@@ -50,6 +54,13 @@ def generate_launch_description():
             DeclareLaunchArgument("zero_frame_id", default_value="robot_origin"),
             DeclareLaunchArgument("reference_pose_enabled", default_value="true"),
             DeclareLaunchArgument("reference_frame_id", default_value="robot_origin"),
+            DeclareLaunchArgument(
+                "reference_pose_xyz", default_value="[-0.260, 0.262, -0.483]"
+            ),
+            DeclareLaunchArgument(
+                "reference_pose_rpy",
+                default_value="[0.0, 0.0, -1.5707963267948966]",
+            ),
             DeclareLaunchArgument("output_stamp_mode", default_value="now"),
             DeclareLaunchArgument("yaw_fusion_enabled", default_value="false"),
             DeclareLaunchArgument("fast_odom_topic", default_value="/Odometry"),
@@ -83,6 +94,12 @@ def generate_launch_description():
                             reference_pose_enabled, value_type=bool
                         ),
                         "reference_frame_id": reference_frame_id,
+                        "reference_pose_xyz": ParameterValue(
+                            reference_pose_xyz, value_type=List[float]
+                        ),
+                        "reference_pose_rpy": ParameterValue(
+                            reference_pose_rpy, value_type=List[float]
+                        ),
                         "output_stamp_mode": output_stamp_mode,
                         "yaw_fusion_enabled": ParameterValue(
                             yaw_fusion_enabled, value_type=bool

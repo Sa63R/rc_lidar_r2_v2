@@ -32,7 +32,7 @@ exec ros2 run lidar_localization continuous_robot_pose --ros-args \
   -p lidar_to_base_rpy:="${RC_LIDAR_TO_BASE_RPY:-[0.0, 0.0, -1.5707963267948966]}" \
   -p reference_pose_enabled:="${RC_CONTINUOUS_POSE_REFERENCE_ENABLED:-true}" \
   -p reference_pose_xyz:="${RC_ROBOT_ORIGIN_XYZ:-[-0.260, 0.262, -0.483]}" \
-  -p reference_pose_rpy:="${RC_ROBOT_ORIGIN_RPY:-[0.0, 0.0, 0.0]}" \
+  -p reference_pose_rpy:="${RC_ROBOT_ORIGIN_RPY:-[0.0, 0.0, -1.5707963267948966]}" \
   -p correction_alpha:="${RC_CONTINUOUS_POSE_CORRECTION_ALPHA:-0.05}" \
   -p odom_buffer_sec:="${RC_CONTINUOUS_POSE_ODOM_BUFFER_SEC:-5.0}" \
   -p max_stamp_delta_sec:="${RC_CONTINUOUS_POSE_MAX_STAMP_DELTA:-0.20}" \

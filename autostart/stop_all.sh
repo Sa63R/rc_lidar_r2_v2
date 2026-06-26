@@ -34,13 +34,13 @@ should_kill_cmd() {
     *"ros2 launch my_static_tf "*|*"ros2 launch fast_lio "*|*"ros2 launch livox_ros_driver2 "*|*"ros2 launch rc_serial_driver "*|*"ros2 launch lidar_map_localization "*|*"ros2 launch lidar_localization "*)
       return 0
       ;;
-    *"ros2 run robot_localization "*|*"ros2 run fastlio_world_init "*|*"ros2 run lidar_localization canfd_pose_sender"*)
+    *"ros2 run robot_localization "*|*"ros2 run fastlio_world_init "*|*"ros2 run lidar_localization canfd_pose_sender"*|*"ros2 run lidar_localization pose_filter"*|*"ros2 run lidar_localization health_monitor"*)
       return 0
       ;;
     *"fastlio_mapping"*|*"livox_ros_driver2_node"*|*"rc_serial_driver_node"*|*"ekf_node"*)
       return 0
       ;;
-    *"world_from_fastlio_init"*|*"robot_tf_offsets"*|*"lidar_tf_offset"*|*"lidar_xyzr.py"*|*"map_localizer"*|*"pose_from_odom"*|*"pose_from_tf"*|*"continuous_robot_pose"*|*"canfd_pose_sender"*)
+    *"world_from_fastlio_init"*|*"robot_tf_offsets"*|*"lidar_tf_offset"*|*"lidar_xyzr.py"*|*"map_localizer"*|*"pose_from_odom"*|*"pose_from_tf"*|*"continuous_robot_pose"*|*"canfd_pose_sender"*|*"/lidar_localization/pose_filter"*|*"/lidar_localization/health_monitor"*)
       return 0
       ;;
     *"thermal_pose_monitor.sh"*|*"thermal_pose_monitor.py"*)
@@ -204,11 +204,15 @@ patterns=(
   "ros2 run robot_localization"
   "ros2 run fastlio_world_init"
   "ros2 run lidar_localization canfd_pose_sender"
+  "ros2 run lidar_localization pose_filter"
+  "ros2 run lidar_localization health_monitor"
   "fastlio_mapping"
   "livox_ros_driver2_node"
   "rc_serial_driver_node"
   "can_pose_monitor.py"
   "canfd_pose_sender"
+  "/lidar_localization/pose_filter"
+  "/lidar_localization/health_monitor"
   "ekf_node"
   "static_transform_publisher"
   "world_from_fastlio_init"

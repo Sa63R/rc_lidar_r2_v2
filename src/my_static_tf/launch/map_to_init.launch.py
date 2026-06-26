@@ -1,7 +1,8 @@
 from launch import LaunchDescription
 from launch_ros.actions import Node
 
-ROBOT_AXES_YAW_RAD = "0"
+# map -> robot_origin follows the vehicle/business axes: X right, Y forward.
+ROBOT_AXES_YAW_RAD = "-1.5707963267948966"
 
 
 def generate_launch_description():

@@ -36,8 +36,6 @@ RC_STABLE_FILTERED_POSE_TOPIC="${RC_STABLE_FILTERED_POSE_TOPIC:-/robot/pose_filt
 RC_CONTINUOUS_POSE="${RC_CONTINUOUS_POSE:-auto}"
 RC_AUTOSTART_DRY_RUN="${RC_AUTOSTART_DRY_RUN:-0}"
 RC_AUTOSTART_CANFD="${RC_AUTOSTART_CANFD:-0}"
-RC_CAN_FRAME_MODE="${RC_CAN_FRAME_MODE:-normal}"
-RC_CAN_YAW_OFFSET_DEG="${RC_CAN_YAW_OFFSET_DEG:-0.0}"
 RC_CAN_DEBUG_CSV="${RC_CAN_DEBUG_CSV:-0}"
 RC_CAN_DEBUG_CSV_PATH="${RC_CAN_DEBUG_CSV_PATH:-}"
 RC_CAN_DEBUG_LOG_PERIOD_SEC="${RC_CAN_DEBUG_LOG_PERIOD_SEC:-1.0}"
@@ -92,15 +90,6 @@ if [ "${RC_CAN_POSE_TOPIC+x}" != "x" ] || [ -z "${RC_CAN_POSE_TOPIC:-}" ]; then
     RC_CAN_POSE_TOPIC="$RC_FILTERED_POSE_TOPIC"
   fi
 fi
-case "$RC_CAN_FRAME_MODE" in
-  normal|yaw_180|flip_xy_yaw_180|flip_x|flip_y|swap_xy|swap_xy_flip_x|swap_xy_flip_y|yaw_neg)
-    ;;
-  *)
-    echo "[ERROR] Unknown RC_CAN_FRAME_MODE=$RC_CAN_FRAME_MODE. Use normal, yaw_180, flip_xy_yaw_180, flip_x, flip_y, swap_xy, swap_xy_flip_x, swap_xy_flip_y, or yaw_neg." >&2
-    exit 2
-    ;;
-esac
-
 BOOT_ID="$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo unknown)"
 BOOT_ID_SHORT="$(printf '%s' "$BOOT_ID" | cut -c1-8)"
 
@@ -156,8 +145,6 @@ export RC_STABLE_FILTERED_POSE_TOPIC
 export RC_CONTINUOUS_POSE
 export RC_AUTOSTART_CANFD
 export RC_CAN_POSE_TOPIC
-export RC_CAN_FRAME_MODE
-export RC_CAN_YAW_OFFSET_DEG
 export RC_CAN_DEBUG_CSV
 export RC_CAN_DEBUG_CSV_PATH
 export RC_CAN_DEBUG_LOG_PERIOD_SEC
@@ -195,8 +182,6 @@ mkdir -p "$ROS_LOG_DIR"
   echo "stable_filtered_pose_topic: $RC_STABLE_FILTERED_POSE_TOPIC"
   echo "can_pose_topic: $RC_CAN_POSE_TOPIC"
   echo "canfd: $RC_AUTOSTART_CANFD"
-  echo "can_frame_mode: $RC_CAN_FRAME_MODE"
-  echo "can_yaw_offset_deg: $RC_CAN_YAW_OFFSET_DEG"
   echo "can_debug_csv: $RC_CAN_DEBUG_CSV"
   echo "can_debug_csv_path: ${RC_CAN_DEBUG_CSV_PATH:-}"
   echo "continuous_pose: $RC_CONTINUOUS_POSE"

@@ -14,7 +14,6 @@ Environment=RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1
 Environment=RC_AUTOSTART_HEADLESS=1
 Environment=RC_AUTOSTART_PLOTJUGGLER=0
 Environment=RC_AUTOSTART_CANFD=0
-Environment=RC_CAN_FRAME_MODE=normal
 Environment=RC_CAN_POSE_SOURCE=raw_odom
 Environment=RC_CAN_POSE_TOPIC=/robot/pose_filtered
 Environment=RC_CAN_RAW_ODOM_POSE_TOPIC=/Odometry

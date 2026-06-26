@@ -7,26 +7,28 @@ chromium-browser --proxy-server="http://127.0.0.1:7897"
 
 # 关残余雷达进程
 
-   cd '/home/orangepi/RC_LIDAR_NOW'
+   cd '/home/rc2/jwt_new_lidar/rc_lidar_r2_v2'
 ./autostart/stop_all.sh
 
 # 当前可用版本 rc3.2：小场地直接建图，不裁剪，使用这张地图重定位
-# 地图：/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260624_190419.pcd
+# 地图：/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/mid360_map.pcd
 # 启动前提：车放在建图原点附近，所以使用 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1
 # 重定位调试启动：核心仍然低负载，不开 RViz，但自动打开 PlotJuggler
-cd "/home/orangepi/RC_LIDAR_NOW"
+cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 RC_LIDAR_MODE=relocalization \
 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
 RC_AUTOSTART_HEADLESS=1 \
 RC_AUTOSTART_PLOTJUGGLER=1 \
-RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd" \
+RC_AUTOSTART_CANFD=1 \
+RC_CAN_DEBUG_CSV=1 \
+RC_LIDAR_MAP_PATH="/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/mid360_map_20260625_005422.pcd" \
 ./autostart/start_all_terminals.sh
 
 
 
 <!-- 旋转自校正脚本 -->
 
-cd '/home/orangepi/RC_LIDAR_NOW'
+cd '/home/rc2/jwt_new_lidar/rc_lidar_r2_v2'
 source /opt/ros/humble/setup.bash
 source install/setup.bash
 
@@ -38,11 +40,11 @@ ros2 run fastlio_world_init rotation_extrinsic_calibrator \
 建图模块
 
 # 建图
-cd "/home/orangepi/RC_LIDAR_NOW"
+cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 RC_LIDAR_MODE=mapping ./autostart/start_all_terminals.sh
 
 # 保存地图
-cd "/home/orangepi/RC_LIDAR_NOW"
+cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 ./autostart/save_fast_lio_map.sh
 
 地图默认保存到：
@@ -71,13 +73,13 @@ cat
 ## 推荐开机低负载重定位
 
 ```bash
-cd "/home/orangepi/RC_LIDAR_NOW"
+cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 RC_LIDAR_MODE=relocalization \
 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
 RC_AUTOSTART_HEADLESS=1 \
 RC_AUTOSTART_PLOTJUGGLER=0 \
 RC_POSE_FILTER_STABLE=0 \
-RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd" \
+RC_LIDAR_MAP_PATH="/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/mid360_map.pcd" \
 ./autostart/start_all_terminals.sh
 ```
 
@@ -123,8 +125,16 @@ RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.p
   -> CAN
 ```
 
+当前坐标约定：
 
-cd "/home/orangepi/RC_LIDAR_NOW"
+```text
+body -> robot_base yaw = -90 deg
+map -> robot_origin yaw = -90 deg
+robot_base / robot_origin 业务坐标: X 右, Y 前, Z 上
+```
+
+
+cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 source /opt/ros/humble/setup.bash
 source install/setup.bash
 
@@ -156,7 +166,7 @@ PY
 
 
 
-cd "/home/orangepi/RC_LIDAR_NOW"
+cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 source /opt/ros/humble/setup.bash
 source install/setup.bash
 
@@ -230,7 +240,7 @@ PY
 
 ## 打应map relocalizer的xy,观测回退现象
 
-cd "/home/orangepi/RC_LIDAR_NOW"
+cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 source /opt/ros/humble/setup.bash
 source install/setup.bash
 

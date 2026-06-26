@@ -22,6 +22,8 @@ case "$POSE_SOURCE" in
       zero_frame_id:="$ZERO_FRAME" \
       reference_pose_enabled:=true \
       reference_frame_id:="$ZERO_FRAME" \
+      reference_pose_xyz:="${RC_ROBOT_ORIGIN_XYZ:-[-0.260, 0.262, -0.483]}" \
+      reference_pose_rpy:="${RC_ROBOT_ORIGIN_RPY:-[0.0, 0.0, -1.5707963267948966]}" \
       output_stamp_mode:="${RC_ROBOT_POSE_STAMP_MODE:-now}" \
       yaw_fusion_enabled:="$YAW_FUSION" \
       fast_odom_topic:="$FAST_ODOM_TOPIC" \

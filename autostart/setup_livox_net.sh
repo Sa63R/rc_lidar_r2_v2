@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-IFACE="${LIVOX_NET_IFACE:-eth0}"
-HOST_CIDR="${LIVOX_HOST_CIDR:-192.168.1.5/24}"
-LIDAR_IP="${LIVOX_LIDAR_IP:-192.168.1.124}"
+IFACE="${LIVOX_NET_IFACE:-enp4s0}"
+HOST_CIDR="${LIVOX_HOST_CIDR:-${RC_LIVOX_HOST_CIDR:-192.168.1.5/24}}"
+LIDAR_IP="${LIVOX_LIDAR_IP:-${RC_LIVOX_LIDAR_IP:-192.168.1.168}}"
 ALLOW_SUDO="${LIVOX_NET_ALLOW_SUDO:-0}"
 
 echo "[livox-net] interface: $IFACE"
@@ -113,12 +113,25 @@ echo "[livox-net] probing route-selected interface..."
 ip route get "$LIDAR_IP" 2>/dev/null || true
 echo
 
-echo "[livox-net] probing lidar with ARP..."
-if arping -I "$IFACE" -c 3 "$LIDAR_IP"; then
-  echo "[livox-net] OK: lidar replied on $LIDAR_IP."
+echo "[livox-net] probing lidar..."
+if command -v arping >/dev/null 2>&1; then
+  if arping -I "$IFACE" -c 3 "$LIDAR_IP"; then
+    echo "[livox-net] OK: lidar replied on $LIDAR_IP."
+  else
+    echo "[livox-net] WARN: no ARP reply from $LIDAR_IP."
+    echo "[livox-net] This usually means the lidar is not on this cable/interface,"
+    echo "[livox-net] is not powered, or its real IP is different from $LIDAR_IP."
+    exit 2
+  fi
+elif command -v ping >/dev/null 2>&1; then
+  echo "[livox-net] arping not found; falling back to ping."
+  if ping -c 2 -W 1 "$LIDAR_IP"; then
+    echo "[livox-net] OK: lidar replied on $LIDAR_IP."
+  else
+    echo "[livox-net] WARN: no ping reply from $LIDAR_IP."
+    echo "[livox-net] Install arping for a better link-layer check: sudo apt install -y arping"
+    exit 2
+  fi
 else
-  echo "[livox-net] WARN: no ARP reply from $LIDAR_IP."
-  echo "[livox-net] This usually means the lidar is not on this cable/interface,"
-  echo "[livox-net] is not powered, or its real IP is different from $LIDAR_IP."
-  exit 2
+  echo "[livox-net] WARN: neither arping nor ping is available; skipping active probe."
 fi

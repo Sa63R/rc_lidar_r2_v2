@@ -452,13 +452,13 @@ CAN 自动重启和开机自启默认继承 `RC_ROBOT_POSE_SOURCE=odom`。只有
 启动：
 
 ```bash
-cd "/home/orangepi/RC_LIDAR_NOW"
+cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 RC_LIDAR_MODE=relocalization \
 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
 RC_AUTOSTART_HEADLESS=1 \
 RC_AUTOSTART_PLOTJUGGLER=1 \
 RC_POSE_FILTER_STABLE=1 \
-RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd" \
+RC_LIDAR_MAP_PATH="/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/mid360_map.pcd" \
 ./autostart/start_all_terminals.sh
 ```
 
@@ -681,12 +681,12 @@ RC_CAN_RAW_ODOM_YAW_OFFSET_RAD=3.141592653589793
 用户要求把当前可用启动命令设置为开机启动：
 
 ```bash
-cd "/home/orangepi/RC_LIDAR_NOW"
+cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 RC_LIDAR_MODE=relocalization \
 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
 RC_AUTOSTART_HEADLESS=1 \
 RC_AUTOSTART_PLOTJUGGLER=0 \
-RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd" \
+RC_LIDAR_MAP_PATH="/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/mid360_map.pcd" \
 ./autostart/start_all_terminals.sh
 ```
 
@@ -694,7 +694,7 @@ RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.p
 
 ```text
 RC_LIDAR_MODE=relocalization
-RC_LIDAR_MAP_PATH=/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd
+RC_LIDAR_MAP_PATH=/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/mid360_map.pcd
 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1
 RC_AUTOSTART_HEADLESS=1
 RC_AUTOSTART_PLOTJUGGLER=0
@@ -920,7 +920,7 @@ RC_CAN_RAW_ODOM_APPLY_ROBOT_EXTRINSIC=0
     - `RC_AUTOSTART_HEADLESS=1`
     - `RC_AUTOSTART_PLOTJUGGLER=0`
     - `RC_POSE_FILTER_STABLE=1`
-    - 指定小场可用地图 `maps/mid360_map_20260625_064655.pcd`
+    - 指定小场可用地图 `maps/mid360_map.pcd`
 
 13. 用户提出关于滤波和 TF 的关键怀疑：
     - 重写 TF 前，如果启动位置准确，滤波后精度能维持在约 5 mm。
@@ -1005,7 +1005,7 @@ RC_CAN_RAW_ODOM_APPLY_ROBOT_EXTRINSIC=0
 
 45. 用户进一步追问“旋转 Odom 的意义是什么”，并确认如果电控只需要 `/Odometry` 的原始 yaw 旋转角，且正方向一致，那么不应该额外加零点偏置。用户要求“那就改回 0”，因此 Rc 4.14 将 `RC_CAN_RAW_ODOM_YAW_OFFSET_RAD` 默认值改成 `0.0`。
 
-46. 用户要求把当前可用低负载启动命令设置为开机启动：`RC_LIDAR_MODE=relocalization`、`RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1`、`RC_AUTOSTART_HEADLESS=1`、`RC_AUTOSTART_PLOTJUGGLER=0`、指定 `maps/mid360_map_20260625_064655.pcd`。同时要求开机只用这一套逻辑，不要多入口重复启动。因此 Rc 4.15 明确更新 `boot_start.sh` 与 user systemd 模板，并保留 boot_id guard 防止 XDG/systemd 双入口时重复真实启动。
+46. 用户要求把当前可用低负载启动命令设置为开机启动：`RC_LIDAR_MODE=relocalization`、`RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1`、`RC_AUTOSTART_HEADLESS=1`、`RC_AUTOSTART_PLOTJUGGLER=0`、指定 `maps/mid360_map.pcd`。同时要求开机只用这一套逻辑，不要多入口重复启动。因此 Rc 4.15 明确更新 `boot_start.sh` 与 user systemd 模板，并保留 boot_id guard 防止 XDG/systemd 双入口时重复真实启动。
 
 47. 用户要求：“你现在先改一下给 CAN 发的数据，就先直接用 odom 的原始数据，方便电控调车。”随后特别澄清：“这里指的原始数据不是 Map localizer 的原始 Odom，而是说就是雷达的原始 Odom，没有经过建图的数据。”因此本次不能使用 `/map_lidar/odom`，必须直接使用 FAST-LIO `/Odometry`。
 

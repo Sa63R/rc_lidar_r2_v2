@@ -123,7 +123,7 @@ done
 
 ## 3. 适配 r2 雷达网络
 
-先查 r2 网口，不要假设一定是 `eth0`：
+先查 r2 网口，不要假设一定是 `enp4s0`：
 
 ```bash
 ip -br link
@@ -133,7 +133,7 @@ ip -br addr
 找到接 MID360 的网口，记为 `$R2_LIVOX_IFACE`。如果不确定，拔插雷达网线对比 `ip -br link` 和 `ethtool`：
 
 ```bash
-export R2_LIVOX_IFACE="eth0"
+export R2_LIVOX_IFACE="enp4s0"
 ip -br link show "$R2_LIVOX_IFACE"
 ethtool "$R2_LIVOX_IFACE" | grep -i "Link detected"
 ```
@@ -142,7 +142,7 @@ ethtool "$R2_LIVOX_IFACE" | grep -i "Link detected"
 
 ```text
 主机 IP: 192.168.1.5
-雷达 IP: 192.168.1.124
+雷达 IP: 192.168.1.168
 ```
 
 在 r2 上临时配置并验证：
@@ -150,8 +150,8 @@ ethtool "$R2_LIVOX_IFACE" | grep -i "Link detected"
 ```bash
 sudo ip link set "$R2_LIVOX_IFACE" up
 sudo ip addr add 192.168.1.5/24 dev "$R2_LIVOX_IFACE" 2>/dev/null || true
-ip route get 192.168.1.124
-arping -I "$R2_LIVOX_IFACE" -c 3 192.168.1.124
+ip route get 192.168.1.168
+arping -I "$R2_LIVOX_IFACE" -c 3 192.168.1.168
 ```
 
 如果 `arping` 无回应，优先检查雷达供电、网线、交换机/转接盒、网口是否选错。不要先改 TF。
@@ -180,7 +180,7 @@ cd "$R2_WS"
 
 ```bash
 ip -br addr
-arping -I "$R2_LIVOX_IFACE" -c 3 192.168.1.124
+arping -I "$R2_LIVOX_IFACE" -c 3 192.168.1.168
 ```
 
 ## 4. 适配 r2 CAN 链路
@@ -424,7 +424,7 @@ grep -n "RC_LIDAR_MODE\\|RC_CAN_POSE_TOPIC\\|RC_HEALTH_MONITOR" autostart/restar
 
 重启脚本必须避免把 `/tmp/rc_lidar_restart.lock` 的 flock 文件描述符传给新雷达栈。正确结构是：先 `flock -n` 成功，再创建本次 `restart_*.log` 和更新 `latest_restart`，最后在 `nohup start_all_terminals.sh` 前执行 `exec 9>&-`。否则第一次 CAN 重启会成功，但新启动的 ROS 长进程会继承锁，第二、第三次 CAN 重启脚本拿不到锁就直接退出，看起来像电控重启命令失效。迁移到 r2 后可用 `flock -n /tmp/rc_lidar_restart.lock -c 'echo restart_lock_free'` 验证当前运行栈没有占住重启锁。
 
-Orange Pi 当前生产默认已经固定为小场地图 `/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd`，不开 PlotJuggler，ready 只写 json 不弹窗口，并默认不启动 stable 候选滤波。CAN 目前为电控调车临时默认整包发送 FAST-LIO 原始 `/Odometry`：`RC_CAN_POSE_SOURCE=raw_odom`、`RC_CAN_RAW_ODOM_POSE_TOPIC=/Odometry`、`RC_CAN_RAW_ODOM_POSE_STRICT=1`、`RC_CAN_RAW_ODOM_POSE_YAW_OFFSET_RAD=0.0`，且默认 `RC_CAN_REQUIRE_READY=0` 不等待 quality ready。R2 不能照搬这个绝对路径，但如果也是为了先调电控，可以采用同样 raw odom 策略；如果要回到地图坐标控制，应显式设置 `RC_CAN_POSE_SOURCE=pose_topic RC_CAN_POSE_TOPIC=/robot/pose_filtered`。
+当前主机默认使用小场地图 `/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/mid360_map.pcd`，不开 PlotJuggler，ready 只写 json 不弹窗口，并默认不启动 stable 候选滤波。CAN 目前为电控调车临时默认整包发送 FAST-LIO 原始 `/Odometry`：`RC_CAN_POSE_SOURCE=raw_odom`、`RC_CAN_RAW_ODOM_POSE_TOPIC=/Odometry`、`RC_CAN_RAW_ODOM_POSE_STRICT=1`、`RC_CAN_RAW_ODOM_POSE_YAW_OFFSET_RAD=0.0`，且默认 `RC_CAN_REQUIRE_READY=0` 不等待 quality ready。如果只是先调电控，可以采用同样 raw odom 策略；如果要回到地图坐标控制，应显式设置 `RC_CAN_POSE_SOURCE=pose_topic RC_CAN_POSE_TOPIC=/robot/pose_filtered`。
 
 ## 6. 建图、保存地图和地图质量
 
@@ -488,7 +488,7 @@ ros2 run lidar_map_localization pcd_quality_report --map maps/mid360_map.pcd
 Orange Pi 可用检查点：
 
 ```text
-map: /home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260624_190419.pcd
+map: /home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/mid360_map.pcd
 mode: RC_LIDAR_MODE=relocalization
 initialization: RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1
 note: 小场地直接建图，不使用 pcd_prepare_local_map 裁剪
@@ -709,7 +709,7 @@ body -> robot_base
 body_highrate -> robot_base_highrate
 ```
 
-重定位模式下 `map_localizer` 发布 `map -> camera_init`；mapping/tracking 模式需要发布 identity `map -> camera_init`。`map` 是 PCD 地图坐标，Y 正方向作为无头车世界正方向；`robot_origin` 是机器人业务原点。
+重定位模式下 `map_localizer` 发布 `map -> camera_init`；mapping/tracking 模式需要发布 identity `map -> camera_init`。`map` 是 PCD 地图原始坐标，`map -> robot_origin` 固定带 `-90°` yaw，把地图轴转成无头车业务世界；`robot_origin` 是机器人业务原点，业务坐标保持 `X` 向右、`Y` 向前。
 
 当前模板外参：
 

@@ -18,12 +18,12 @@ lidar_pose_from_odom:
     lidar_to_base_xyz: [0.237488, -0.272804, -0.483]
     lidar_to_base_rpy: [0.0, 0.0, -1.5707963267948966]
     # Relocalization mode uses /map_lidar/odom -> pose_from_odom by default.
-    # These values define map -> robot_origin and are used to compute
-    # robot_origin -> robot_base without querying a mixed-frequency TF chain.
+    # These values define map -> robot_origin. The -90 deg yaw keeps the
+    # business frame aligned as X right, Y forward after the lidar extrinsic.
     reference_pose_enabled: true
     reference_frame_id: robot_origin
     reference_pose_xyz: [-0.260, 0.262, -0.483]
-    reference_pose_rpy: [0.0, 0.0, 0.0]
+    reference_pose_rpy: [0.0, 0.0, -1.5707963267948966]
     # Relocalization yaw can lag because /map_lidar/odom waits for scan matching.
     # This optional fusion keeps map-localized XY but uses FAST-LIO /Odometry yaw
     # increments between map updates for lower steering latency.
