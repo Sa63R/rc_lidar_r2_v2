@@ -132,6 +132,16 @@ inverse(map -> robot_origin) * (map -> body) * (body -> robot_base)
   -> CAN_SERIAL
 ```
 
+后续增加一个只随 PlotJuggler 调试启动的对比 topic：
+
+```text
+/Odometry
+  -> pose_from_odom 加同一组 body -> robot_base 外参
+  -> /robot/pose_odom_only
+```
+
+`/robot/pose_odom_only` 不经过 map localizer、不进入滤波、不发给 CAN，只用于和 `/robot/pose`、`/robot/pose_filtered` 在 PlotJuggler 里对比。它的目的，是判断“纯 FAST-LIO odom 自己已经漂/抖”，还是“map localizer 修正链路导致拉动/延迟”。默认 `RC_ODOM_ONLY_COMPARE=auto`：开机低负载不启动，手动打开 PlotJuggler 时启动。
+
 默认启动参数：
 
 ```bash
@@ -326,6 +336,7 @@ PlotJuggler 订阅的话题名不需要变：
 
 ```text
 /robot/pose
+/robot/pose_odom_only
 /robot/pose_filtered
 /robot/pose_filtered_stable
 /robot/pose_filtered_beta

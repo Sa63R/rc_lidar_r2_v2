@@ -7,8 +7,13 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
+    node_name = LaunchConfiguration("node_name")
     params_file = LaunchConfiguration("params_file")
     input_odom_topic = LaunchConfiguration("input_odom_topic")
+    output_pose_topic = LaunchConfiguration("output_pose_topic")
+    output_pose_alias_topic = LaunchConfiguration("output_pose_alias_topic")
+    output_point_topic = LaunchConfiguration("output_point_topic")
+    output_odom_topic = LaunchConfiguration("output_odom_topic")
     zero_on_first_pose = LaunchConfiguration("zero_on_first_pose")
     zero_delay_sec = LaunchConfiguration("zero_delay_sec")
     zero_frame_id = LaunchConfiguration("zero_frame_id")
@@ -20,6 +25,7 @@ def generate_launch_description():
     yaw_fusion_publish_on_fast_odom = LaunchConfiguration("yaw_fusion_publish_on_fast_odom")
     yaw_fusion_max_fast_age_sec = LaunchConfiguration("yaw_fusion_max_fast_age_sec")
     yaw_fusion_map_correction_alpha = LaunchConfiguration("yaw_fusion_map_correction_alpha")
+    yaw_fusion_status_topic = LaunchConfiguration("yaw_fusion_status_topic")
 
     return LaunchDescription(
         [
@@ -33,7 +39,12 @@ def generate_launch_description():
                     ]
                 ),
             ),
+            DeclareLaunchArgument("node_name", default_value="lidar_pose_from_odom"),
             DeclareLaunchArgument("input_odom_topic", default_value="/Odometry"),
+            DeclareLaunchArgument("output_pose_topic", default_value="/lidar/pose"),
+            DeclareLaunchArgument("output_pose_alias_topic", default_value="/robot/pose"),
+            DeclareLaunchArgument("output_point_topic", default_value="/lidar/point"),
+            DeclareLaunchArgument("output_odom_topic", default_value="/lidar/odom"),
             DeclareLaunchArgument("zero_on_first_pose", default_value="true"),
             DeclareLaunchArgument("zero_delay_sec", default_value="5.0"),
             DeclareLaunchArgument("zero_frame_id", default_value="robot_origin"),
@@ -45,15 +56,22 @@ def generate_launch_description():
             DeclareLaunchArgument("yaw_fusion_publish_on_fast_odom", default_value="true"),
             DeclareLaunchArgument("yaw_fusion_max_fast_age_sec", default_value="0.50"),
             DeclareLaunchArgument("yaw_fusion_map_correction_alpha", default_value="0.05"),
+            DeclareLaunchArgument(
+                "yaw_fusion_status_topic", default_value="/robot/yaw_fusion/status"
+            ),
             Node(
                 package="lidar_localization",
                 executable="pose_from_odom",
-                name="lidar_pose_from_odom",
+                name=node_name,
                 output="screen",
                 parameters=[
                     params_file,
                     {
                         "input_odom_topic": input_odom_topic,
+                        "output_pose_topic": output_pose_topic,
+                        "output_pose_alias_topic": output_pose_alias_topic,
+                        "output_point_topic": output_point_topic,
+                        "output_odom_topic": output_odom_topic,
                         "zero_on_first_pose": ParameterValue(
                             zero_on_first_pose, value_type=bool
                         ),
@@ -79,6 +97,7 @@ def generate_launch_description():
                         "yaw_fusion_map_correction_alpha": ParameterValue(
                             yaw_fusion_map_correction_alpha, value_type=float
                         ),
+                        "yaw_fusion_status_topic": yaw_fusion_status_topic,
                     },
                 ],
             ),

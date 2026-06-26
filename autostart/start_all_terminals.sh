@@ -531,6 +531,26 @@ should_start_ready_notify() {
   esac
 }
 
+should_start_odom_only_compare() {
+  case "${RC_ODOM_ONLY_COMPARE:-auto}" in
+    1|true|TRUE|yes|YES|on|ON)
+      return 0
+      ;;
+    0|false|FALSE|no|NO|off|OFF)
+      return 1
+      ;;
+    auto)
+      [ "$RC_LIDAR_MODE" = "relocalization" ] && [ "$START_PLOTJUGGLER" = "1" ]
+      return
+      ;;
+    *)
+      echo "[WARN] Unknown RC_ODOM_ONLY_COMPARE=${RC_ODOM_ONLY_COMPARE}; using auto." | tee -a "$LOG_DIR/start_summary.txt"
+      [ "$RC_LIDAR_MODE" = "relocalization" ] && [ "$START_PLOTJUGGLER" = "1" ]
+      return
+      ;;
+  esac
+}
+
 start_one "TF_STATIC1" "lidar_to_base_tf.sh"
 start_one "TF_STATIC2" "map_to_init_tf.sh"
 start_one "TF_STATIC3" "lidar_to_base_highrate_tf.sh"
@@ -548,6 +568,11 @@ if [ "$RC_LIDAR_MODE" = "mapping" ]; then
 elif [ "$RC_LIDAR_MODE" = "relocalization" ]; then
   start_one "MAP_LOCALIZER" "map_localizer.sh"
   start_one "POSE_INTERFACE" "pose_interface_relocalization.sh"
+  if should_start_odom_only_compare; then
+    start_one "POSE_ODOM_ONLY" "pose_odom_only_debug.sh"
+  else
+    summary_event "skipped POSE_ODOM_ONLY compare"
+  fi
   if [ "${RC_POSE_FILTER:-1}" = "0" ]; then
     summary_event "skipped POSE_FILTER because RC_POSE_FILTER=0"
   else

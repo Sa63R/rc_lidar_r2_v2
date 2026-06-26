@@ -603,7 +603,7 @@ default_topics=...
 selected_topics=...
 ```
 
-这样 Topic Selector 里会默认选中 `/robot/pose`、`/robot/pose_filtered`、`/map_lidar/quality`、`/lidar/pose_filter/status`、`/robot/yaw_fusion/status` 和三个 `/tf_compare/...` topic。之前出现“只能看到 `/tf_compare/...`，看不到 `/robot/pose_filtered`”的原因，可能有两类：一类是 PlotJuggler ROS2 插件没有可靠吃到用户配置里的 topic，且启动时 `ros2 topic list` 被 ROS daemon 状态干扰；另一类是 `/robot/pose` 自己没有发布，滤波节点没有输入，所以 PlotJuggler 即使订阅了 `/robot/pose_filtered` 也没有曲线。当前脚本会同时写 `default_topics` 和 `selected_topics`，并用 `ros2 topic list --no-daemon --spin-time 2` 等待 topic。
+这样 Topic Selector 里会默认选中 `/robot/pose`、`/robot/pose_odom_only`、`/robot/pose_filtered`、`/map_lidar/quality`、`/lidar/pose_filter/status`、`/robot/yaw_fusion/status` 和三个 `/tf_compare/...` topic。`/robot/pose_odom_only` 只在打开 PlotJuggler 调试时自动启动，用来对比“纯 FAST-LIO `/Odometry` + 机器人中心外参”和“经过 map localizer 的 `/robot/pose`”差异，不参与 CAN 和生产定位链路。之前出现“只能看到 `/tf_compare/...`，看不到 `/robot/pose_filtered`”的原因，可能有两类：一类是 PlotJuggler ROS2 插件没有可靠吃到用户配置里的 topic，且启动时 `ros2 topic list` 被 ROS daemon 状态干扰；另一类是 `/robot/pose` 自己没有发布，滤波节点没有输入，所以 PlotJuggler 即使订阅了 `/robot/pose_filtered` 也没有曲线。当前脚本会同时写 `default_topics` 和 `selected_topics`，并用 `ros2 topic list --no-daemon --spin-time 2` 等待 topic。
 
 PlotJuggler 启动前默认最多等待关键 topic `16s`，可用 `PLOTJUGGLER_WAIT_SECONDS` 覆盖；每次 discovery 默认等待 `2s`，可用 `PLOTJUGGLER_TOPIC_SPIN_TIME` 覆盖。日志里如果看到 `Waiting for topics:` 后面列出一整组 topic，不一定代表这些 topic 永久不存在；启动早期也可能是 ROS graph 查询暂时失败。当前脚本会把 `ros2 topic list failed` 单独写进日志，便于区分“topic 真的没发布”和“ROS graph 查询失败”。
 
@@ -810,6 +810,16 @@ Livox MID360 -> FAST-LIO -> /cloud_registered + /Odometry
 relocalization CAN 默认链路：/robot/pose_filtered -> rc_serial_driver
 tracking CAN 默认链路：TF robot_origin -> robot_base_highrate/robot_base -> rc_serial_driver
 ```
+
+打开 PlotJuggler 调试时，还会额外启动一个轻量对比节点：
+
+```text
+FAST-LIO /Odometry
+  -> pose_from_odom 加同一组 body -> robot_base 外参
+  -> /robot/pose_odom_only
+```
+
+这条 `/robot/pose_odom_only` 不包含 map localizer 重定位修正，也不参与滤波或 CAN，只用于判断厘米级抖动、延迟或漂移到底来自 FAST-LIO 原始 odom，还是来自 map localizer 修正链路。低负载开机自启默认不开 PlotJuggler，因此也不会启动这个额外诊断节点；需要强制开关时用 `RC_ODOM_ONLY_COMPARE=1|0|auto`。
 
 高精度来自保存地图后的 NDT/ICP 地图匹配，不是单纯调 FAST-LIO 参数。`/robot/pose` 已经转换成机器人业务坐标：
 
@@ -1149,14 +1159,17 @@ RC_CAN_POSE_SOURCE=pose_topic RC_CAN_POSE_TOPIC=/robot/pose_filtered ./autostart
 PlotJuggler 里看机器人中心点滤波前后抖动，优先选这些曲线：
 
 ```text
+/robot/pose_odom_only/pose/position/x
 /robot/pose/pose/position/x
 /robot/pose_filtered/pose/position/x
 /robot/pose_filtered_beta/pose/position/x
 /robot/pose_filtered_stable/pose/position/x
+/robot/pose_odom_only/pose/position/y
 /robot/pose/pose/position/y
 /robot/pose_filtered/pose/position/y
 /robot/pose_filtered_beta/pose/position/y
 /robot/pose_filtered_stable/pose/position/y
+/robot/pose_odom_only/pose/position/z
 /robot/pose/pose/position/z
 /robot/pose_filtered/pose/position/z
 /robot/pose_filtered_beta/pose/position/z
@@ -1166,6 +1179,7 @@ PlotJuggler 里看机器人中心点滤波前后抖动，优先选这些曲线�
 滤波观察要区分几件事：
 
 - `/robot/pose` 是滤波前的地图重定位观察值，来源仍然是 `/map_lidar/odom -> pose_from_odom`。Rc 2.4 没有修改 `/robot/pose` 的生成算法、地图匹配参数或坐标转换逻辑。如果重启后看到 `/robot/pose` 比之前稳定，通常不是代码直接调稳了它，而是这次运行的状态更干净、地图匹配收敛更好、现场动态干扰更少，或者 PlotJuggler 里选到的曲线和之前不同。
+- `/robot/pose_odom_only` 是纯 FAST-LIO `/Odometry` 加机器人中心外参后的对比位姿，不含 map localizer。它只在 PlotJuggler 调试时自动启动，帮助判断原始 odom 与地图重定位结果的差异。
 - `/robot/pose_filtered` 是默认滤波后的观察值。滤波目标是静止时压住小抖动，运动时尽量保留连续轨迹；绕点转圈时，连续的正弦/余弦曲线通常比台阶或锯齿更符合真实运动。
 - `/robot/pose_filtered_beta` 只有 `RC_POSE_FILTER_BETA=1` 时发布，主要用于和 normal 对比静止尖峰抑制效果；PlotJuggler 也只会在 beta 打开时自动等待/订阅 beta topic。
 - `/robot/pose_filtered_stable` 只有 `RC_POSE_FILTER_STABLE=1` 时发布，主要用于对付静止状态下 map localizer 输出的短时 1-4cm 跳变。它比 normal 更保守：短时跳点不会立刻被当成运动，但连续真实移动达到确认条件后会释放跟随。
@@ -1549,12 +1563,12 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
    - 发布 `map -> body` 的 XYZ 平移，保持雷达原始坐标轴。
 
 10. `src/fastlio_world_init/config/tf_compare_plotjuggler.xml`
-    - 保留 PlotJuggler ROS2 streamer 配置模板，包含 `/robot/pose`、`/robot/pose_filtered`、`/map_lidar/quality`、`/lidar/pose_filter/status` 和三个 `/tf_compare/...` topic。
+    - 保留 PlotJuggler ROS2 streamer 配置模板，包含 `/robot/pose`、`/robot/pose_odom_only`、`/robot/pose_filtered`、`/map_lidar/quality`、`/lidar/pose_filter/status` 和三个 `/tf_compare/...` topic。
     - 当前默认启动不加载这个 XML，只通过用户配置写入 `default_topics/selected_topics`。原因是当前 Orange Pi 上 PlotJuggler 3.15 加载该 XML 后出现过内部崩溃；XML 仅作为手动备用。
 
 11. `autostart/robot_tf_offsets.sh`、`autostart/lidar_tf_offset.sh`、`autostart/plotjuggler_tf_compare.sh`
     - 一键启动时自动启动 TF 对比发布节点和 PlotJuggler。
-    - `plotjuggler_tf_compare.sh` 在重定位模式下会等待 `/robot/pose`、`/robot/pose_filtered`、质量 topic 和 `/tf_compare/...` topic 出现，写入 PlotJuggler 的 `DataStreamROS2/default_topics` 与 `selected_topics`，再打开 PlotJuggler。
+    - `plotjuggler_tf_compare.sh` 在重定位模式下会等待 `/robot/pose`、`/robot/pose_odom_only`、`/robot/pose_filtered`、质量 topic 和 `/tf_compare/...` topic 出现，写入 PlotJuggler 的 `DataStreamROS2/default_topics` 与 `selected_topics`，再打开 PlotJuggler。
     - 等待 topic 时使用 `ros2 topic list --no-daemon --spin-time 2`，避免 ROS daemon 缓存或 `rclpy.ok()` 错误导致误判 topic 不存在。
 
 12. `src/fastlio_world_init/fastlio_world_init/rotation_extrinsic_calibrator.py`

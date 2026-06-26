@@ -792,6 +792,7 @@ selected_topics=...
 
 ```text
 /robot/pose
+/robot/pose_odom_only
 /robot/pose_filtered
 /map_lidar/quality
 /lidar/pose_filter/status
@@ -800,6 +801,8 @@ selected_topics=...
 /tf_compare/robot_origin_to_robot_base_highrate
 /tf_compare/map_to_body
 ```
+
+`/robot/pose_odom_only` 是诊断 topic，只在打开 PlotJuggler 调试时自动启动。它用 FAST-LIO `/Odometry` 加同一组雷达到机器人中心外参发布机器人中心点，不包含 map localizer 修正，也不参与 CAN。R2 迁移时建议保留 `RC_ODOM_ONLY_COMPARE=auto`：低负载开机不启动，手动开 PlotJuggler 时启动，用来判断抖动/延迟来自纯 odom 还是地图重定位修正。
 
 如果 Topic Selector 只选中了旧的 body/body_highrate，或者没有看到 `/robot/pose_filtered`，先只刷新 PlotJuggler 配置，不启动 GUI：
 
@@ -830,7 +833,9 @@ tail -n 120 logs/autostart/latest/PLOTJUGGLER.log
 
 ```bash
 ros2 topic info /robot/pose --verbose --no-daemon
+ros2 topic info /robot/pose_odom_only --verbose --no-daemon
 tail -n 120 logs/autostart/latest/POSE_INTERFACE.log
+tail -n 120 logs/autostart/latest/POSE_ODOM_ONLY.log
 ```
 
 当前 Orange Pi 的重定位生产链路默认使用 `RC_ROBOT_POSE_SOURCE=odom`：`POSE_INTERFACE` 订阅 `/map_lidar/odom`，在同一帧定位结果上加雷达到机器人中心外参，并发布 `/robot/pose`。这保留无头车 TF 树，但避免用 TF buffer 直接拼接 `robot_origin -> robot_base_highrate` 时混合低频 `map -> camera_init` 和高频 `body_highrate`。
@@ -873,8 +878,10 @@ RC_AUTOSTART_TF_COMPARE=1 \
 重点观察：
 
 ```text
+/robot/pose_odom_only/pose/position/x
 /robot/pose/pose/position/x
 /robot/pose_filtered/pose/position/x
+/robot/pose_odom_only/pose/position/y
 /robot/pose/pose/position/y
 /robot/pose_filtered/pose/position/y
 /map_lidar/quality
