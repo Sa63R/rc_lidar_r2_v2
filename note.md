@@ -1,23 +1,27 @@
 # codex 不对这个文件做记录，但是必要错误可修改
 
-cd '/home/orangepi/RC_LIDAR_NOW'
-./autostart/start_all_terminals.sh
-
-
+# TEST
+## 性能测试
 chromium-browser --proxy-server="http://127.0.0.1:7897"
-
-
-我现在已经接上了雷达，你测试一下下面的脚本
-//低负载启动：
-cd '/home/orangepi/RC_LIDAR_NOW'
-RC_AUTOSTART_HEADLESS=1 RC_AUTOSTART_PLOTJUGGLER=0 ./autostart/start_all_terminals.sh
-
 
 
 # 关残余雷达进程
 
    cd '/home/orangepi/RC_LIDAR_NOW'
 ./autostart/stop_all.sh
+
+# 当前可用版本 rc3.2：小场地直接建图，不裁剪，使用这张地图重定位
+# 地图：/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260624_190419.pcd
+# 启动前提：车放在建图原点附近，所以使用 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1
+# 重定位调试启动：核心仍然低负载，不开 RViz，但自动打开 PlotJuggler
+cd "/home/orangepi/RC_LIDAR_NOW"
+RC_LIDAR_MODE=relocalization \
+RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
+RC_AUTOSTART_HEADLESS=1 \
+RC_AUTOSTART_PLOTJUGGLER=1 \
+RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd" \
+./autostart/start_all_terminals.sh
+
 
 
 <!-- 旋转自校正脚本 -->
@@ -30,13 +34,6 @@ ros2 run fastlio_world_init rotation_extrinsic_calibrator \
   --duration 40 \
   --rate 50
 
-# Rc 3.4 无头车 TF 树验证：
-# map 是 PCD 地图坐标，Y 正方向是无头车世界正方向。
-# robot_origin 是机器人业务原点，robot_base_highrate 是机器人当前高频中心。
-ros2 run tf2_ros tf2_echo map robot_origin
-ros2 run tf2_ros tf2_echo body robot_base
-ros2 run tf2_ros tf2_echo body_highrate robot_base_highrate
-ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
 
 建图模块
 
@@ -51,97 +48,17 @@ cd "/home/orangepi/RC_LIDAR_NOW"
 地图默认保存到：
 maps/mid360_map.pcd
 
-# 重定位低负载启动：
-cd "/home/orangepi/RC_LIDAR_NOW"
-RC_LIDAR_MODE=relocalization \
-RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
-RC_AUTOSTART_HEADLESS=1 \
-RC_AUTOSTART_PLOTJUGGLER=0 \
-RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260624_190419.pcd" \
-./autostart/start_all_terminals.sh
 
 
-# 当前可用版本 rc3.2：小场地直接建图，不裁剪，使用这张地图重定位
-# 地图：/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260624_190419.pcd
-# 启动前提：车放在建图原点附近，所以使用 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1
-# 重定位调试启动：核心仍然低负载，不开 RViz，但自动打开 PlotJuggler
-cd "/home/orangepi/RC_LIDAR_NOW"
-RC_LIDAR_MODE=relocalization \
-RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
-RC_AUTOSTART_HEADLESS=1 \
-RC_AUTOSTART_PLOTJUGGLER=1 \
-RC_POSE_FILTER_STABLE=0 \
-RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd" \
-./autostart/start_all_terminals.sh
 
-# 默认不启用 stable 候选滤波；需要对比时再手动改成 RC_POSE_FILTER_STABLE=1
-cd "/home/orangepi/RC_LIDAR_NOW"
-RC_LIDAR_MODE=relocalization \
-RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
-RC_AUTOSTART_HEADLESS=1 \
-RC_AUTOSTART_PLOTJUGGLER=1 \
-RC_POSE_FILTER_STABLE=0 \
-RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd" \
-./autostart/start_all_terminals.sh
+## 滤波参数
+<!-- 越大越接近raw,但是过不了门控 -->
+RC_POSE_FILTER_YAW_ALPHA=0.85
 
-# 确认 stable 更稳且运动不卡顿后，才让 CAN 发送 /robot/pose_filtered_stable
-
-
-# 如果车确实放回建图开始原点附近：
-cd "/home/orangepi/RC_LIDAR_NOW"
-RC_LIDAR_MODE=relocalization \
-RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
-./autostart/start_all_terminals.sh
-
-
-chromium-browser --proxy-server="http://127.0.0.1:7897"
-
-
-# debug脚本
-
-cd "/home/orangepi/RC_LIDAR_NOW"
-./autostart/stop_all.sh
-
-RC_THERMAL_POSE_MONITOR=1 \
-RC_LIDAR_MODE=relocalization \
-RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
-./autostart/start_all_terminals.sh
-
-
-分别维护readme和更新日志两个内容，更新日志大概要做到另一个codex在没有上下文的情况下知道要干什么就可以了，不用告诉他具体怎么做。而是让他知道有这件事。（但是对事的记录要详细，尽量不要漏，甚至就可以以我每次给你发的话为主题参照）
-
-我刚刚重启了两次，现在是第三次的开机，应该此时还有一个正在运行的雷达程序。理论上，现在应该有两个已经新生成的低负载日志和一个正在运行的高负载日志，你帮我判断一下前两次的低负载日志。分析一下具体坐标情况，以及波动情况
-
-我刚刚在静止状态下不同情况低功耗启动了两次。都维持静止，你帮我对比这两次有没有区别？现在是第三次的开机，
-
-
-跑通现在的CAN链路，另外，现在的滤波算法开销很大，除去VSCODE和clash也占满了CPU,先1后2
-
-
-# 调试负载注意
-
-用 Codex 查问题时，通常必须开 VS Code 和 Clash，有时还会开 QQ、浏览器或 PlotJuggler，这会显著提高 CPU/温度负载；低功耗开机自启不会开这些，所以不能直接把 Codex 调试状态下的 2-5cm 抖动当成生产低负载状态。
-
-判断滤波问题时优先做 headless 对照：
-
-cd "/home/orangepi/RC_LIDAR_NOW"
-./autostart/stop_all.sh
-
-RC_LIDAR_MODE=relocalization \
-RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
-RC_AUTOSTART_HEADLESS=1 \
-RC_AUTOSTART_PLOTJUGGLER=0 \
-RC_POSE_FILTER_STABLE=0 \
-RC_HEALTH_MONITOR_INTERVAL=1.0 \
-RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd" \
-./autostart/start_all_terminals.sh
-
-看日志时先分清：
-- /robot/pose 原始位姿是否已经跳；
-- /map_lidar/quality 的 fitness 和 map_quality_jump_xy_m 是否同步变差；
-- /robot/pose_filtered 是否只是被原始位姿拉着走。
-
-
+<!-- 可以过门控 -->
+RC_POSE_FILTER_USE_RAW_YAW=1
+<!-- 走低延迟odom+map_lidar融合yaw -->
+RC_CAN_USE_YAW_POSE_TOPIC=1
 # temperature
 
 cat
@@ -205,3 +122,173 @@ RC_LIDAR_MAP_PATH="/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.p
   -> /robot/pose_filtered 或所选滤波输出
   -> CAN
 ```
+
+
+cd "/home/orangepi/RC_LIDAR_NOW"
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+
+python3 - <<'PY'
+import math
+import rclpy
+from rclpy.node import Node
+from geometry_msgs.msg import PoseStamped
+
+def yaw_from_q(q):
+    return math.atan2(2*(q.w*q.z + q.x*q.y), 1 - 2*(q.y*q.y + q.z*q.z))
+
+class YawPrinter(Node):
+    def __init__(self):
+        super().__init__('print_can_yaw')
+        self.create_subscription(PoseStamped, '/robot/pose', self.cb, 10)
+
+    def cb(self, msg):
+        yaw = yaw_from_q(msg.pose.orientation)
+        print(f"can_yaw_rad={yaw:+.4f}  can_yaw_deg={math.degrees(yaw):+.1f}", flush=True)
+
+rclpy.init()
+node = YawPrinter()
+rclpy.spin(node)
+PY
+
+
+
+
+
+
+cd "/home/orangepi/RC_LIDAR_NOW"
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+
+python3 - <<'PY'
+import math
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import Float32MultiArray
+
+def deg(x):
+    if not math.isfinite(x):
+        return float("nan")
+    return math.degrees(x)
+
+class YawFusionPrinter(Node):
+    def __init__(self):
+        super().__init__("yaw_fusion_printer")
+        self.create_subscription(
+            Float32MultiArray,
+            "/robot/yaw_fusion/status",
+            self.cb,
+            10,
+        )
+
+    def cb(self, msg):
+        d = list(msg.data)
+        if len(d) < 10:
+            print("status too short:", d, flush=True)
+            return
+
+        enabled = d[0]
+        ready = d[1]
+        source = d[2]
+        fast_age = d[3]
+        map_age = d[4]
+        map_ref_yaw = d[5]
+        fast_yaw = d[6]
+        fused_yaw = d[7]
+        delta_yaw = d[8]
+        alpha = d[9]
+
+        source_name = {
+            1.0: "map_update",
+            2.0: "fast_update",
+        }.get(source, f"{source:.0f}")
+
+        print(
+            f"src={source_name:11s} "
+            f"ready={ready:.0f} "
+            f"fast_age={fast_age*1000:6.1f}ms "
+            f"map_age={map_age*1000:6.1f}ms "
+            f"fast={deg(fast_yaw):8.2f}deg "
+            f"map_ref={deg(map_ref_yaw):8.2f}deg "
+            f"fused={deg(fused_yaw):8.2f}deg "
+            f"delta={deg(delta_yaw):8.2f}deg "
+            f"alpha={alpha:.3f}",
+            flush=True,
+        )
+
+rclpy.init()
+node = YawFusionPrinter()
+try:
+    rclpy.spin(node)
+except KeyboardInterrupt:
+    pass
+finally:
+    node.destroy_node()
+    rclpy.shutdown()
+PY
+
+
+## 打应map relocalizer的xy,观测回退现象
+
+cd "/home/orangepi/RC_LIDAR_NOW"
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+
+python3 - <<'PY'
+import math
+import time
+import rclpy
+from rclpy.node import Node
+from nav_msgs.msg import Odometry
+
+class MapLocalizerXYPrinter(Node):
+    def __init__(self):
+        super().__init__("print_map_localizer_xy")
+        self.last_t = None
+        self.count = 0
+        self.create_subscription(Odometry, "/map_lidar/odom", self.cb, 10)
+        print("[map_xy] listening: /map_lidar/odom", flush=True)
+
+    def cb(self, msg):
+        now = time.monotonic()
+        hz = "--"
+        if self.last_t is not None:
+            dt = now - self.last_t
+            if dt > 0:
+                hz = f"{1.0 / dt:5.1f}"
+        self.last_t = now
+        self.count += 1
+
+        p = msg.pose.pose.position
+        q = msg.pose.pose.orientation
+        yaw = math.atan2(
+            2.0 * (q.w * q.z + q.x * q.y),
+            1.0 - 2.0 * (q.y * q.y + q.z * q.z),
+        )
+
+        stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        print(
+            f"#{self.count:06d} "
+            f"x={p.x:+.4f}m "
+            f"y={p.y:+.4f}m "
+            f"z={p.z:+.4f}m "
+            f"yaw={yaw:+.4f}rad "
+            f"yaw={math.degrees(yaw):+7.2f}deg "
+            f"hz={hz} "
+            f"stamp={stamp:.3f}",
+            flush=True,
+        )
+
+rclpy.init()
+node = MapLocalizerXYPrinter()
+try:
+    rclpy.spin(node)
+except KeyboardInterrupt:
+    pass
+finally:
+    node.destroy_node()
+    if rclpy.ok():
+        rclpy.shutdown()
+PY
+
+另外，我现在的启动逻辑，为什么雷达每次启动时候odom发布的雷达当前坐标相对于camera_init不是000,而是会偏几厘米，而且每次的偏差还不一样
