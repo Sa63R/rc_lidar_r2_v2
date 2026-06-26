@@ -248,7 +248,7 @@ def parse_bool(value: str) -> bool:
 def main() -> int:
     log_dir = Path(os.environ.get("LOG_DIR", os.getcwd()))
     parser = argparse.ArgumentParser()
-    parser.add_argument("--pose-topic", default="/robot/pose_filtered")
+    parser.add_argument("--pose-topic", default="/robot/pose_continuous")
     parser.add_argument("--quality-topic", default="/map_lidar/quality")
     parser.add_argument("--marker-path", default=str(log_dir / "relocalization_ready.json"))
     parser.add_argument(

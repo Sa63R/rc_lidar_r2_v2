@@ -175,10 +175,10 @@ class PoseFromOdom(Node):
         )
         self.point_pub = self.create_publisher(PointStamped, self.output_point_topic, 10)
         self.odom_pub = self.create_publisher(Odometry, self.output_odom_topic, 10)
-        self.yaw_fusion_status_pub = self.create_publisher(
-            Float32MultiArray,
-            self.yaw_fusion_status_topic,
-            10,
+        self.yaw_fusion_status_pub = (
+            self.create_publisher(Float32MultiArray, self.yaw_fusion_status_topic, 10)
+            if self.yaw_fusion_enabled
+            else None
         )
         self.tf_broadcaster: Optional[TransformBroadcaster] = (
             TransformBroadcaster(self) if self.publish_tf else None
@@ -426,6 +426,9 @@ class PoseFromOdom(Node):
         self.log_pose(pose_msg, child_frame)
 
     def publish_yaw_fusion_status(self, source_code: float, fused_yaw: float) -> None:
+        if self.yaw_fusion_status_pub is None:
+            return
+
         now = time.monotonic()
         fast_age = (
             now - self.latest_fast_wall_sec

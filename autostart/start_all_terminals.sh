@@ -31,6 +31,7 @@ RC_LOCALIZATION_MAP_PATH="$RC_LIDAR_MAP_PATH"
 RC_RAW_POSE_TOPIC="${RC_RAW_POSE_TOPIC:-/robot/pose}"
 RC_FILTERED_POSE_TOPIC="${RC_FILTERED_POSE_TOPIC:-/robot/pose_filtered}"
 RC_HEALTH_MONITOR="${RC_HEALTH_MONITOR:-${RC_THERMAL_POSE_MONITOR:-1}}"
+RC_POSE_FILTER="${RC_POSE_FILTER:-0}"
 RC_POSE_FILTER_SELECTED="${RC_POSE_FILTER_SELECTED:-normal}"
 RC_POSE_FILTER_BETA="${RC_POSE_FILTER_BETA:-0}"
 RC_BETA_FILTERED_POSE_TOPIC="${RC_BETA_FILTERED_POSE_TOPIC:-/robot/pose_filtered_beta}"
@@ -40,6 +41,8 @@ RC_CONTINUOUS_POSE="${RC_CONTINUOUS_POSE:-auto}"
 RC_CONTINUOUS_POSE_OUTPUT_TOPIC="${RC_CONTINUOUS_POSE_OUTPUT_TOPIC:-/robot/pose_continuous}"
 RC_AUTOSTART_DRY_RUN="${RC_AUTOSTART_DRY_RUN:-0}"
 RC_AUTOSTART_CANFD="${RC_AUTOSTART_CANFD:-0}"
+RC_CAN_RESTART_LISTENER="${RC_CAN_RESTART_LISTENER:-auto}"
+RC_CANFD_RESTART_ENABLED="${RC_CANFD_RESTART_ENABLED:-1}"
 RC_CAN_DEBUG_CSV="${RC_CAN_DEBUG_CSV:-0}"
 RC_CAN_DEBUG_CSV_PATH="${RC_CAN_DEBUG_CSV_PATH:-}"
 RC_CAN_DEBUG_LOG_PERIOD_SEC="${RC_CAN_DEBUG_LOG_PERIOD_SEC:-1.0}"
@@ -58,6 +61,20 @@ RC_READY_FASTLIO_ODOM_TOPIC="${RC_READY_FASTLIO_ODOM_TOPIC:-/Odometry}"
 RC_READY_FASTLIO_CLOUD_TOPIC="${RC_READY_FASTLIO_CLOUD_TOPIC:-/cloud_registered}"
 RC_READY_MAP_ODOM_TOPIC="${RC_READY_MAP_ODOM_TOPIC:-/map_lidar/odom}"
 RC_READY_MAP_QUALITY_TOPIC="${RC_READY_MAP_QUALITY_TOPIC:-/map_lidar/quality}"
+case "$RC_POSE_FILTER" in
+  1|true|TRUE|yes|YES|on|ON)
+    RC_POSE_FILTER_ENABLED=1
+    RC_POSE_FILTER=1
+    ;;
+  0|false|FALSE|no|NO|off|OFF|"")
+    RC_POSE_FILTER_ENABLED=0
+    RC_POSE_FILTER=0
+    ;;
+  *)
+    echo "[ERROR] Unknown RC_POSE_FILTER=$RC_POSE_FILTER. Use 0 or 1." >&2
+    exit 2
+    ;;
+esac
 case "$RC_POSE_FILTER_SELECTED" in
   normal|beta|stable)
     ;;
@@ -90,13 +107,15 @@ case "$RC_POSE_FILTER_STABLE" in
     exit 2
     ;;
 esac
-if [ "$RC_POSE_FILTER_SELECTED" = "beta" ] && [ "$RC_POSE_FILTER_BETA_ENABLED" != "1" ]; then
-  echo "[ERROR] RC_POSE_FILTER_SELECTED=beta requires RC_POSE_FILTER_BETA=1." >&2
-  exit 2
-fi
-if [ "$RC_POSE_FILTER_SELECTED" = "stable" ] && [ "$RC_POSE_FILTER_STABLE_ENABLED" != "1" ]; then
-  echo "[ERROR] RC_POSE_FILTER_SELECTED=stable requires RC_POSE_FILTER_STABLE=1." >&2
-  exit 2
+if [ "$RC_POSE_FILTER_ENABLED" = "1" ]; then
+  if [ "$RC_POSE_FILTER_SELECTED" = "beta" ] && [ "$RC_POSE_FILTER_BETA_ENABLED" != "1" ]; then
+    echo "[ERROR] RC_POSE_FILTER_SELECTED=beta requires RC_POSE_FILTER_BETA=1." >&2
+    exit 2
+  fi
+  if [ "$RC_POSE_FILTER_SELECTED" = "stable" ] && [ "$RC_POSE_FILTER_STABLE_ENABLED" != "1" ]; then
+    echo "[ERROR] RC_POSE_FILTER_SELECTED=stable requires RC_POSE_FILTER_STABLE=1." >&2
+    exit 2
+  fi
 fi
 if [ "${RC_CAN_POSE_TOPIC+x}" != "x" ] || [ -z "${RC_CAN_POSE_TOPIC:-}" ]; then
   if [ "$RC_LIDAR_MODE" = "relocalization" ] && {
@@ -110,7 +129,7 @@ if [ "${RC_CAN_POSE_TOPIC+x}" != "x" ] || [ -z "${RC_CAN_POSE_TOPIC:-}" ]; then
       [ "$RC_CONTINUOUS_POSE" = "ON" ]
   }; then
     RC_CAN_POSE_TOPIC="$RC_CONTINUOUS_POSE_OUTPUT_TOPIC"
-  elif [ "${RC_POSE_FILTER:-1}" = "0" ]; then
+  elif [ "$RC_POSE_FILTER_ENABLED" = "0" ]; then
     RC_CAN_POSE_TOPIC="$RC_RAW_POSE_TOPIC"
   elif [ "$RC_POSE_FILTER_SELECTED" = "beta" ]; then
     RC_CAN_POSE_TOPIC="$RC_BETA_FILTERED_POSE_TOPIC"
@@ -169,6 +188,7 @@ export RC_LOCALIZATION_MAP_PATH
 export RC_RAW_POSE_TOPIC
 export RC_FILTERED_POSE_TOPIC
 export RC_HEALTH_MONITOR
+export RC_POSE_FILTER
 export RC_POSE_FILTER_SELECTED
 export RC_POSE_FILTER_BETA
 export RC_BETA_FILTERED_POSE_TOPIC
@@ -177,6 +197,8 @@ export RC_STABLE_FILTERED_POSE_TOPIC
 export RC_CONTINUOUS_POSE
 export RC_CONTINUOUS_POSE_OUTPUT_TOPIC
 export RC_AUTOSTART_CANFD
+export RC_CAN_RESTART_LISTENER
+export RC_CANFD_RESTART_ENABLED
 export RC_CAN_POSE_TOPIC
 export RC_CAN_DEBUG_CSV
 export RC_CAN_DEBUG_CSV_PATH
@@ -226,6 +248,7 @@ mkdir -p "$ROS_LOG_DIR"
   echo "health_monitor: $RC_HEALTH_MONITOR"
   echo "raw_pose_topic: $RC_RAW_POSE_TOPIC"
   echo "filtered_pose_topic: $RC_FILTERED_POSE_TOPIC"
+  echo "pose_filter: $RC_POSE_FILTER"
   echo "pose_filter_selected: $RC_POSE_FILTER_SELECTED"
   echo "pose_filter_beta: $RC_POSE_FILTER_BETA"
   echo "beta_filtered_pose_topic: $RC_BETA_FILTERED_POSE_TOPIC"
@@ -233,6 +256,8 @@ mkdir -p "$ROS_LOG_DIR"
   echo "stable_filtered_pose_topic: $RC_STABLE_FILTERED_POSE_TOPIC"
   echo "can_pose_topic: $RC_CAN_POSE_TOPIC"
   echo "canfd: $RC_AUTOSTART_CANFD"
+  echo "can_restart_listener: $RC_CAN_RESTART_LISTENER"
+  echo "canfd_restart_enabled: $RC_CANFD_RESTART_ENABLED"
   echo "can_debug_csv: $RC_CAN_DEBUG_CSV"
   echo "can_debug_csv_path: ${RC_CAN_DEBUG_CSV_PATH:-}"
   echo "continuous_pose: $RC_CONTINUOUS_POSE"
@@ -530,21 +555,44 @@ EOF
   sleep "${RC_AUTOSTART_TERMINAL_LAUNCH_DELAY:-0.4}"
 }
 
+gui_display_available() {
+  case "${RC_AUTOSTART_ALLOW_HEADLESS_GUI:-0}" in
+    1|true|TRUE|yes|YES|on|ON)
+      return 0
+      ;;
+  esac
+
+  if [ -z "${DISPLAY:-}" ]; then
+    return 1
+  fi
+
+  if command -v xdpyinfo >/dev/null 2>&1; then
+    xdpyinfo >/dev/null 2>&1
+    return
+  fi
+
+  return 0
+}
+
 should_start_plotjuggler() {
   case "${RC_AUTOSTART_PLOTJUGGLER:-auto}" in
     1|true|TRUE|yes|YES|on|ON)
-      return 0
+      if gui_display_available; then
+        return 0
+      fi
+      summary_event "skipped PLOTJUGGLER: RC_AUTOSTART_PLOTJUGGLER=1 but no reachable graphical display"
+      return 1
       ;;
     0|false|FALSE|no|NO|off|OFF)
       return 1
       ;;
     auto)
-      [ "$RUN_REASON" = "manual" ] && [ -n "${DISPLAY:-}" ]
+      [ "$RUN_REASON" = "manual" ] && gui_display_available
       return
       ;;
     *)
       echo "[WARN] Unknown RC_AUTOSTART_PLOTJUGGLER=${RC_AUTOSTART_PLOTJUGGLER}; using auto." | tee -a "$LOG_DIR/start_summary.txt"
-      [ "$RUN_REASON" = "manual" ] && [ -n "${DISPLAY:-}" ]
+      [ "$RUN_REASON" = "manual" ] && gui_display_available
       return
       ;;
   esac
@@ -605,12 +653,61 @@ should_start_can_monitor() {
       return 1
       ;;
     auto)
-      [ "$RUN_REASON" = "manual" ] && [ -n "${DISPLAY:-}" ]
+      [ "$RUN_REASON" = "manual" ] && gui_display_available
       return
       ;;
     *)
       echo "[WARN] Unknown RC_AUTOSTART_CAN_MONITOR=${RC_AUTOSTART_CAN_MONITOR}; using auto." | tee -a "$LOG_DIR/start_summary.txt"
-      [ "$RUN_REASON" = "manual" ] && [ -n "${DISPLAY:-}" ]
+      [ "$RUN_REASON" = "manual" ] && gui_display_available
+      return
+      ;;
+  esac
+}
+
+legacy_can_serial_enabled() {
+  case "${RC_AUTOSTART_LEGACY_CAN_SERIAL:-0}" in
+    1|true|TRUE|yes|YES|on|ON)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+canfd_enabled() {
+  case "${RC_AUTOSTART_CANFD:-0}" in
+    1|true|TRUE|yes|YES|on|ON)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+should_start_can_restart_listener() {
+  if legacy_can_serial_enabled; then
+    summary_event "skipped CAN_RESTART listener; legacy CAN_SERIAL already listens for restart frames"
+    return 1
+  fi
+
+  case "${RC_CAN_RESTART_LISTENER:-auto}" in
+    1|true|TRUE|yes|YES|on|ON)
+      return 0
+      ;;
+    0|false|FALSE|no|NO|off|OFF)
+      return 1
+      ;;
+    auto)
+      if canfd_enabled; then
+        summary_event "skipped CAN_RESTART listener; CANFD_POSE listens for FD CAN restart frames"
+      fi
+      return 1
+      ;;
+    *)
+      echo "[WARN] Unknown RC_CAN_RESTART_LISTENER=${RC_CAN_RESTART_LISTENER}; using auto." | tee -a "$LOG_DIR/start_summary.txt"
+      canfd_enabled
       return
       ;;
   esac
@@ -628,8 +725,8 @@ start_one_gui_terminal() {
     return 0
   fi
 
-  if [ -z "${DISPLAY:-}" ]; then
-    summary_event "no DISPLAY for $title; launching as background log instead"
+  if ! gui_display_available; then
+    summary_event "no reachable graphical display for $title; launching as background log instead"
     start_one "$title" "$script"
     return 0
   fi
@@ -894,7 +991,7 @@ wait_for_plotjuggler_ready_topics() {
       wait_for_ready_topic "PlotJuggler odom-only pose" "${RC_ODOM_ONLY_POSE_TOPIC:-/robot/pose_odom_only}" "$RC_READY_PLOTJUGGLER_TIMEOUT_SEC" 1
     fi
 
-    if [ "${RC_POSE_FILTER:-1}" != "0" ]; then
+    if [ "$RC_POSE_FILTER_ENABLED" = "1" ]; then
       wait_for_ready_topic "PlotJuggler filtered pose" "/robot/pose_filtered" "$RC_READY_PLOTJUGGLER_TIMEOUT_SEC" 1
       if [ "$RC_READY_FILTERED_POSE_TOPIC" != "/robot/pose_filtered" ]; then
         wait_for_ready_topic "PlotJuggler selected filtered pose" "$RC_READY_FILTERED_POSE_TOPIC" "$RC_READY_PLOTJUGGLER_TIMEOUT_SEC" 1
@@ -1010,6 +1107,7 @@ elif [ "$RC_LIDAR_MODE" = "relocalization" ]; then
   start_one "POSE_INTERFACE" "pose_interface_relocalization.sh"
   if should_start_continuous_pose; then
     start_one "POSE_CONTINUOUS" "continuous_robot_pose.sh"
+    wait_for_ready_topic "robot continuous pose" "$RC_CONTINUOUS_POSE_OUTPUT_TOPIC" "$RC_READY_FILTER_TIMEOUT_SEC" 1
   else
     summary_event "skipped POSE_CONTINUOUS"
   fi
@@ -1019,7 +1117,7 @@ elif [ "$RC_LIDAR_MODE" = "relocalization" ]; then
     summary_event "skipped POSE_ODOM_ONLY compare"
   fi
   wait_for_ready_topic "robot raw pose" "$RC_READY_RAW_POSE_TOPIC" "$RC_READY_POSE_TIMEOUT_SEC" 1
-  if [ "${RC_POSE_FILTER:-1}" = "0" ]; then
+  if [ "$RC_POSE_FILTER_ENABLED" = "0" ]; then
     summary_event "skipped POSE_FILTER because RC_POSE_FILTER=0"
   else
     start_one "POSE_FILTER" "pose_stability_filter.sh"
@@ -1062,14 +1160,16 @@ if should_start_tf_compare; then
 else
   summary_event "skipped TF compare publishers"
 fi
-case "${RC_AUTOSTART_LEGACY_CAN_SERIAL:-0}" in
-  1|true|TRUE|yes|YES|on|ON)
-    start_one "CAN_SERIAL" "serial_driver.sh"
-    ;;
-  *)
-    summary_event "skipped CAN_SERIAL; legacy Classic CAN is disabled by default"
-    ;;
-esac
+if legacy_can_serial_enabled; then
+  start_one "CAN_SERIAL" "serial_driver.sh"
+else
+  summary_event "skipped CAN_SERIAL; legacy Classic CAN is disabled by default"
+fi
+if should_start_can_restart_listener; then
+  start_one "CAN_RESTART" "can_restart_listener.sh"
+else
+  summary_event "skipped CAN_RESTART listener"
+fi
 case "$RC_AUTOSTART_CANFD" in
   1|true|TRUE|yes|YES|on|ON)
     start_one "CANFD_POSE" "canfd_pose_sender.sh"

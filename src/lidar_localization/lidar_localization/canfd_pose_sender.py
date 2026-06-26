@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 import csv
+import errno
 import math
 import os
 import socket
 import struct
+import subprocess
 import termios
 import time
 from glob import glob
@@ -21,11 +23,15 @@ CANFD_BRS = 0x01
 CAN_RAW_FD_FRAMES = 5
 CANFD_FRAME_FORMAT = "=IBBBB64s"
 CANFD_FRAME_SIZE = struct.calcsize(CANFD_FRAME_FORMAT)
+CAN_FRAME_FORMAT = "=IB3x8s"
+CAN_FRAME_SIZE = struct.calcsize(CAN_FRAME_FORMAT)
 DEFAULT_SEND_RATE_HZ = 100.0
 DEFAULT_AUTO_RETRANSMIT = True
 DEFAULT_POSE_TOPIC = "/robot/pose_filtered"
 DEFAULT_POSE_TIMEOUT_SEC = 0.5
 DEFAULT_CAN_FRAME_MODE = "normal"
+DEFAULT_RESTART_CAN_ID = 0x30
+DEFAULT_RESTART_PAYLOAD = bytes.fromhex("A55A01FE00000000")
 CAN_FRAME_MODES = (
     "normal",
     "yaw_180",
@@ -55,6 +61,7 @@ CANFD_DLC_BY_LENGTH = {
     48: "E",
     64: "F",
 }
+CANFD_LENGTH_BY_DLC = {code: length for length, code in CANFD_DLC_BY_LENGTH.items()}
 
 
 def pack_pose_payload(x: float, y: float, z: float, yaw: float) -> bytes:
@@ -63,6 +70,12 @@ def pack_pose_payload(x: float, y: float, z: float, yaw: float) -> bytes:
 
 def normalize_angle(angle: float) -> float:
     return math.atan2(math.sin(angle), math.cos(angle))
+
+
+def parse_int_value(value) -> int:
+    if isinstance(value, int):
+        return value
+    return int(str(value), 0)
 
 
 def transform_can_pose(
@@ -125,6 +138,7 @@ class SocketCanFdTransport:
         self.socket = socket.socket(socket.AF_CAN, socket.SOCK_RAW, can_raw)
         self.socket.setsockopt(sol_can_raw, CAN_RAW_FD_FRAMES, struct.pack("I", 1))
         self.socket.bind((interface,))
+        self.socket.setblocking(False)
 
     def send(self, can_id: int, payload: bytes, enable_brs: bool) -> None:
         flags = CANFD_BRS if enable_brs else 0
@@ -142,6 +156,30 @@ class SocketCanFdTransport:
     def close(self) -> None:
         self.socket.close()
 
+    def read_frames(self):
+        frames = []
+        while True:
+            try:
+                data = self.socket.recv(CANFD_FRAME_SIZE)
+            except BlockingIOError:
+                break
+            except OSError as exc:
+                if exc.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
+                    break
+                raise
+
+            if len(data) >= CANFD_FRAME_SIZE:
+                can_id, length, _flags, _res0, _res1, payload = struct.unpack(
+                    CANFD_FRAME_FORMAT, data[:CANFD_FRAME_SIZE]
+                )
+                frames.append((can_id & 0x1FFFFFFF, payload[:length]))
+            elif len(data) >= CAN_FRAME_SIZE:
+                can_id, length, payload = struct.unpack(
+                    CAN_FRAME_FORMAT, data[:CAN_FRAME_SIZE]
+                )
+                frames.append((can_id & 0x1FFFFFFF, payload[:length]))
+        return frames
+
 
 class SlcanFdTransport:
     def __init__(
@@ -153,6 +191,7 @@ class SlcanFdTransport:
     ) -> None:
         self.device = device
         self.fd = os.open(device, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+        self.rx_buffer = b""
         self.configure_serial_port()
         self.write_command("C")
         self.write_command(nominal_speed_command)
@@ -186,11 +225,98 @@ class SlcanFdTransport:
         line = f"{command}{can_id:03X}{dlc}{payload.hex().upper()}\r"
         os.write(self.fd, line.encode("ascii"))
 
+    def read_frames(self):
+        lines = []
+        while True:
+            try:
+                chunk = os.read(self.fd, 4096)
+            except BlockingIOError:
+                break
+            except OSError as exc:
+                if exc.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
+                    break
+                raise
+
+            if not chunk:
+                break
+            self.rx_buffer += chunk
+            while True:
+                cr = self.rx_buffer.find(b"\r")
+                lf = self.rx_buffer.find(b"\n")
+                indexes = [idx for idx in (cr, lf) if idx >= 0]
+                if not indexes:
+                    break
+                end = min(indexes)
+                raw_line = self.rx_buffer[:end]
+                self.rx_buffer = self.rx_buffer[end + 1 :]
+                line = raw_line.decode("ascii", errors="ignore").strip()
+                if line:
+                    lines.append(line)
+
+            if len(self.rx_buffer) > 4096:
+                self.rx_buffer = self.rx_buffer[-4096:]
+
+        frames = []
+        for line in lines:
+            frame = parse_slcan_frame(line)
+            if frame is not None:
+                frames.append(frame)
+        return frames
+
     def close(self) -> None:
         try:
             self.write_command("C")
         finally:
             os.close(self.fd)
+
+
+def parse_slcan_frame(line: str):
+    text = str(line).strip()
+    if not text:
+        return None
+
+    command = text[0]
+    if command in ("t", "r", "d", "b"):
+        id_len = 3
+        fd_frame = command in ("d", "b")
+    elif command in ("T", "R", "D", "B"):
+        id_len = 8
+        fd_frame = command in ("D", "B")
+    else:
+        return None
+
+    min_len = 1 + id_len + 1
+    if len(text) < min_len:
+        return None
+
+    try:
+        can_id = int(text[1 : 1 + id_len], 16)
+    except ValueError:
+        return None
+
+    dlc_code = text[1 + id_len].upper()
+    if fd_frame:
+        length = CANFD_LENGTH_BY_DLC.get(dlc_code)
+    else:
+        try:
+            length = int(dlc_code, 16)
+        except ValueError:
+            return None
+        if length > 8:
+            return None
+    if length is None:
+        return None
+
+    data_start = min_len
+    data_end = data_start + length * 2
+    if len(text) < data_end:
+        return None
+
+    try:
+        payload = bytes.fromhex(text[data_start:data_end])
+    except ValueError:
+        return None
+    return can_id, payload
 
 
 class CanFdPoseSender(Node):
@@ -220,6 +346,18 @@ class CanFdPoseSender(Node):
             "serial_fallback_globs",
             ["/dev/serial/by-id/usb-Openlight_Labs_CANable2*"],
         )
+        self.declare_parameter("restart_enabled", True)
+        self.declare_parameter("restart_can_id", DEFAULT_RESTART_CAN_ID)
+        self.declare_parameter("restart_payload_hex", DEFAULT_RESTART_PAYLOAD.hex())
+        self.declare_parameter(
+            "restart_script",
+            os.path.join(
+                os.environ.get("RC_LIDAR_WORKSPACE", os.getcwd()),
+                "autostart",
+                "restart_lidar_stack.sh",
+            ),
+        )
+        self.declare_parameter("restart_debounce_sec", 8.0)
 
         self.pose_topic = self.get_parameter("pose_topic").value
         self.configured_transport = self.get_parameter("transport").value
@@ -227,7 +365,7 @@ class CanFdPoseSender(Node):
         self.can_interface = self.get_parameter("can_interface").value
         self.configured_serial_device = self.get_parameter("serial_device").value
         self.serial_device = self.configured_serial_device
-        self.can_id = int(self.get_parameter("can_id").value)
+        self.can_id = parse_int_value(self.get_parameter("can_id").value)
         self.send_rate_hz = float(self.get_parameter("send_rate_hz").value)
         self.pose_timeout_sec = float(self.get_parameter("pose_timeout_sec").value)
         self.enable_brs = bool(self.get_parameter("enable_brs").value)
@@ -263,6 +401,16 @@ class CanFdPoseSender(Node):
         self.serial_fallback_globs = self.get_string_list_parameter(
             "serial_fallback_globs"
         )
+        self.restart_enabled = bool(self.get_parameter("restart_enabled").value)
+        self.restart_can_id = parse_int_value(self.get_parameter("restart_can_id").value)
+        self.restart_payload = bytes.fromhex(
+            str(self.get_parameter("restart_payload_hex").value).replace(" ", "")
+        )
+        self.restart_script = str(self.get_parameter("restart_script").value)
+        self.restart_debounce_sec = float(
+            self.get_parameter("restart_debounce_sec").value
+        )
+        self.last_restart_monotonic = 0.0
         self.latest_pose: Optional[PoseStamped] = None
         self.latest_pose_monotonic: Optional[float] = None
         self.transport = None
@@ -289,6 +437,9 @@ class CanFdPoseSender(Node):
             f"can_frame_mode={self.can_frame_mode} "
             f"yaw_offset_deg={math.degrees(self.yaw_offset_rad):.3f} "
             f"debug_csv={self.debug_csv_path or 'off'} "
+            f"restart={'on' if self.restart_enabled else 'off'} "
+            f"restart_can_id=0x{self.restart_can_id:03X} "
+            f"restart_debounce_sec={self.restart_debounce_sec:.3f} "
             "payload=<x,y,z,yaw float32 little-endian>"
         )
 
@@ -448,6 +599,8 @@ class CanFdPoseSender(Node):
         self.latest_pose_monotonic = time.monotonic()
 
     def timer_callback(self) -> None:
+        self.poll_restart_command()
+
         if self.latest_pose is None:
             self.get_logger().warn(
                 f"waiting for {self.pose_topic}", throttle_duration_sec=2.0
@@ -570,6 +723,64 @@ class CanFdPoseSender(Node):
                 f"first CAN FD payload sent via {self.transport_name}"
             )
         return True
+
+    def poll_restart_command(self) -> None:
+        if not getattr(self, "restart_enabled", False):
+            return
+        if not self.ensure_transport_open():
+            return
+
+        read_frames = getattr(self.transport, "read_frames", None)
+        if read_frames is None:
+            return
+
+        try:
+            frames = read_frames()
+        except OSError as exc:
+            self.handle_transport_error(exc)
+            return
+
+        for can_id, payload in frames:
+            if can_id == self.restart_can_id and payload == self.restart_payload:
+                self.request_restart()
+            elif can_id == self.restart_can_id:
+                self.get_logger().warn(
+                    f"restart CAN id 0x{self.restart_can_id:03X} payload mismatch: "
+                    f"{payload.hex().upper()}",
+                    throttle_duration_sec=2.0,
+                )
+
+    def request_restart(self) -> None:
+        now = time.monotonic()
+        if (
+            self.restart_debounce_sec > 0.0
+            and self.last_restart_monotonic > 0.0
+            and now - self.last_restart_monotonic < self.restart_debounce_sec
+        ):
+            self.get_logger().warn(
+                "CAN FD restart command ignored because of debounce "
+                f"({self.restart_debounce_sec:.1f}s)",
+                throttle_duration_sec=1.0,
+            )
+            return
+
+        self.last_restart_monotonic = now
+        try:
+            process = subprocess.Popen(
+                ["/bin/bash", self.restart_script],
+                close_fds=True,
+                start_new_session=True,
+            )
+        except OSError as exc:
+            self.get_logger().error(
+                f"failed to launch restart script {self.restart_script}: {exc}"
+            )
+            return
+
+        self.get_logger().warn(
+            "Received CAN FD restart command; launched "
+            f"{self.restart_script} pid={process.pid}"
+        )
 
     @staticmethod
     def normalize_angle(angle: float) -> float:

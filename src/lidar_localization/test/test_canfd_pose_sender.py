@@ -122,6 +122,10 @@ class CanFdPoseSenderTest(unittest.TestCase):
     def test_pose_timeout_default_is_half_second(self):
         self.assertEqual(canfd_pose_sender.DEFAULT_POSE_TIMEOUT_SEC, 0.5)
 
+    def test_parse_int_value_accepts_hex_restart_id(self):
+        self.assertEqual(canfd_pose_sender.parse_int_value("0x30"), 48)
+        self.assertEqual(canfd_pose_sender.parse_int_value("48"), 48)
+
     def test_pose_payload_is_little_endian_float_xyz_yaw(self):
         payload = canfd_pose_sender.pack_pose_payload(1.0, 2.0, -3.0, 0.25)
         self.assertEqual(payload, struct.pack("<ffff", 1.0, 2.0, -3.0, 0.25))
@@ -195,6 +199,16 @@ class CanFdPoseSenderTest(unittest.TestCase):
 
         self.assertEqual(writes, [b"b012A0000803F00000040000040C00000803E\r"])
 
+    def test_slcan_parser_accepts_fd_restart_frame(self):
+        frame = canfd_pose_sender.parse_slcan_frame("b0308A55A01FE00000000")
+
+        self.assertEqual(frame, (0x30, bytes.fromhex("A55A01FE00000000")))
+
+    def test_slcan_parser_accepts_classic_restart_frame_too(self):
+        frame = canfd_pose_sender.parse_slcan_frame("t0308A55A01FE00000000")
+
+        self.assertEqual(frame, (0x30, bytes.fromhex("A55A01FE00000000")))
+
     def make_sender(self, transports):
         sender = CanFdPoseSender.__new__(CanFdPoseSender)
         sender.transport = transports.pop(0)
@@ -210,6 +224,58 @@ class CanFdPoseSenderTest(unittest.TestCase):
         sender.get_logger = lambda: sender.logger
         sender.open_transport = lambda: transports.pop(0)
         return sender
+
+    def make_restart_sender(self):
+        sender = CanFdPoseSender.__new__(CanFdPoseSender)
+        sender.restart_enabled = True
+        sender.restart_can_id = 0x30
+        sender.restart_payload = bytes.fromhex("A55A01FE00000000")
+        sender.restart_script = "/tmp/restart_lidar_stack.sh"
+        sender.restart_debounce_sec = 8.0
+        sender.last_restart_monotonic = 0.0
+        sender.logger = FakeLogger()
+        sender.get_logger = lambda: sender.logger
+        return sender
+
+    def test_restart_request_launches_script_once(self):
+        sender = self.make_restart_sender()
+        calls = []
+
+        class FakeProcess:
+            pid = 1234
+
+        original_popen = canfd_pose_sender.subprocess.Popen
+        try:
+            canfd_pose_sender.subprocess.Popen = (
+                lambda args, close_fds, start_new_session:
+                calls.append((args, close_fds, start_new_session)) or FakeProcess()
+            )
+
+            sender.request_restart()
+            sender.request_restart()
+        finally:
+            canfd_pose_sender.subprocess.Popen = original_popen
+
+        self.assertEqual(
+            calls,
+            [(["/bin/bash", "/tmp/restart_lidar_stack.sh"], True, True)],
+        )
+        self.assertTrue(any("debounce" in w for w in sender.logger.warnings))
+
+    def test_poll_restart_command_uses_transport_rx_frames(self):
+        sender = self.make_restart_sender()
+        sender.transport = type(
+            "RestartTransport",
+            (),
+            {"read_frames": lambda self: [(0x30, bytes.fromhex("A55A01FE00000000"))]},
+        )()
+        sender.ensure_transport_open = lambda: True
+        called = []
+        sender.request_restart = lambda: called.append(True)
+
+        sender.poll_restart_command()
+
+        self.assertEqual(called, [True])
 
     def make_timer_sender(self, pose_age_sec, pose_timeout_sec):
         sender = CanFdPoseSender.__new__(CanFdPoseSender)

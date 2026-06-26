@@ -8,9 +8,50 @@ RESTART_LOG_DIR="$LOG_ROOT/restart"
 mkdir -p "$RESTART_LOG_DIR"
 
 LOCK="/tmp/rc_lidar_restart.lock"
+LAST_RESTART_UPTIME_FILE="$RESTART_LOG_DIR/last_restart_uptime_sec"
+RESTART_MIN_INTERVAL_SEC="${RC_CAN_RESTART_MIN_INTERVAL_SEC:-15}"
 
 exec 9>"$LOCK"
-flock -n 9 || exit 0
+if ! flock -n 9; then
+  SKIP_ID="$(date +%Y%m%d_%H%M%S)_busy"
+  SKIP_LOG="$RESTART_LOG_DIR/restart_${SKIP_ID}.log"
+  {
+    echo "========== restart skipped at $(date '+%F %T') =========="
+    echo "reason: another restart_lidar_stack.sh is already running"
+    echo "lock: $LOCK"
+  } >> "$SKIP_LOG" 2>&1
+  ln -sfn "$SKIP_LOG" "$LOG_ROOT/latest_restart"
+  exit 0
+fi
+
+current_uptime_sec_int() {
+  awk '{printf "%d", $1}' /proc/uptime 2>/dev/null || date +%s
+}
+
+case "$RESTART_MIN_INTERVAL_SEC" in
+  ''|*[!0-9]*)
+    RESTART_MIN_INTERVAL_SEC=15
+    ;;
+esac
+
+NOW_UPTIME_SEC="$(current_uptime_sec_int)"
+LAST_RESTART_UPTIME_SEC="$(cat "$LAST_RESTART_UPTIME_FILE" 2>/dev/null || true)"
+if [ "$RESTART_MIN_INTERVAL_SEC" -gt 0 ] &&
+  [[ "$LAST_RESTART_UPTIME_SEC" =~ ^[0-9]+$ ]] &&
+  [ $((NOW_UPTIME_SEC - LAST_RESTART_UPTIME_SEC)) -lt "$RESTART_MIN_INTERVAL_SEC" ]; then
+  SKIP_ID="$(date +%Y%m%d_%H%M%S)_cooldown"
+  SKIP_LOG="$RESTART_LOG_DIR/restart_${SKIP_ID}.log"
+  {
+    echo "========== restart skipped at $(date '+%F %T') =========="
+    echo "reason: restart cooldown"
+    echo "now_uptime_sec: $NOW_UPTIME_SEC"
+    echo "last_restart_uptime_sec: $LAST_RESTART_UPTIME_SEC"
+    echo "min_interval_sec: $RESTART_MIN_INTERVAL_SEC"
+  } >> "$SKIP_LOG" 2>&1
+  ln -sfn "$SKIP_LOG" "$LOG_ROOT/latest_restart"
+  exit 0
+fi
+printf '%s\n' "$NOW_UPTIME_SEC" > "$LAST_RESTART_UPTIME_FILE"
 
 RESTART_ID="$(date +%Y%m%d_%H%M%S)_can"
 LOG="$RESTART_LOG_DIR/restart_${RESTART_ID}.log"
@@ -77,6 +118,7 @@ close_terminal_windows_by_title() {
     "LIVOX"
     "FASTLIO"
     "CAN_SERIAL"
+    "CAN_RESTART"
     "CANFD_POSE"
     "CAN+SERIAL"
     "CAN_MONITOR"
@@ -139,6 +181,7 @@ close_terminal_windows_by_title() {
     "$DIR/livox.sh"
     "$DIR/fastlio.sh"
     "$DIR/serial_driver.sh"
+    "$DIR/can_restart_listener.sh"
     "$DIR/canfd_pose_sender.sh"
     "$DIR/can_pose_monitor.sh"
     "$DIR/lidar_xyzr.sh"
@@ -206,7 +249,8 @@ close_terminal_windows_by_title() {
   # acquire the lock even though the restart script has already finished.
   exec 9>&-
 
-  RESTART_MAP_PATH="${RC_LOCALIZATION_MAP_PATH:-${RC_LIDAR_MAP_PATH:-$WORKSPACE_DIR/maps/mid360_map.pcd}}"
+  DEFAULT_RELOCALIZATION_MAP="$WORKSPACE_DIR/maps/mid360_map_20260625_005422.pcd"
+  RESTART_MAP_PATH="${RC_LOCALIZATION_MAP_PATH:-${RC_LIDAR_MAP_PATH:-$DEFAULT_RELOCALIZATION_MAP}}"
 
   RUN_REASON="can_restart" \
     RC_LIDAR_MODE="${RC_LIDAR_MODE:-relocalization}" \
@@ -214,25 +258,38 @@ close_terminal_windows_by_title() {
     RC_LIDAR_MAP_PATH="$RESTART_MAP_PATH" \
     RC_RELOCALIZATION_ASSUME_MAP_ORIGIN="${RC_RELOCALIZATION_ASSUME_MAP_ORIGIN:-1}" \
     RC_AUTOSTART_HEADLESS="${RC_AUTOSTART_HEADLESS:-1}" \
-    RC_AUTOSTART_PLOTJUGGLER="${RC_AUTOSTART_PLOTJUGGLER:-0}" \
+    RC_AUTOSTART_PLOTJUGGLER="${RC_AUTOSTART_PLOTJUGGLER:-1}" \
     RC_AUTOSTART_LEGACY_CAN_SERIAL="${RC_AUTOSTART_LEGACY_CAN_SERIAL:-0}" \
-    RC_AUTOSTART_CANFD="${RC_AUTOSTART_CANFD:-0}" \
+    RC_AUTOSTART_CANFD="${RC_AUTOSTART_CANFD:-1}" \
+    RC_CAN_RESTART_LISTENER="${RC_CAN_RESTART_LISTENER:-auto}" \
+    RC_CANFD_RESTART_ENABLED="${RC_CANFD_RESTART_ENABLED:-1}" \
+    RC_CANFD_RESTART_CAN_ID="${RC_CANFD_RESTART_CAN_ID:-0x30}" \
+    RC_CANFD_RESTART_PAYLOAD_HEX="${RC_CANFD_RESTART_PAYLOAD_HEX:-A55A01FE00000000}" \
+    RC_CAN_RESTART_DEBOUNCE_SEC="${RC_CAN_RESTART_DEBOUNCE_SEC:-8.0}" \
+    RC_CAN_RESTART_MIN_INTERVAL_SEC="${RC_CAN_RESTART_MIN_INTERVAL_SEC:-15}" \
+    RC_CAN_DEBUG_CSV="${RC_CAN_DEBUG_CSV:-1}" \
+    FASTLIO_RVIZ="${FASTLIO_RVIZ:-true}" \
+    RC_CONTINUOUS_POSE="${RC_CONTINUOUS_POSE:-auto}" \
+    RC_CONTINUOUS_POSE_OUTPUT_TOPIC="${RC_CONTINUOUS_POSE_OUTPUT_TOPIC:-/robot/pose_continuous}" \
+    RC_POSE_FILTER="${RC_POSE_FILTER:-0}" \
     RC_POSE_FILTER_SELECTED="${RC_POSE_FILTER_SELECTED:-normal}" \
     RC_POSE_FILTER_BETA="${RC_POSE_FILTER_BETA:-0}" \
     RC_BETA_FILTERED_POSE_TOPIC="${RC_BETA_FILTERED_POSE_TOPIC:-/robot/pose_filtered_beta}" \
     RC_POSE_FILTER_STABLE="${RC_POSE_FILTER_STABLE:-0}" \
-	    RC_STABLE_FILTERED_POSE_TOPIC="${RC_STABLE_FILTERED_POSE_TOPIC:-/robot/pose_filtered_stable}" \
-	    RC_CAN_POSE_SOURCE="${RC_CAN_POSE_SOURCE:-raw_odom}" \
-	    RC_CAN_POSE_TOPIC="${RC_CAN_POSE_TOPIC:-/robot/pose_filtered}" \
-	    RC_CAN_RAW_ODOM_POSE_TOPIC="${RC_CAN_RAW_ODOM_POSE_TOPIC:-/Odometry}" \
-	    RC_CAN_RAW_ODOM_POSE_TIMEOUT_SEC="${RC_CAN_RAW_ODOM_POSE_TIMEOUT_SEC:-0.5}" \
-	    RC_CAN_RAW_ODOM_POSE_STRICT="${RC_CAN_RAW_ODOM_POSE_STRICT:-1}" \
-	    RC_CAN_RAW_ODOM_POSE_YAW_OFFSET_RAD="${RC_CAN_RAW_ODOM_POSE_YAW_OFFSET_RAD:-0.0}" \
-	    RC_CAN_USE_YAW_POSE_TOPIC="${RC_CAN_USE_YAW_POSE_TOPIC:-0}" \
-	    RC_CAN_YAW_POSE_TOPIC="${RC_CAN_YAW_POSE_TOPIC:-/robot/pose}" \
-	    RC_CAN_YAW_POSE_TOPIC_STRICT="${RC_CAN_YAW_POSE_TOPIC_STRICT:-1}" \
-	    RC_CAN_USE_RAW_ODOM_YAW="${RC_CAN_USE_RAW_ODOM_YAW:-0}" \
-	    RC_HEALTH_MONITOR="${RC_HEALTH_MONITOR:-1}" \
+    RC_STABLE_FILTERED_POSE_TOPIC="${RC_STABLE_FILTERED_POSE_TOPIC:-/robot/pose_filtered_stable}" \
+    RC_ROBOT_POSE_YAW_FUSION="${RC_ROBOT_POSE_YAW_FUSION:-0}" \
+    RC_CAN_POSE_TOPIC="${RC_CAN_POSE_TOPIC:-${RC_CONTINUOUS_POSE_OUTPUT_TOPIC:-/robot/pose_continuous}}" \
+    RC_CAN_POSE_TIMEOUT_SEC="${RC_CAN_POSE_TIMEOUT_SEC:-0.5}" \
+    RC_CAN_RAW_ODOM_POSE_TOPIC="${RC_CAN_RAW_ODOM_POSE_TOPIC:-/Odometry}" \
+    RC_CAN_RAW_ODOM_POSE_TIMEOUT_SEC="${RC_CAN_RAW_ODOM_POSE_TIMEOUT_SEC:-0.5}" \
+    RC_CAN_RAW_ODOM_POSE_STRICT="${RC_CAN_RAW_ODOM_POSE_STRICT:-1}" \
+    RC_CAN_RAW_ODOM_POSE_YAW_OFFSET_RAD="${RC_CAN_RAW_ODOM_POSE_YAW_OFFSET_RAD:-0.0}" \
+    RC_CAN_USE_YAW_POSE_TOPIC="${RC_CAN_USE_YAW_POSE_TOPIC:-0}" \
+    RC_CAN_YAW_POSE_TOPIC="${RC_CAN_YAW_POSE_TOPIC:-/robot/pose}" \
+    RC_CAN_YAW_POSE_TOPIC_STRICT="${RC_CAN_YAW_POSE_TOPIC_STRICT:-1}" \
+    RC_CAN_USE_RAW_ODOM_YAW="${RC_CAN_USE_RAW_ODOM_YAW:-0}" \
+    RC_READY_NOTIFY_POSE_TOPIC="${RC_READY_NOTIFY_POSE_TOPIC:-${RC_CONTINUOUS_POSE_OUTPUT_TOPIC:-/robot/pose_continuous}}" \
+    RC_HEALTH_MONITOR="${RC_HEALTH_MONITOR:-1}" \
     RESTART_LOG="$LOG" \
     nohup "$DIR/start_all_terminals.sh" >> "$LOG" 2>&1 &
 

@@ -13,7 +13,7 @@ case "${RC_LIDAR_MODE:-tracking}" in
     ;;
 esac
 
-POSE_TOPIC="${RC_READY_NOTIFY_POSE_TOPIC:-/robot/pose_filtered}"
+POSE_TOPIC="${RC_READY_NOTIFY_POSE_TOPIC:-${RC_CONTINUOUS_POSE_OUTPUT_TOPIC:-/robot/pose_continuous}}"
 QUALITY_TOPIC="${RC_READY_NOTIFY_QUALITY_TOPIC:-/map_lidar/quality}"
 MARKER_PATH="${RC_READY_NOTIFY_MARKER_PATH:-${LOG_DIR:-$RC_LIDAR_WORKSPACE/logs/autostart}/relocalization_ready.json}"
 TIMEOUT_MARKER_PATH="${RC_READY_NOTIFY_TIMEOUT_MARKER_PATH:-${LOG_DIR:-$RC_LIDAR_WORKSPACE/logs/autostart}/relocalization_ready_timeout.json}"

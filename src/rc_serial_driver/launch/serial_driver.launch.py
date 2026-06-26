@@ -27,6 +27,7 @@ def generate_launch_description():
 
     can_interface = os.environ.get('CAN_INTERFACE', 'can0')
     can_bitrate = int(os.environ.get('CAN_BITRATE', '1000000'))
+    send_enabled = env_bool('RC_CAN_SEND_ENABLED', '1')
     can_pose_debug_topic = os.environ.get('RC_CAN_POSE_DEBUG_TOPIC', '/rc_serial_driver/can_pose_debug')
     pose_source = os.environ.get('RC_CAN_POSE_SOURCE', 'tf')
     pose_topic = os.environ.get('RC_CAN_POSE_TOPIC', '/lidar/pose')
@@ -69,6 +70,7 @@ def generate_launch_description():
             'restart_lidar_stack.sh',
         ),
     )
+    restart_debounce_sec = float(os.environ.get('RC_CAN_RESTART_DEBOUNCE_SEC', '8.0'))
 
     rc_serial_driver_node = Node(
         package='rc_serial_driver',
@@ -81,6 +83,7 @@ def generate_launch_description():
             {
                 'can_interface': can_interface,
                 'can_bitrate': can_bitrate,
+                'send_enabled': send_enabled,
                 'can_pose_debug_topic': can_pose_debug_topic,
                 'pose_source': pose_source,
                 'pose_topic': pose_topic,
@@ -112,6 +115,7 @@ def generate_launch_description():
                 'quality_require_accepted': quality_require_accepted,
                 'quality_require_converged': quality_require_converged,
                 'restart_script': restart_script,
+                'restart_debounce_sec': restart_debounce_sec,
             },
         ],
     )

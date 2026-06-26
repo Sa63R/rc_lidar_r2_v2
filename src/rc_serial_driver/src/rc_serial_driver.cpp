@@ -39,6 +39,7 @@ constexpr uint8_t RESTART_PAYLOAD[8] = {0xA5, 0x5A, 0x01, 0xFE, 0x00, 0x00, 0x00
 int g_can_id_restart = 0x30;
 std::string g_restart_script = "autostart/restart_lidar_stack.sh";
 bool g_restart_enabled = true;
+double g_restart_debounce_sec = 8.0;
 std::chrono::steady_clock::time_point g_last_restart_time{};
 rclcpp::TimerBase::SharedPtr g_recv_timer;
 
@@ -103,11 +104,16 @@ double vectorValueOrDefault(const std::vector<double> & values, size_t index, do
 void requestRadarRestart(const rclcpp::Logger & logger)
 {
   const auto now = std::chrono::steady_clock::now();
+  const double debounce_sec =
+    g_restart_debounce_sec < 0.0 ? 0.0 : g_restart_debounce_sec;
 
   if (g_last_restart_time.time_since_epoch().count() != 0 &&
-    now - g_last_restart_time < std::chrono::seconds(8))
+    std::chrono::duration<double>(now - g_last_restart_time).count() < debounce_sec)
   {
-    RCLCPP_WARN(logger, "Restart command ignored because of debounce");
+    RCLCPP_WARN(
+      logger,
+      "Restart command ignored because of debounce (%.1fs)",
+      debounce_sec);
     return;
   }
 
@@ -141,51 +147,58 @@ RCSerialDriver::RCSerialDriver(const rclcpp::NodeOptions & options)
   RCLCPP_INFO(get_logger(), "Starting RCSerialDriver (send-only map→body pose via CAN)...");
 
   getParams();
-  
-  can_pose_debug_pub_ = create_publisher<std_msgs::msg::Float32MultiArray>(
-    can_pose_debug_topic_,
-    10);
 
-  // TF buffer and listener for map->body transform
-  tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
-  tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
+  if (send_enabled_) {
+    can_pose_debug_pub_ = create_publisher<std_msgs::msg::Float32MultiArray>(
+      can_pose_debug_topic_,
+      10);
 
-  if (pose_source_ == "pose_topic" || pose_source_ == "auto") {
-    pose_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
-      pose_topic_,
-      10,
-      std::bind(&RCSerialDriver::poseCallback, this, std::placeholders::_1));
-  }
-  if (pose_source_ == "raw_odom") {
-    raw_odom_pose_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-      raw_odom_pose_topic_,
-      50,
-      std::bind(&RCSerialDriver::rawOdomPoseCallback, this, std::placeholders::_1));
-  }
-  if (yaw_pose_topic_enabled_) {
-    yaw_pose_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
-      yaw_pose_topic_,
-      20,
-      std::bind(&RCSerialDriver::yawPoseCallback, this, std::placeholders::_1));
-  }
-  if (raw_odom_yaw_enabled_) {
-    raw_odom_yaw_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-      raw_odom_yaw_topic_,
-      50,
-      std::bind(&RCSerialDriver::rawOdomYawCallback, this, std::placeholders::_1));
-  }
+    // TF buffer and listener for map->body transform
+    tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
+    tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
-  if (quality_gate_enabled_) {
-    quality_sub_ = create_subscription<std_msgs::msg::Float32MultiArray>(
-      quality_topic_,
-      10,
-      std::bind(&RCSerialDriver::qualityCallback, this, std::placeholders::_1));
-  }
+    if (pose_source_ == "pose_topic" || pose_source_ == "auto") {
+      pose_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
+        pose_topic_,
+        10,
+        std::bind(&RCSerialDriver::poseCallback, this, std::placeholders::_1));
+    }
+    if (pose_source_ == "raw_odom") {
+      raw_odom_pose_sub_ = create_subscription<nav_msgs::msg::Odometry>(
+        raw_odom_pose_topic_,
+        50,
+        std::bind(&RCSerialDriver::rawOdomPoseCallback, this, std::placeholders::_1));
+    }
+    if (yaw_pose_topic_enabled_) {
+      yaw_pose_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(
+        yaw_pose_topic_,
+        20,
+        std::bind(&RCSerialDriver::yawPoseCallback, this, std::placeholders::_1));
+    }
+    if (raw_odom_yaw_enabled_) {
+      raw_odom_yaw_sub_ = create_subscription<nav_msgs::msg::Odometry>(
+        raw_odom_yaw_topic_,
+        50,
+        std::bind(&RCSerialDriver::rawOdomYawCallback, this, std::placeholders::_1));
+    }
 
-  // Timer to send pose at 50 Hz
-  send_timer_ = this->create_wall_timer(
-    std::chrono::milliseconds(20), //发送周期 20ms,频率为50Hz
-    [this]() { this->sendMapBodyPose(); });
+    if (quality_gate_enabled_) {
+      quality_sub_ = create_subscription<std_msgs::msg::Float32MultiArray>(
+        quality_topic_,
+        10,
+        std::bind(&RCSerialDriver::qualityCallback, this, std::placeholders::_1));
+    }
+
+    // Timer to send pose at 50 Hz
+    send_timer_ = this->create_wall_timer(
+      std::chrono::milliseconds(20), //发送周期 20ms,频率为50Hz
+      [this]() { this->sendMapBodyPose(); });
+  } else {
+    RCLCPP_WARN(
+      get_logger(),
+      "CAN pose sending disabled; this node will only listen for restart CAN ID 0x%X.",
+      g_can_id_restart);
+  }
 
   // Initialize CAN socket (assume interface is pre-configured)
   initCAN();
@@ -250,6 +263,7 @@ void RCSerialDriver::getParams()
   can_id_frame1_ = declare_parameter<int>("can_id_frame1", 0x12);
   can_id_frame2_ = declare_parameter<int>("can_id_frame2", 0x13);
   can_bitrate_ = declare_parameter<int>("can_bitrate", 1000000);
+  send_enabled_ = declare_parameter<bool>("send_enabled", true);
   can_pose_debug_topic_ = declare_parameter<std::string>(
     "can_pose_debug_topic", "/rc_serial_driver/can_pose_debug");
   pose_source_ = declare_parameter<std::string>("pose_source", "tf");
@@ -309,12 +323,19 @@ void RCSerialDriver::getParams()
     "restart_script",
     "autostart/restart_lidar_stack.sh");
   g_restart_enabled = declare_parameter<bool>("restart_enabled", true);
+  g_restart_debounce_sec = declare_parameter<double>("restart_debounce_sec", 8.0);
 
   RCLCPP_INFO(get_logger(), "Restart CAN ID: 0x%X", g_can_id_restart);
   RCLCPP_INFO(get_logger(), "Restart script: %s", g_restart_script.c_str());
+  RCLCPP_INFO(
+    get_logger(),
+    "Restart enabled: %s debounce=%.1fs",
+    g_restart_enabled ? "true" : "false",
+    g_restart_debounce_sec);
 
   RCLCPP_INFO(get_logger(), "CAN Interface: %s", can_interface_.c_str());
   RCLCPP_INFO(get_logger(), "Expected CAN Bitrate: %d bit/s (ensure pre-configured)", can_bitrate_);
+  RCLCPP_INFO(get_logger(), "CAN pose send enabled: %s", send_enabled_ ? "true" : "false");
   RCLCPP_INFO(get_logger(), "CAN pose debug topic: %s", can_pose_debug_topic_.c_str());
   RCLCPP_INFO(
     get_logger(),

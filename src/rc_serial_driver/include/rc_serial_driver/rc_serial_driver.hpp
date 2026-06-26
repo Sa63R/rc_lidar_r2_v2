@@ -52,6 +52,7 @@ private:
   int can_id_frame1_;  // 用于 x, y
   int can_id_frame2_;  // 用于 z, yaw
   int can_bitrate_;
+  bool send_enabled_{true};
   std::chrono::steady_clock::time_point last_can_reopen_attempt_{};
   std::string can_pose_debug_topic_;
   rclcpp::Publisher<std_msgs::msg::Float32MultiArray>::SharedPtr can_pose_debug_pub_;

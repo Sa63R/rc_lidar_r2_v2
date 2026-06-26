@@ -220,24 +220,30 @@ logs/autostart/boot_start_state.env
 
 ```bash
 rm -f "$HOME/.config/autostart/rc_lidar_autostart.desktop"
+rm -f "$HOME/.config/autostart/rc2_ros_autostart.desktop"
 systemctl --user daemon-reload
 systemctl --user is-enabled rc-lidar-autostart.service
 ```
 
 由于香橙派开机后可能先用错误系统时间启动，随后被 NTP/chrony 校时，判断日志先后时不要只看文件名时间；优先看 `start_summary.txt` 里的 `boot_id`、`uptime_sec`、`elapsed_sec`，以及 `boot_attempts.log`。`uptime_sec` 是系统从本次开机以来经过的秒数，比墙上时间更可靠。
 
-开机自启默认使用低负载重定位模式，并假设机器人从建图原点附近启动：
+开机自启默认使用当前高频重定位配置，并假设机器人从建图原点附近启动：
 
 ```text
 RC_LIDAR_MODE=relocalization
-RC_LIDAR_MAP_PATH=/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/mid360_map.pcd
+RC_LIDAR_MAP_PATH=/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/mid360_map_20260625_005422.pcd
 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1
 RC_AUTOSTART_HEADLESS=1
-RC_AUTOSTART_PLOTJUGGLER=0
+RC_AUTOSTART_PLOTJUGGLER=1
+RC_AUTOSTART_CANFD=1
+RC_CAN_DEBUG_CSV=1
+FASTLIO_RVIZ=true
 RC_AUTOSTART_TF_COMPARE=auto
 RC_AUTOSTART_LIDAR_XYZR=auto
-RC_CAN_POSE_SOURCE=raw_odom
-RC_CAN_POSE_TOPIC=/robot/pose_filtered
+RC_CONTINUOUS_POSE=auto
+RC_CONTINUOUS_POSE_OUTPUT_TOPIC=/robot/pose_continuous
+RC_CAN_POSE_TOPIC=/robot/pose_continuous
+RC_CAN_POSE_TIMEOUT_SEC=0.5
 RC_CAN_RAW_ODOM_POSE_TOPIC=/Odometry
 RC_CAN_RAW_ODOM_POSE_STRICT=1
 RC_CAN_RAW_ODOM_POSE_YAW_OFFSET_RAD=0.0
@@ -254,7 +260,7 @@ RC_READY_NOTIFY=1
 RC_READY_NOTIFY_POPUP=0
 ```
 
-也就是说，开机后会自动用当前已验证的小场地图 `maps/mid360_map.pcd` 做重定位，启动 TF、Livox、FAST-LIO、地图匹配、位姿接口、normal 位姿滤波、CAN 和健康日志等核心链路；但当前为了方便电控调车，CAN 默认整包读取 FAST-LIO `/Odometry` 后套用同一组 `body -> robot_base` 外参和 `robot_origin` 参考位姿，输出机器人中心业务坐标。`0x12` 的 `x/y` 和 `0x13` 的 `z/yaw` 不经过 map localizer、`/robot/pose_filtered`、TF 查询或滤波门控。`RC_CAN_RAW_ODOM_POSE_YAW_OFFSET_RAD=0.0`，也就是 yaw 不额外旋转或加偏置。stable 候选滤波默认不启动，后续需要对比时再手动设置 `RC_POSE_FILTER_STABLE=1`。开机自启不会弹 RViz/PlotJuggler 界面，也不会弹 ready 终端窗口，只写 `relocalization_ready.json`；即使没有外接显示器也应能走 headless 后台启动。TF 对比发布节点和点云调试打印也会随 PlotJuggler/headless 策略默认跳过，避免香橙派 CPU 被调试工具抢走。需要临时开图形调试时，手动运行一键脚本并覆盖这些环境变量即可。
+也就是说，开机后会自动用当前已验证的小场地图 `maps/mid360_map_20260625_005422.pcd` 做重定位，启动 TF、Livox、FAST-LIO、地图匹配、位姿接口、continuous 高频融合位姿、CANFD 和健康日志等核心链路。旧 `/robot/pose_filtered` 与 `/robot/yaw_fusion/status` 默认不再启动，避免干扰后续滤波开发和 PlotJuggler 观察。CANFD 默认发送 `/robot/pose_continuous`，并用 `RC_CAN_POSE_TIMEOUT_SEC=0.5` 防止 continuous 中断后 100Hz 重发旧坐标。开机参数允许 RViz 和 PlotJuggler；如果无线 HDMI/图形桌面已经可用，它们会打开。如果无显示器、`DISPLAY` 为空或 X 无法连接，脚本会自动跳过 RViz/PlotJuggler，只保留核心 headless 后台定位和 CANFD。
 
 检查开机自启是否触发：
 
@@ -327,17 +333,16 @@ z_can = z_tf
 yaw_can = yaw_tf
 ```
 
-重定位 `relocalization` 模式下，当前为了方便电控调车，CAN 默认整包使用 FAST-LIO 原始 `/Odometry`：
+重定位 `relocalization` 模式下，当前 CANFD 默认发送高频融合后的 `/robot/pose_continuous`：
 
 ```text
-RC_CAN_POSE_SOURCE=raw_odom
-RC_CAN_RAW_ODOM_POSE_TOPIC=/Odometry
-RC_CAN_RAW_ODOM_POSE_STRICT=1
-RC_CAN_RAW_ODOM_POSE_YAW_OFFSET_RAD=0.0
-RC_CAN_RAW_ODOM_APPLY_ROBOT_EXTRINSIC=1
+RC_CONTINUOUS_POSE=auto
+RC_CONTINUOUS_POSE_OUTPUT_TOPIC=/robot/pose_continuous
+RC_CAN_POSE_TOPIC=/robot/pose_continuous
+RC_CAN_POSE_TIMEOUT_SEC=0.5
 ```
 
-也就是说，电控收到的是由 FAST-LIO `/Odometry` 推出来的机器人中心业务坐标：先把 `/Odometry` 当作 `camera_init -> body`，再套 `body -> robot_base` 外参，最后按 `map -> robot_origin` 的参考位姿扣掉业务原点和 `-90°` 地图 yaw。它不经过 map localizer、不经过 `/robot/pose_filtered`、不经过 TF 查询和滤波门控。如果 `/Odometry` 没有刷新，CAN 会暂停发送，不会悄悄退回旧 TF 或旧滤波链路，避免调车时坐标来源混乱。这个模式用于电控验证原始 odom 控制手感；它不是 map localizer 校正后的全局坐标，但已经包含雷达到机器人中心的外参补偿。
+也就是说，电控收到的是 `continuous_robot_pose` 输出的机器人中心业务坐标：它用 map localizer 的低频重定位结果校正 FAST-LIO `/Odometry`，再以较高频率连续发布 `robot_origin -> robot_base` 语义的位姿。如果 `/robot/pose_continuous` 超过 timeout 没有刷新，CANFD 会暂停发送，不会 100Hz 重发旧坐标。需要临时回到旧 raw odom 调车策略时，再显式设置 raw odom 相关环境变量。
 
 CAN 帧格式保持不变：
 
@@ -346,7 +351,7 @@ CAN 帧格式保持不变：
 0x13: float z_can, float yaw_can
 ```
 
-CAN 帧 ID 和 float 打包格式不变。需要临时回到地图/滤波后的机器人中心坐标时，可以手动设置 `RC_CAN_POSE_SOURCE=pose_topic RC_CAN_POSE_TOPIC=/robot/pose_filtered`；需要临时回到 TF 链路时，可以手动设置 `RC_CAN_POSE_SOURCE=tf`，此时读取 `robot_origin -> robot_base_highrate`。
+CAN 帧 ID 和 float 打包格式不变。需要临时回到旧地图滤波后的机器人中心坐标时，需要同时设置 `RC_POSE_FILTER=1 RC_CAN_POSE_TOPIC=/robot/pose_filtered`；需要临时回到 TF 链路时，可以手动设置 `RC_CAN_POSE_SOURCE=tf`，此时读取 `robot_origin -> robot_base_highrate`。
 
 一键启动会先运行 `autostart/can_setup.sh`。如果没有指定 `CAN_INTERFACE`，它会自动寻找系统里第一个 `can*` 或 `slcan*` SocketCAN 接口；找到后会在免密 `sudo` 可用时自动配置：
 
@@ -357,14 +362,18 @@ sudo ip link set can0 up
 ip -details -statistics link show can0
 ```
 
-这条 CAN 激活链路已经包含在一键启动里：`start_all_terminals.sh -> CAN_SERIAL -> serial_driver.sh -> can_setup.sh -> rc_serial_driver`。因此正常使用时不需要单独手动启动 CAN；只要 USB-CAN 已经枚举成 `can0/can1`，一键脚本会先检查并拉起 CAN，再启动发送节点。
+这条 CAN 激活链路已经包含在一键启动里：当前 CANFD 默认模式会启动 `CANFD_POSE -> canfd_pose_sender.sh`，它通过 CANable2 的 `slcan_fd` 发送 `/robot/pose_continuous`，同时监听 FD CAN 重启帧。因此正常使用时不需要单独手动启动 CAN；只要 USB-CAN/CANable2 设备存在，一键脚本会启动发送和重启监听节点。
+
+FD CAN 触发重启功能仍保留：监听 FD CAN ID `0x30`，payload 为 `A5 5A 01 FE 00 00 00 00`。当前 CANFD pose 发送模式下，重启监听在 `CANFD_POSE` 内完成，不再额外启动一个会抢占 CANable2 串口的监听进程。`CAN_RESTART` 仍保留为手动兜底：如果显式设置 `RC_CAN_RESTART_LISTENER=1`，它会复用 `rc_serial_driver` 的接收逻辑并设置 `RC_CAN_SEND_ENABLED=0`，只收重启帧，不发送 0x12/0x13 pose。如果显式启用旧的 `RC_AUTOSTART_LEGACY_CAN_SERIAL=1`，旧 `CAN_SERIAL` 本身已经监听 0x30。
+
+为避免连续 FD CAN 帧把正在半启动的雷达栈反复杀掉，重启链路有两层轻量保护：`RC_CAN_RESTART_DEBOUNCE_SEC=8.0` 是接收节点内的同进程 debounce；`RC_CAN_RESTART_MIN_INTERVAL_SEC=15` 是 `restart_lidar_stack.sh` 的文件级 cooldown。被锁或 cooldown 忽略的触发也会写入 `logs/autostart/latest_restart` 指向的日志，方便判断是“没收到 FD CAN”还是“收到了但被保护逻辑跳过”。
 
 免密启动依赖两种情况之一：
 
 - 已运行过 `./autostart/install_one_click_network.sh`，安装了 udev 自动配置规则；USB-CAN 插入后会自动设置 `1000000` bit/s、`restart-ms 100` 并 `UP`。
 - 或者系统本身允许当前用户免密执行 `ip link set ...`；这时 `can_setup.sh` 会在启动时重新配置 CAN。
 
-如果当前用户没有免密 sudo，但 `can0` 已经是 `UP`，脚本会继续启动并提示“bitrate was not re-applied”；这次现场测试就是这种情况。如果 `can0` 存在但不是 `UP`，且没有免密权限，`CAN_SERIAL` 会停止启动并提示手动命令，避免弹 sudo 密码卡住一键启动。
+如果当前用户没有免密 sudo，但 `can0` 已经是 `UP`，脚本会继续启动并提示“bitrate was not re-applied”；这次现场测试就是这种情况。如果 `can0` 存在但不是 `UP`，且没有免密权限，显式启用的 `CAN_RESTART`/`CAN_SERIAL` 会停止启动并提示手动命令，避免弹 sudo 密码卡住一键启动。当前默认 CANFD 发送和重启监听走 CANable2 串口，不依赖 SocketCAN `can0`。
 
 USB-CAN 模式也要正确：如果 `lsusb` 看到 `0483:df11 STMicroelectronics STM Device in DFU Mode` 或 `STM32 BOOTLOADER`，说明适配器在 BOOT/DFU 模式，不会生成 `can0`。把开关拨回正常 CAN 模式后需要重新插拔或复位，期望看到 `0c72:000c PEAK System PCAN-USB / XCAN-USB` 和 `can0`。
 
@@ -527,7 +536,8 @@ FASTLIO          FAST-LIO mapping, RViz 默认不启动
 HIGHRATE_BODY    robot_localization EKF；未安装时降级为 body -> body_highrate 静态 TF
 TF_ROBOT_OFFSET  发布 robot_origin -> robot_base / robot_base_highrate 的 XYZ 对比 topic
 TF_LIDAR_OFFSET  发布 map -> body 的 XYZ 对比 topic
-CAN_SERIAL       rc_serial_driver
+CAN_RESTART      手动兜底监听器；当前默认由 CANFD_POSE 监听 FD CAN 0x30
+CAN_SERIAL       legacy rc_serial_driver，显式开启时发送 Classic CAN pose 并监听 0x30
 CAN_MONITOR      打印 rc_serial_driver 实际准备发给 CAN 的 x/y/z/yaw
 LIDAR_XYZR       点云调试打印
 PLOTJUGGLER      打开 TF Compare 布局并订阅 /tf_compare topic
@@ -553,7 +563,7 @@ RC_LIDAR_MODE=mapping          # 建图，用 /map_save 保存 PCD 地图
 RC_LIDAR_MODE=relocalization   # 读取 maps/mid360_map.pcd 做地图匹配重定位
 ```
 
-当前默认策略：一键启动默认不打开 RViz，包括手动正常启动、低负载启动、建图和重定位。这样可以避免香橙派在现场运行时被 RViz 占用性能。需要临时打开 RViz 调试时，显式设置：
+当前默认策略：直接运行一键脚本默认不打开 RViz，包括手动正常启动、低负载启动、建图和重定位。开机 systemd 配置当前会设置 `FASTLIO_RVIZ=true`，但只有图形显示可达时才会真正打开；无显示器时脚本会自动禁用 RViz，核心定位继续跑。需要临时打开 RViz 调试时，显式设置：
 
 ```bash
 FASTLIO_RVIZ=true ./autostart/start_all_terminals.sh
@@ -574,7 +584,7 @@ FASTLIO_RVIZ=true RC_LIDAR_MODE=relocalization ./autostart/start_all_terminals.s
 RC_AUTOSTART_HEADLESS=1 RC_AUTOSTART_PLOTJUGGLER=0 ./autostart/start_all_terminals.sh
 ```
 
-PlotJuggler 默认在手动启动时打开，开机自启和 CAN 自动重启时默认不打开，避免反复弹 GUI 或占用香橙派 CPU。PlotJuggler 本身通常比 RViz、VS Code、浏览器轻很多，但订阅高频曲线和较长 buffer 时仍会消耗一些 CPU/内存；实车比赛/电控调车建议用低负载启动，调试观察时再打开 PlotJuggler。可以用下面的环境变量覆盖：
+PlotJuggler 默认在手动启动时打开；当前开机 systemd 配置也设置 `RC_AUTOSTART_PLOTJUGGLER=1` 方便有无线 HDMI 时观察曲线。无显示器、`DISPLAY` 为空或 X 不可达时会自动跳过，不影响 headless 核心链路。PlotJuggler 本身通常比 RViz、VS Code、浏览器轻很多，但订阅高频曲线和较长 buffer 时仍会消耗一些 CPU/内存；需要最低负载时可以用下面的环境变量关闭：
 
 ```bash
 RC_AUTOSTART_PLOTJUGGLER=0 ./autostart/start_all_terminals.sh
@@ -629,7 +639,7 @@ default_topics=...
 selected_topics=...
 ```
 
-这样 Topic Selector 里会默认选中 `/robot/pose`、`/robot/pose_odom_only`、`/robot/pose_filtered`、`/map_lidar/quality`、`/lidar/pose_filter/status`、`/robot/yaw_fusion/status` 和三个 `/tf_compare/...` topic。`/robot/pose_odom_only` 只在打开 PlotJuggler 调试时自动启动，用来对比“纯 FAST-LIO `/Odometry` + 机器人中心外参”和“经过 map localizer 的 `/robot/pose`”差异，不参与 CAN 和生产定位链路。之前出现“只能看到 `/tf_compare/...`，看不到 `/robot/pose_filtered`”的原因，可能有两类：一类是 PlotJuggler ROS2 插件没有可靠吃到用户配置里的 topic，且启动时 `ros2 topic list` 被 ROS daemon 状态干扰；另一类是 `/robot/pose` 自己没有发布，滤波节点没有输入，所以 PlotJuggler 即使订阅了 `/robot/pose_filtered` 也没有曲线。当前脚本会同时写 `default_topics` 和 `selected_topics`，并用 `ros2 topic list --no-daemon --spin-time 2` 等待 topic。
+这样 Topic Selector 里会默认选中 `/robot/pose`、`/robot/pose_continuous`、`/robot/pose_continuous/status`、`/robot/pose_odom_only`、`/map_lidar/quality` 和三个 `/tf_compare/...` topic。`/robot/pose_odom_only` 只在打开 PlotJuggler 调试时自动启动，用来对比“纯 FAST-LIO `/Odometry` + 机器人中心外参”和“经过 map localizer 的 `/robot/pose`”差异，不参与 CAN 和生产定位链路。旧 `/robot/pose_filtered`、filter status 和 `/robot/yaw_fusion/status` 只有在显式打开 `RC_POSE_FILTER=1` 或 `RC_ROBOT_POSE_YAW_FUSION=1` 时才会加入自动订阅。当前脚本会同时写 `default_topics` 和 `selected_topics`，并用 `ros2 topic list --no-daemon --spin-time 2` 等待 topic。
 
 PlotJuggler 启动前默认最多等待关键 topic `16s`，可用 `PLOTJUGGLER_WAIT_SECONDS` 覆盖；每次 discovery 默认等待 `2s`，可用 `PLOTJUGGLER_TOPIC_SPIN_TIME` 覆盖。日志里如果看到 `Waiting for topics:` 后面列出一整组 topic，不一定代表这些 topic 永久不存在；启动早期也可能是 ROS graph 查询暂时失败。当前脚本会把 `ros2 topic list failed` 单独写进日志，便于区分“topic 真的没发布”和“ROS graph 查询失败”。
 
@@ -702,7 +712,7 @@ yaw_fusion_map_age_sec
 yaw_fusion_delta_yaw_deg
 ```
 
-`/robot/yaw_fusion/status` 是 Rc 4.8 新增的低延迟 yaw 融合诊断。它用于判断 `/robot/pose` 的 yaw 是否正在用 FAST-LIO `/Odometry` 高频增量补偿地图匹配 yaw 延迟：`yaw_fusion_ready=1` 表示融合已就绪，`yaw_fusion_fast_age_sec` 应保持很小，`yaw_fusion_map_age_sec` 反映最近一次地图重定位更新距离当前多久，`yaw_fusion_delta_yaw_deg` 是从最近一次地图 yaw 基准到当前 FAST-LIO yaw 的增量。
+当前健康日志默认只订阅 `/robot/pose`、`/robot/pose_continuous`、`/robot/pose_continuous/status` 和 `/map_lidar/quality`。CSV 里仍保留 filtered/yaw fusion 字段，默认会是空值，便于显式打开旧链路时沿用同一套分析脚本。`/robot/yaw_fusion/status` 只有设置 `RC_ROBOT_POSE_YAW_FUSION=1` 后才会发布和记录。
 
 重点看三类数：
 
@@ -832,8 +842,8 @@ RC_AUTOSTART_LIDAR_XYZR=0 \
 ```text
 Livox MID360 -> FAST-LIO -> /cloud_registered + /Odometry
 建图模式：/map_save -> maps/mid360_map.pcd 或自动重命名后的 PCD
-重定位观察链路：lidar_map_localization 发布 /map_lidar/odom；lidar_localization 用同一帧 odom 加雷达到机器人中心外参，发布 /robot/pose -> pose_stability_filter -> /robot/pose_filtered
-relocalization CAN 当前调车默认链路：FAST-LIO /Odometry -> rc_serial_driver
+重定位观察链路：lidar_map_localization 发布 /map_lidar/odom；lidar_localization 用同一帧 odom 加雷达到机器人中心外参，发布 /robot/pose
+relocalization CANFD 当前调车默认链路：/map_lidar/odom + FAST-LIO /Odometry -> /robot/pose_continuous -> CANFD_POSE
 tracking CAN 默认链路：TF robot_origin -> robot_base_highrate/robot_base -> rc_serial_driver
 ```
 
@@ -845,7 +855,7 @@ FAST-LIO /Odometry
   -> /robot/pose_odom_only
 ```
 
-这条 `/robot/pose_odom_only` 不包含 map localizer 重定位修正，也不参与滤波或 CAN，只用于判断厘米级抖动、延迟或漂移到底来自 FAST-LIO 原始 odom，还是来自 map localizer 修正链路。低负载开机自启默认不开 PlotJuggler，因此也不会启动这个额外诊断节点；需要强制开关时用 `RC_ODOM_ONLY_COMPARE=1|0|auto`。
+这条 `/robot/pose_odom_only` 不包含 map localizer 重定位修正，也不参与滤波或 CAN，只用于判断厘米级抖动、延迟或漂移到底来自 FAST-LIO 原始 odom，还是来自 map localizer 修正链路。它随 PlotJuggler 调试链路自动启动；无显示器时 PlotJuggler 会被跳过，因此也不会启动这个额外诊断节点。需要强制开关时用 `RC_ODOM_ONLY_COMPARE=1|0|auto`。
 
 高精度来自保存地图后的 NDT/ICP 地图匹配，不是单纯调 FAST-LIO 参数。`/robot/pose` 已经转换成机器人业务坐标：
 
@@ -857,7 +867,7 @@ z = 上方
 yaw = 左转为正
 ```
 
-`/lidar/pose` 是历史兼容名，内容和 `/robot/pose` 相同，实际表示的也是机器人中心点，不是雷达原点。当前为了电控调车，重定位模式下 CAN 默认整包发送 FAST-LIO 原始 `/Odometry`；需要恢复地图/滤波后的机器人中心坐标时，显式设置 `RC_CAN_POSE_SOURCE=pose_topic RC_CAN_POSE_TOPIC=/robot/pose_filtered`。普通 FAST-LIO tracking 模式下可使用 `robot_origin -> robot_base_highrate` TF 链路。正负 0.5 cm 的静态误差目标需要依赖足够好的现场地图、稳定的静态环境、正确外参、雷达安装刚性和足够点云结构；代码提供重定位链路，但不能单独保证所有现场都达到这个误差。
+`/lidar/pose` 是历史兼容名，内容和 `/robot/pose` 相同，实际表示的也是机器人中心点，不是雷达原点。当前重定位模式下 CANFD 默认发送 `/robot/pose_continuous`；需要临时恢复旧地图滤波后的机器人中心坐标时，先显式打开 `RC_POSE_FILTER=1`，再设置 `RC_CAN_POSE_TOPIC=/robot/pose_filtered`。普通 FAST-LIO tracking 模式下可使用 `robot_origin -> robot_base_highrate` TF 链路。正负 0.5 cm 的静态误差目标需要依赖足够好的现场地图、稳定的静态环境、正确外参、雷达安装刚性和足够点云结构；代码提供重定位链路，但不能单独保证所有现场都达到这个误差。
 
 ### 建图
 
@@ -920,16 +930,16 @@ tail -n 80 logs/autostart/latest/POSE_INTERFACE.log
 确认地图存在：
 
 ```bash
-ls -lh maps/mid360_map.pcd
+ls -lh maps/mid360_map_20260625_005422.pcd
 ```
 
 重要：当前 `lidar_map_localization` 是局部地图匹配，不是全局重定位。也就是说，它不能在完全不知道初始位置的情况下，从整张地图里自动找出机器人在哪里。之前出现过“机器人不是在建图原点启动，但输出仍接近 0”的现象，本质是把 `map -> camera_init` 初值默认假设成 identity，NDT 又持续匹配失败，容易造成误判。
 
 大场地比赛时，不建议直接拿整张大场馆 PCD 做生产重定位。当前确认更稳的策略是：只绕比赛小场地建一张小 PCD 地图，不裁剪，机器人从固定上电点或接近建图原点的位置启动；如果不在原点启动，就必须给粗略初值。当前算法没有做 Scan Context、粒子全局搜索或多候选全局匹配，所以“拿全图自动找自己在哪里”不是它擅长的工作。
 
-2026-06-24 实测可用检查点：使用只绕小场地建出的 `/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/mid360_map.pcd`，不做裁剪，并用 `RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1` 从建图原点附近启动，重定位表现正确。这是当前优先复刻方案。
+2026-06-25 实测可用检查点：使用只绕小场地建出的 `/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/mid360_map_20260625_005422.pcd`，不做裁剪，并用 `RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1` 从建图原点附近启动，重定位表现正确。这是当前优先复刻方案。
 
-当前开机低功耗自启和 CAN 重启默认使用 2026-06-25 实测的小场地图 `maps/mid360_map.pcd`，保持 `RC_AUTOSTART_PLOTJUGGLER=0`，并默认不启动 stable 候选滤波 `RC_POSE_FILTER_STABLE=0`。CAN 当前为电控调车默认整包发送 FAST-LIO 原始 `/Odometry` 的 `x/y/z/yaw`，`RC_CAN_RAW_ODOM_POSE_YAW_OFFSET_RAD=0.0`。手动调试时如果需要 PlotJuggler，只额外把 `RC_AUTOSTART_PLOTJUGGLER=1` 打开即可；如果需要对比 stable，再额外设置 `RC_POSE_FILTER_STABLE=1`。
+当前开机自启和 CAN 重启默认使用这张小场地图 `maps/mid360_map_20260625_005422.pcd`，设置 `RC_AUTOSTART_PLOTJUGGLER=1`、`FASTLIO_RVIZ=true`、`RC_AUTOSTART_CANFD=1` 和 `RC_CAN_DEBUG_CSV=1`。CANFD 当前默认发送 `/robot/pose_continuous`；无显示器或 X 不可达时，RViz/PlotJuggler 自动跳过，核心 headless 定位和 CANFD 继续运行。如果需要最低负载，再额外设置 `RC_AUTOSTART_PLOTJUGGLER=0 FASTLIO_RVIZ=false`；如果需要对比 stable，再额外设置 `RC_POSE_FILTER_STABLE=1`。
 
 现在默认不再假设当前启动点就是地图原点；重定位启动后，如果没有初始位姿，`MAP_LOCALIZER.log` 会提示等待 `/initialpose` 或 `RC_RELOCALIZATION_INITIAL_GUESS=1`，并且不会发布看起来像 0 的假定位结果。
 
@@ -969,7 +979,7 @@ RC_AUTOSTART_PLOTJUGGLER=0 \
 ./autostart/start_all_terminals.sh
 ```
 
-开机和手动重定位默认会启动一个轻量就绪提示 `READY_NOTIFY`。它不会参与定位计算，只订阅 `/robot/pose_filtered` 和 `/map_lidar/quality`，当地图重定位连续稳定通过质量检查后，会写入：
+开机和手动重定位默认会启动一个轻量就绪提示 `READY_NOTIFY`。它不会参与定位计算，只订阅 `/robot/pose_continuous` 和 `/map_lidar/quality`，当 continuous 位姿和地图重定位质量连续稳定通过检查后，会写入：
 
 ```text
 logs/autostart/<run>/relocalization_ready.json
@@ -982,7 +992,7 @@ RC LiDAR 重定位完成
 现在可以移动小车
 ```
 
-这个时间表示“重定位输出已经连续稳定”的时刻，不是进程刚启动的时刻。当前默认判据是：`/robot/pose_filtered` 刷新正常，`/map_lidar/quality` 连续 accepted/converged，`fitness <= 0.05`，并且稳定 3 秒。一般从一键启动开始到 ready 预计约几十秒；冷启动、网口慢、地图匹配慢或现场点云质量差时会更久。实际耗时以 `relocalization_ready.json` 里的 `elapsed_sec` 为准。
+这个时间表示“重定位后的 continuous 位姿已经连续稳定”的时刻，不是进程刚启动的时刻。当前默认判据是：`/robot/pose_continuous` 刷新正常，`/map_lidar/quality` 连续 accepted/converged，`fitness <= 0.05`，并且稳定 3 秒。一般从一键启动开始到 ready 预计约几十秒；冷启动、网口慢、地图匹配慢或现场点云质量差时会更久。实际耗时以 `relocalization_ready.json` 里的 `elapsed_sec` 为准。
 
 可调参数：
 
@@ -1023,8 +1033,8 @@ FASTLIO_RVIZ=true RC_LIDAR_MODE=relocalization ./autostart/start_all_terminals.s
 ```text
 MAP_LOCALIZER   lidar_map_localization，发布 /map_lidar/odom
 POSE_INTERFACE lidar_localization，从 /map_lidar/odom 同步计算 robot_origin -> robot_base 并发布 /robot/pose，同时保留兼容名 /lidar/pose
-POSE_FILTER    lidar_localization，发布 /robot/pose_filtered，同时保留兼容名 /lidar/pose_filtered
-READY_NOTIFY   等待 /robot/pose_filtered 与 /map_lidar/quality 稳定后弹出就绪提示
+POSE_CONTINUOUS lidar_localization，用 /map_lidar/odom 校正 /Odometry 并发布 /robot/pose_continuous
+READY_NOTIFY   等待 /robot/pose_continuous 与 /map_lidar/quality 稳定后写 ready 标记
 ```
 
 验证 topic：
@@ -1033,24 +1043,21 @@ READY_NOTIFY   等待 /robot/pose_filtered 与 /map_lidar/quality 稳定后弹�
 ros2 topic echo /map_lidar/odom --once
 ros2 topic echo /map_lidar/quality --once
 ros2 topic echo /robot/pose --once
-ros2 topic echo /robot/pose_filtered --once
+ros2 topic echo /robot/pose_continuous --once
 ros2 topic echo /lidar/pose --once
-ros2 topic echo /lidar/pose_filtered --once
-ros2 topic echo /lidar/pose_filter/status --once
 ros2 topic echo /lidar/point --once
 ```
 
-重定位模式下，当前 CAN 默认使用 FAST-LIO `/Odometry` 推算机器人中心业务坐标作为整包来源：
+重定位模式下，当前 CANFD 默认使用 `/robot/pose_continuous` 作为整包来源：
 
 ```text
-pose_source=raw_odom
-raw_odom_pose_topic=/Odometry
-raw_odom_pose_strict=true
-raw_odom_pose_yaw_offset=0.0
-raw_odom_apply_robot_extrinsic=true
+pose_topic=/robot/pose_continuous
+pose_timeout_sec=0.5
 ```
 
-Rc 4.23 起，按电控现场要求，CAN 的 `x/y/z/yaw` 都从 FAST-LIO `/Odometry` 推算，但默认会套用机器人中心外参：`/Odometry` 只作为雷达 `body` 的连续局部位姿，CAN 输出仍是机器人中心相对 `robot_origin` 的业务坐标。这不是 `/map_lidar/odom`，也不是地图重定位后的 `/robot/pose_filtered`。该模式用于临时验证电控调车手感，完全绕开 map localizer、pose filter、TF 查询和 yaw fusion：
+`/robot/pose_continuous` 用 map localizer 的低频地图匹配结果校正 FAST-LIO `/Odometry`，再连续输出机器人中心相对 `robot_origin` 的业务坐标。`pose_timeout_sec=0.5` 时，如果 continuous pose 超过 timeout 没有新数据，CANFD 暂停发送，避免继续发送旧坐标。
+
+旧 raw odom 调车模式仍保留为手动对比选项。需要完全绕开 map localizer、pose filter、TF 查询和 yaw fusion 时，可以显式设置：
 
 ```text
 RC_CAN_POSE_SOURCE=raw_odom
@@ -1067,6 +1074,7 @@ RC_CAN_USE_YAW_POSE_TOPIC=0
 
 ```bash
 RC_CAN_POSE_SOURCE=pose_topic
+RC_POSE_FILTER=1
 RC_CAN_POSE_TOPIC=/robot/pose_filtered
 RC_CAN_USE_RAW_ODOM_YAW=1
 RC_CAN_RAW_ODOM_YAW_TOPIC=/Odometry
@@ -1091,7 +1099,7 @@ RC_CAN_YAW_IGNORE_READY_GATE=1
 robot_origin -> robot_base = inverse(map -> robot_origin) * (map -> body) * (body -> robot_base)
 ```
 
-这样保留当前无头车 TF 树和 `X右/Y前/Z上` 语义，同时避免低频 `map -> camera_init` 与高频 `body_highrate` 通过 TF 查询混合时放大抖动。电控收到的是地图重定位后的滤波机器人中心点坐标。如果 `/robot/pose_filtered` 没有刷新或 topic 不存在，CAN 会暂停发送，不会自动退回 TF。
+这样保留当前无头车 TF 树和 `X右/Y前/Z上` 语义，同时避免低频 `map -> camera_init` 与高频 `body_highrate` 通过 TF 查询混合时放大抖动。当前电控默认收到的是 `/robot/pose_continuous` 的高频重定位后机器人中心坐标。如果 `/robot/pose_continuous` 没有刷新或 topic 不存在，CANFD 会暂停发送，不会自动退回 TF 或旧滤波输出。
 
 需要临时对比旧 TF 拼接法时，可以手动设置：
 
@@ -1099,7 +1107,7 @@ robot_origin -> robot_base = inverse(map -> robot_origin) * (map -> body) * (bod
 RC_ROBOT_POSE_SOURCE=tf ./autostart/start_all_terminals.sh
 ```
 
-当前默认关闭 CAN ready gate：`RC_CAN_REQUIRE_READY=0`。并且 `RC_CAN_POSE_SOURCE=raw_odom` 会直接绕过地图质量门控，按 FAST-LIO `/Odometry` 整包发送。需要恢复“地图质量稳定后再发”的保护时，先切回 `RC_CAN_POSE_SOURCE=pose_topic`，再设置 `RC_CAN_REQUIRE_READY=1`。开启后判据和 READY 提示保持同一方向：本帧 accepted/converged、`fitness <= 0.05`、连续 accepted 数达到阈值，并且质量 topic 没有超时。
+当前默认关闭 CAN ready gate：`RC_CAN_REQUIRE_READY=0`。默认连续位姿链路已经包含 map localizer 校正；如果需要“地图质量稳定后再发”的额外保护，可以设置 `RC_CAN_REQUIRE_READY=1`。开启后判据和 READY 提示保持同一方向：本帧 accepted/converged、`fitness <= 0.05`、连续 accepted 数达到阈值，并且质量 topic 没有超时。
 
 可调参数：
 
@@ -1111,11 +1119,8 @@ RC_CAN_READY_MAX_FITNESS=0.05
 RC_CAN_READY_MIN_ACCEPTS=5
 RC_CAN_READY_REQUIRE_ACCEPTED=1
 RC_CAN_READY_REQUIRE_CONVERGED=1
-RC_CAN_POSE_SOURCE=raw_odom
-RC_CAN_RAW_ODOM_POSE_TOPIC=/Odometry
-RC_CAN_RAW_ODOM_POSE_TIMEOUT_SEC=0.5
-RC_CAN_RAW_ODOM_POSE_STRICT=1
-RC_CAN_RAW_ODOM_POSE_YAW_OFFSET_RAD=0.0
+RC_CAN_POSE_TOPIC=/robot/pose_continuous
+RC_CAN_POSE_TIMEOUT_SEC=0.5
 RC_CAN_USE_YAW_POSE_TOPIC=1
 RC_CAN_YAW_POSE_TOPIC=/robot/pose
 RC_CAN_YAW_POSE_TOPIC_TIMEOUT_SEC=0.5
@@ -1134,7 +1139,7 @@ RC_CAN_RAW_ODOM_YAW_IGNORE_READY_GATE=1
 RC_CAN_POSE_SOURCE=tf ./autostart/start_all_terminals.sh
 ```
 
-`/robot/pose_filtered` 是低延迟自适应滤波后的机器人中心点位姿，主要用于观察是否能降低地图重定位输出的毫米到厘米级抖动，以及拒绝少数硬离群点。它不会让原始点云匹配本身变得更准；判断原始定位质量仍要看 `/robot/pose`、`/map_lidar/quality` 和现场地图质量。
+`/robot/pose_filtered` 是旧自适应滤波后的机器人中心点位姿，现在默认不启动，也不参与 CANFD。它只作为手动对比/回退工具保留：需要临时观察旧滤波时设置 `RC_POSE_FILTER=1`。判断当前主链路质量优先看 `/robot/pose`、`/robot/pose_continuous`、`/robot/pose_continuous/status`、`/map_lidar/quality` 和现场地图质量。
 
 Rc 4.4 起，`/robot/pose` 和 `/robot/pose_filtered` 默认使用“本机发布时刻”作为 header stamp，而不是继续继承 `/map_lidar/odom` 的旧 stamp。这样健康日志和 CAN 的 stale 判断会反映 topic 是否真的还在刷新，不会因为上游 odom stamp 比较老而误报 1-3 秒延迟。这个改动不改变坐标数值，只修正时间戳语义；需要回退旧行为时可以设置：
 
@@ -1143,11 +1148,11 @@ RC_ROBOT_POSE_STAMP_MODE=input
 RC_POSE_FILTER_STAMP_MODE=input
 ```
 
-同一版还给 normal/beta/stable 滤波增加了保守的 `/map_lidar/quality` 门控：如果 quality 明确显示本帧 rejected、not converged、bad fitness，或者 `map_quality_jump_xy_m` 超过默认 `0.08m`，滤波会短暂保持上一帧输出，避免明显错误的地图匹配尖峰直接进入 `/robot/pose_filtered` 和 CAN。这个门控是 fail-open：如果 quality topic 不存在或超时，不会阻断定位。它只挡非常明显的异常帧，不负责把普通 5mm-15mm 抖动“滤没”。
+同一版还给 normal/beta/stable 旧滤波增加了保守的 `/map_lidar/quality` 门控：如果 quality 明确显示本帧 rejected、not converged、bad fitness，或者 `map_quality_jump_xy_m` 超过默认 `0.08m`，滤波会短暂保持上一帧输出，避免明显错误的地图匹配尖峰直接进入 `/robot/pose_filtered`。这个门控是 fail-open：如果 quality topic 不存在或超时，不会阻断定位。它只挡非常明显的异常帧，不负责把普通 5mm-15mm 抖动“滤没”。
 
-Rc 2.9 起，滤波核心参考 r2 仓库的 normal/beta 方案：
+Rc 2.9 起保留的旧滤波核心参考 r2 仓库的 normal/beta 方案：
 
-- normal 仍输出 `/robot/pose_filtered`，但当前 CAN 为电控调车默认直接发 FAST-LIO `/Odometry`；只有显式设置 `RC_CAN_POSE_SOURCE=pose_topic` 时，CAN 才会回到 `/robot/pose_filtered`。
+- 设置 `RC_POSE_FILTER=1` 后，normal 输出 `/robot/pose_filtered`；当前 CANFD 仍默认发送 `/robot/pose_continuous`，只有显式设置 `RC_CAN_POSE_TOPIC=/robot/pose_filtered` 时才会回到旧滤波输出。
 - beta 是尖峰确认滤波，输出 `/robot/pose_filtered_beta` 和 `/lidar/pose_filter_beta/status`。它在静止时遇到疑似尖峰会先 hold，若后续回落则拒绝，若连续同方向运动达到确认次数才释放为真实运动。
 - beta 默认不启动，目的是保护低负载开机和 CAN 调车链路；需要观察时手动打开。
 
@@ -1155,33 +1160,37 @@ Rc 3.9 起，新增 stable 候选滤波，专门处理“静止时地图重定�
 
 - stable 输出 `/robot/pose_filtered_stable` 和 `/lidar/pose_filter_stable/status`。
 - stable 不用单帧 `xy_speed` 直接判定运动，而是先锁定一个稳态锚点；疑似尖峰会 hold，只有连续同方向位移达到确认次数和释放距离后，才认为是真实运动并快速跟随。
-- stable 默认不启动，也不替换 CAN。先在 PlotJuggler 里对比 `/robot/pose`、`/robot/pose_filtered`、`/robot/pose_filtered_stable`，确认静止更稳且绕圈/直线运动不锯齿后，再显式切换 CAN。
+- stable 默认不启动，也不替换 CAN。需要先设置 `RC_POSE_FILTER=1 RC_POSE_FILTER_STABLE=1`，再在 PlotJuggler 里手动对比 `/robot/pose`、`/robot/pose_filtered`、`/robot/pose_filtered_stable`。
 
-打开 beta 对比，但 CAN 仍发 normal：
+打开旧 beta 对比，但 CANFD 仍发 `/robot/pose_continuous`：
 
 ```bash
-RC_POSE_FILTER_BETA=1 ./autostart/start_all_terminals.sh
+RC_POSE_FILTER=1 RC_POSE_FILTER_BETA=1 ./autostart/start_all_terminals.sh
 ```
 
-确认 beta 更适合现场后，才显式让 CAN 发 beta：
+确认 beta 更适合现场后，才显式让 CANFD 发 beta：
 
 ```bash
+RC_POSE_FILTER=1 \
 RC_POSE_FILTER_BETA=1 \
 RC_POSE_FILTER_SELECTED=beta \
+RC_CAN_POSE_TOPIC=/robot/pose_filtered_beta \
 ./autostart/start_all_terminals.sh
 ```
 
-打开 stable 对比，但 CAN 仍发 normal：
+打开旧 stable 对比，但 CANFD 仍发 `/robot/pose_continuous`：
 
 ```bash
-RC_POSE_FILTER_STABLE=1 ./autostart/start_all_terminals.sh
+RC_POSE_FILTER=1 RC_POSE_FILTER_STABLE=1 ./autostart/start_all_terminals.sh
 ```
 
-确认 stable 更适合现场后，才显式让 CAN 发 stable：
+确认 stable 更适合现场后，才显式让 CANFD 发 stable：
 
 ```bash
+RC_POSE_FILTER=1 \
 RC_POSE_FILTER_STABLE=1 \
 RC_POSE_FILTER_SELECTED=stable \
+RC_CAN_POSE_TOPIC=/robot/pose_filtered_stable \
 ./autostart/start_all_terminals.sh
 ```
 
@@ -1195,7 +1204,7 @@ pose_source=tf
 
 ```bash
 RC_CAN_POSE_SOURCE=tf ./autostart/start_all_terminals.sh
-RC_CAN_POSE_SOURCE=pose_topic RC_CAN_POSE_TOPIC=/robot/pose_filtered ./autostart/start_all_terminals.sh
+RC_POSE_FILTER=1 RC_CAN_POSE_SOURCE=pose_topic RC_CAN_POSE_TOPIC=/robot/pose_filtered ./autostart/start_all_terminals.sh
 ```
 
 PlotJuggler 里看机器人中心点滤波前后抖动，优先选这些曲线：
@@ -1204,36 +1213,29 @@ PlotJuggler 里看机器人中心点滤波前后抖动，优先选这些曲线�
 /robot/pose_odom_only/pose/position/x
 /robot/pose/pose/position/x
 /robot/pose_continuous/pose/position/x
-/robot/pose_filtered/pose/position/x
-/robot/pose_filtered_beta/pose/position/x
-/robot/pose_filtered_stable/pose/position/x
 /robot/pose_odom_only/pose/position/y
 /robot/pose/pose/position/y
 /robot/pose_continuous/pose/position/y
-/robot/pose_filtered/pose/position/y
-/robot/pose_filtered_beta/pose/position/y
-/robot/pose_filtered_stable/pose/position/y
 /robot/pose_odom_only/pose/position/z
 /robot/pose/pose/position/z
 /robot/pose_continuous/pose/position/z
-/robot/pose_filtered/pose/position/z
-/robot/pose_filtered_beta/pose/position/z
-/robot/pose_filtered_stable/pose/position/z
 ```
+
+旧 filter 曲线只有显式 `RC_POSE_FILTER=1` 后才会发布：`/robot/pose_filtered`、`/robot/pose_filtered_beta`、`/robot/pose_filtered_stable`。
 
 滤波观察要区分几件事：
 
 - `/robot/pose` 是滤波前的地图重定位观察值，来源仍然是 `/map_lidar/odom -> pose_from_odom`。Rc 2.4 没有修改 `/robot/pose` 的生成算法、地图匹配参数或坐标转换逻辑。如果重启后看到 `/robot/pose` 比之前稳定，通常不是代码直接调稳了它，而是这次运行的状态更干净、地图匹配收敛更好、现场动态干扰更少，或者 PlotJuggler 里选到的曲线和之前不同。
-- `/robot/pose_continuous` 是 Rc 4.20 新增的连续位姿实验链路。它用 `/map_lidar/odom` 低频校正 `map -> camera_init`，但每次 FAST-LIO `/Odometry` 来时都重新推算机器人中心，因此曲线应该比 `/map_lidar/odom` 的阶梯输出更连续。默认只用于观察，不默认发给 CAN。
+- `/robot/pose_continuous` 是连续位姿链路。它用 `/map_lidar/odom` 低频校正 `map -> camera_init`，但每次 FAST-LIO `/Odometry` 来时都重新推算机器人中心，因此曲线应该比 `/map_lidar/odom` 的阶梯输出更连续。当前重定位模式下 CANFD 默认发送这条链路。
 - `/robot/pose_odom_only` 是纯 FAST-LIO `/Odometry` 加机器人中心外参后的对比位姿，不含 map localizer。它只在 PlotJuggler 调试时自动启动，帮助判断原始 odom 与地图重定位结果的差异。
-- `/robot/pose_filtered` 是默认滤波后的观察值。滤波目标是静止时压住小抖动，运动时尽量保留连续轨迹；绕点转圈时，连续的正弦/余弦曲线通常比台阶或锯齿更符合真实运动。
-- `/robot/pose_filtered_beta` 只有 `RC_POSE_FILTER_BETA=1` 时发布，主要用于和 normal 对比静止尖峰抑制效果；PlotJuggler 也只会在 beta 打开时自动等待/订阅 beta topic。
-- `/robot/pose_filtered_stable` 只有 `RC_POSE_FILTER_STABLE=1` 时发布，主要用于对付静止状态下 map localizer 输出的短时 1-4cm 跳变。它比 normal 更保守：短时跳点不会立刻被当成运动，但连续真实移动达到确认条件后会释放跟随。
+- `/robot/pose_filtered` 是显式开启旧滤波后的观察值，不再默认发布。它的目标是静止时压住小抖动，运动时尽量保留连续轨迹。
+- `/robot/pose_filtered_beta` 只有 `RC_POSE_FILTER=1 RC_POSE_FILTER_BETA=1` 时发布，主要用于和 normal 对比静止尖峰抑制效果；PlotJuggler 也只会在 beta 打开时自动等待/订阅 beta topic。
+- `/robot/pose_filtered_stable` 只有 `RC_POSE_FILTER=1 RC_POSE_FILTER_STABLE=1` 时发布，主要用于对付静止状态下 map localizer 输出的短时 1-4cm 跳变。它比 normal 更保守：短时跳点不会立刻被当成运动，但连续真实移动达到确认条件后会释放跟随。
 - 当前滤波用 `xy_speed` 和 `yaw_rate` 计算运动因子：静止时使用较强平滑，明显运动时快速跟随原始曲线，中间状态平滑过渡。
 - Rc 4.6 起，yaw 不再和 XY 共用同一个滤波 alpha。XY 仍按运动状态自适应平滑；yaw 使用独立的 `RC_POSE_FILTER_YAW_ALPHA`，默认 `0.85`，目的是在无头车转向时降低航向角延迟。若 yaw 仍滞后，可临时调到 `1.0` 接近原始 yaw；若 yaw 抖动明显，可调到 `0.6~0.8`。
 - Rc 4.7 起，增加 `RC_POSE_FILTER_USE_RAW_YAW`，默认 `0`。设置为 `1` 时，`/robot/pose_filtered` 的 yaw 直接使用 `/robot/pose` 原始 yaw，并且不受 `quality_gate` hold 影响；XY/Z/roll/pitch 仍按原滤波和地图质量门控保护。这个开关用于验证和降低无头车 yaw 延迟，打开后 `RC_POSE_FILTER_YAW_ALPHA` 对 yaw 不再生效。
 - 硬离群点仍会被短暂拒绝并保持旧输出；但如果连续拒绝超过默认 10 次，或持续超过默认 1 秒，会认为这已经不是单帧异常，而是位姿发生了真实变化，于是重新捕获当前位姿，避免输出永久停成水平线。
-- 当前调车策略是：重定位模式下 CAN 默认使用 FAST-LIO 原始 `/Odometry`，不受 `/robot/pose_filtered` 的滤波表现影响。只有显式设置 `RC_CAN_POSE_SOURCE=pose_topic` 时，滤波表现才会直接影响电控收到的坐标。
+- 当前调车策略是：重定位模式下 CANFD 默认使用 `/robot/pose_continuous`，不受 `/robot/pose_filtered` 的旧滤波表现影响。只有显式设置 `RC_POSE_FILTER=1 RC_CAN_POSE_TOPIC=/robot/pose_filtered` 时，旧滤波才会直接影响电控收到的坐标。
 
 滤波默认参数可以通过环境变量覆盖：
 
@@ -1570,13 +1572,13 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
 2. `src/rc_serial_driver/launch/serial_driver.launch.py`
    - 原 launch 文件加载 `config/serial_driver.yaml`，但实际配置文件名是 `rc_serial_driver.yaml`。
    - 已改为加载 `config/rc_serial_driver.yaml`，否则节点会启动但不会读取配置文件。
-   - 增加 `RC_CAN_POSE_SOURCE` 和 `RC_CAN_POSE_TOPIC` 环境变量支持；重定位模式默认严格读 `/robot/pose_filtered`，tracking 模式默认读 TF。
+   - 增加 `RC_CAN_POSE_SOURCE` 和 `RC_CAN_POSE_TOPIC` 环境变量支持；历史重定位模式曾默认严格读 `/robot/pose_filtered`，当前 CANFD 默认改为 `/robot/pose_continuous`。
 
 3. `autostart/*.sh`
    - 统一通过 `autostart/common_env.sh` 加载当前工作区环境。
    - 去掉历史固定工作区路径，统一从脚本所在目录自动定位当前工作区。
    - `start_all_terminals.sh` 改为自动定位当前 `autostart/`，日志写入本工作区的 `logs/autostart/`。
-   - `serial_driver.sh` 会先调用 `can_setup.sh`：有免密权限时自动配置并拉起 CAN；没有免密权限但 CAN 已经 `UP` 时继续启动；没有免密权限且 CAN 未 `UP` 时直接停止 `CAN_SERIAL`，避免一键启动卡在 sudo 密码。
+   - `serial_driver.sh` 会先调用 `can_setup.sh`：有免密权限时自动配置并拉起 CAN；没有免密权限但 CAN 已经 `UP` 时继续启动；没有免密权限且 CAN 未 `UP` 时直接停止 `CAN_RESTART` 或显式启用的 `CAN_SERIAL`，避免一键启动卡在 sudo 密码。
    - `highrate_body.sh` 在缺少 `robot_localization` 时发布 `body -> body_highrate` 静态 TF 作为降级兜底。
 
 4. `src/my_static_tf/launch/lidar_to_base_highrate.launch.py`
@@ -1609,12 +1611,12 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
    - 发布 `map -> body` 的 XYZ 平移，保持雷达原始坐标轴。
 
 10. `src/fastlio_world_init/config/tf_compare_plotjuggler.xml`
-    - 保留 PlotJuggler ROS2 streamer 配置模板，包含 `/robot/pose`、`/robot/pose_odom_only`、`/robot/pose_filtered`、`/map_lidar/quality`、`/lidar/pose_filter/status` 和三个 `/tf_compare/...` topic。
+    - 保留 PlotJuggler ROS2 streamer 配置模板；该 XML 已改为当前默认观察 topic，不再订阅旧 `/robot/pose_filtered` 或 `/robot/yaw_fusion/status`。当前默认不加载 XML，只作为手动备用。
     - 当前默认启动不加载这个 XML，只通过用户配置写入 `default_topics/selected_topics`。原因是当前 Orange Pi 上 PlotJuggler 3.15 加载该 XML 后出现过内部崩溃；XML 仅作为手动备用。
 
 11. `autostart/robot_tf_offsets.sh`、`autostart/lidar_tf_offset.sh`、`autostart/plotjuggler_tf_compare.sh`
     - 一键启动时自动启动 TF 对比发布节点和 PlotJuggler。
-    - `plotjuggler_tf_compare.sh` 在重定位模式下会等待 `/robot/pose`、`/robot/pose_continuous`、`/robot/pose_odom_only`、`/robot/pose_filtered`、质量 topic 和 `/tf_compare/...` topic 出现，写入 PlotJuggler 的 `DataStreamROS2/default_topics` 与 `selected_topics`，再打开 PlotJuggler。
+    - `plotjuggler_tf_compare.sh` 在重定位模式下会等待 `/robot/pose`、`/robot/pose_continuous`、`/robot/pose_odom_only`、质量 topic 和 `/tf_compare/...` topic 出现，写入 PlotJuggler 的 `DataStreamROS2/default_topics` 与 `selected_topics`，再打开 PlotJuggler。旧 filter/yaw fusion topic 只在显式开启对应链路时加入。
     - 等待 topic 时使用 `ros2 topic list --no-daemon --spin-time 2`，避免 ROS daemon 缓存或 `rclpy.ok()` 错误导致误判 topic 不存在。
 
 12. `src/fastlio_world_init/fastlio_world_init/rotation_extrinsic_calibrator.py`
@@ -1634,9 +1636,9 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
 15. `autostart/can_setup.sh`、`autostart/serial_driver.sh`、`autostart/start_all_terminals.sh`
    - 新增 CAN 预检和恢复脚本：自动检测 `can*` / `slcan*`，存在时配置 `1000000` bit/s 和 `restart-ms 100`。
    - `start_all_terminals.sh` 会写入 `logs/autostart/latest/can_preflight.txt`。
-   - 如果 USB-CAN 没有枚举出任何 CAN 接口，`CAN_SERIAL` 会停止启动并在日志里提示重插、换 USB 口或带供电 HUB。
+   - 如果 USB-CAN 没有枚举出任何 CAN 接口，`CAN_RESTART` 或显式启用的 `CAN_SERIAL` 会停止启动并在日志里提示重插、换 USB 口或带供电 HUB。
    - 明确 CAN 激活已经包含在一键启动链路中；真正免密依赖 `install_one_click_network.sh` 安装的 udev 自动配置，或系统已有免密 `sudo`。如果 USB-CAN 仍显示 `STM32 BOOTLOADER/DFU`，需要拨回正常 CAN 模式并重新插拔。
-   - `rc_serial_driver` 发给电控的 CAN 坐标为 `X右/Y前/Z上`。tracking 模式默认使用 TF，relocalization 模式默认使用 `/robot/pose_filtered`，不再悄悄 fallback 到旧 TF 链路。
+   - `rc_serial_driver` 发给电控的 Classic CAN 坐标为 `X右/Y前/Z上`。当前 CANFD 默认发送 `/robot/pose_continuous`；legacy Classic CAN 显式开启时，tracking 模式默认使用 TF，relocalization 模式可按 `RC_CAN_POSE_TOPIC` 选择来源，不再悄悄 fallback 到旧 TF 链路。
 
 16. `autostart/install_one_click_network.sh`
    - 一次性配置免密码一键启动所需的网络环境。
@@ -1669,21 +1671,24 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
    - 建图模式下可把 `/Odometry` 转成相对启动点的 `/robot/pose`，同时保留旧兼容名 `/lidar/pose`。
    - 当前重定位模式默认使用 `/map_lidar/odom -> pose_from_odom -> /robot/pose`。`/map_lidar/odom` 表示 `map -> body` 的地图定位结果，`pose_from_odom` 在同一帧结果上加 `body -> robot_base` 外参，再相对 `map -> robot_origin` 输出 `robot_origin -> robot_base`，坐标语义为 `X右/Y前/Z上`。
    - `pose_from_tf` 仍保留，用 `RC_ROBOT_POSE_SOURCE=tf` 可临时恢复从 TF 查询 `robot_origin -> robot_base_highrate` 生成 `/robot/pose` 的方式，用于对比诊断。该方式会混合低频 `map -> camera_init` 和高频 `body_highrate`，在当前 Orange Pi 实测中更容易放大厘米级抖动。
-   - 新增 `pose_stability_filter`，将 `/robot/pose` 平滑为 `/robot/pose_filtered`，同时保留旧兼容名 `/lidar/pose_filtered`；`RC_POSE_FILTER=0` 可关闭。滤波器按 `xy_speed` 和 `yaw_rate` 自适应调整强度，静止时压抖动，运动时快速跟随，并带连续拒绝后的恢复机制，避免机器人移动后滤波输出永久停在旧值。
-   - Rc 2.9 参考 r2 的 `pose_filter.py` 增加 `filter_mode=normal|beta`。normal 仍是默认生产链路；beta 输出 `/robot/pose_filtered_beta` 和 `/lidar/pose_filter_beta/status`，通过短时 hold/确认抑制静止尖峰。beta 默认不启动，需要 `RC_POSE_FILTER_BETA=1` 手动开启对比。
+   - 保留 `pose_stability_filter`，显式 `RC_POSE_FILTER=1` 时可将 `/robot/pose` 平滑为 `/robot/pose_filtered`，同时保留旧兼容名 `/lidar/pose_filtered`。当前默认不启动旧 filter 链路，CANFD 默认发送 `/robot/pose_continuous`。
+   - Rc 2.9 参考 r2 的 `pose_filter.py` 增加 `filter_mode=normal|beta`。beta 输出 `/robot/pose_filtered_beta` 和 `/lidar/pose_filter_beta/status`，通过短时 hold/确认抑制静止尖峰。beta 默认不启动，需要 `RC_POSE_FILTER=1 RC_POSE_FILTER_BETA=1` 手动开启对比。
    - Rc 3.8 修复 `pose_stability_filter` 在 accepted/rejected 日志之间切换 severity 时触发 `ValueError: Logger severity cannot be changed between calls` 并退出的问题。这个问题会导致 `/robot/pose_filtered` 运行一段时间后消失，看起来像定位链路“死掉”。
-   - Rc 3.9 增加 `filter_mode=stable` 候选滤波，输出 `/robot/pose_filtered_stable` 和 `/lidar/pose_filter_stable/status`。stable 使用稳态锚点和持续运动确认，避免静止状态下 1-4cm 地图重定位跳点被瞬时速度误判为真实运动。普通一键脚本、开机自启和 CAN 重启默认都不启动 stable；需要对比时手动设置 `RC_POSE_FILTER_STABLE=1`，只有显式 `RC_POSE_FILTER_SELECTED=stable` 才切 CAN。
+   - Rc 3.9 增加 `filter_mode=stable` 候选滤波，输出 `/robot/pose_filtered_stable` 和 `/lidar/pose_filter_stable/status`。stable 使用稳态锚点和持续运动确认，避免静止状态下 1-4cm 地图重定位跳点被瞬时速度误判为真实运动。普通一键脚本、开机自启和 CAN 重启默认都不启动 stable；需要对比时手动设置 `RC_POSE_FILTER=1 RC_POSE_FILTER_STABLE=1`。
    - Rc 4.6 增加 yaw 独立低延迟滤波参数 `RC_POSE_FILTER_YAW_ALPHA`，默认 `0.85`。XY 仍使用静止强滤波和运动自适应 alpha；yaw 不再被静止 `static_alpha=0.12` 拖慢，用来降低无头车自转后航向角约 2 秒才跟上的问题。beta/stable 候选也支持各自覆盖 `RC_POSE_FILTER_BETA_YAW_ALPHA`、`RC_POSE_FILTER_STABLE_YAW_ALPHA`。
    - Rc 4.7 增加 `RC_POSE_FILTER_USE_RAW_YAW`，默认关闭。打开后 yaw 直接取 `/robot/pose` 原始 yaw，并且即使 XY 因 `quality_gate` 被 hold，yaw 也继续更新；用于无头车需要快速航向响应的场景。该开关只绕过 yaw，不绕过 XY 的质量门控。
-   - Rc 4.8 在 `pose_from_odom` 增加低延迟 yaw 融合：`/robot/pose` 的 XY 仍来自 `/map_lidar/odom` 地图重定位结果，但 yaw 默认使用“最近一次地图 yaw 基准 + FAST-LIO `/Odometry` 高频 yaw 增量”。这样保留全局地图方向，又降低无头车自转时等待 map localizer 更新造成的约 1 秒级航向延迟。可用 `RC_ROBOT_POSE_YAW_FUSION=0` 回退旧 map yaw；`RC_ROBOT_POSE_YAW_FUSION_MAP_CORRECTION_ALPHA` 控制每次地图 yaw 更新对融合 yaw 的校正力度，Rc 4.11 默认 `0.05`，避免旧 map 结果强拖 fast yaw。
-   - Rc 4.9 起，CAN 的 yaw 单独读取 `/robot/pose`，而 x/y/z 仍读取当前 `RC_CAN_POSE_TOPIC`，默认 `/robot/pose_filtered`。这样电控仍拿到滤波后的稳定位置，但航向角直接使用 Rc 4.8 的低延迟融合 yaw。相关开关为 `RC_CAN_USE_YAW_POSE_TOPIC`、`RC_CAN_YAW_POSE_TOPIC`、`RC_CAN_YAW_POSE_TOPIC_STRICT`。
+   - Rc 4.8 在 `pose_from_odom` 增加低延迟 yaw 融合：`/robot/pose` 的 XY 仍来自 `/map_lidar/odom` 地图重定位结果，yaw 可使用“最近一次地图 yaw 基准 + FAST-LIO `/Odometry` 高频 yaw 增量”。当前默认 `RC_ROBOT_POSE_YAW_FUSION=0`，不发布 `/robot/yaw_fusion/status`；需要对比旧融合时再显式打开。
+   - Rc 4.9 曾让 CAN 的 yaw 单独读取 `/robot/pose`，而 x/y/z 读取当时的 `RC_CAN_POSE_TOPIC`。当前 CANFD 发送整包 `/robot/pose_continuous`，这套拆分 yaw 链路只作为 legacy 配置保留。
    - Rc 4.10 起，CAN yaw 默认不再被 `/map_lidar/quality` ready gate 冻住：`RC_CAN_YAW_IGNORE_READY_GATE=1`。quality 不 ready 时，`0x12` 的 x/y 不发，`0x13` 继续发最新 yaw，并沿用最近一次质量通过时的可信 z。这个改动用于降低无头车旋转时因为重定位质量短暂波动导致的航向冻结；如果要恢复旧行为，可设为 `0`。
-   - Rc 4.12 起，CAN yaw 默认优先读取 FAST-LIO 原始 `/Odometry`。Rc 4.14 根据现场重新确认把偏置改为 `0`，也就是直接发原始 odom yaw：`RC_CAN_USE_RAW_ODOM_YAW=1`、`RC_CAN_RAW_ODOM_YAW_TOPIC=/Odometry`、`RC_CAN_RAW_ODOM_YAW_STRICT=0`、`RC_CAN_RAW_ODOM_YAW_OFFSET_RAD=0.0`。Rc 4.19 起，raw odom yaw 短暂 stale 时默认继续发送最后一帧原始 odom yaw，不因 stale check 直接冻结 CAN yaw；如需恢复超时保护，可设 `RC_CAN_RAW_ODOM_YAW_STRICT=1`。这个实验策略完全绕过 map yaw fusion 和 pose filter 对 yaw 的影响，用来验证电控无头车实时转向；x/y/z 仍按原生产链路走 `/robot/pose_filtered` 和 ready gate。若发现原始 odom yaw 漂移不可接受，可设置 `RC_CAN_USE_RAW_ODOM_YAW=0` 回退 Rc 4.9 的融合 yaw。
-   - Rc 4.21 起，CAN 当前调车默认进一步切到 `RC_CAN_POSE_SOURCE=raw_odom`，`0x12` 的 x/y 和 `0x13` 的 z/yaw 都来自 FAST-LIO `/Odometry`，不再只替换 yaw。
+   - Rc 4.12 起，曾实验让 CAN yaw 优先读取 FAST-LIO 原始 `/Odometry`。当前 CANFD 发送整包 `/robot/pose_continuous`，不再默认拆分旧 yaw fusion、raw odom yaw 或 pose filter 链路。
+   - Rc 4.21 曾把 CAN 调车默认进一步切到 `RC_CAN_POSE_SOURCE=raw_odom`，`0x12` 的 x/y 和 `0x13` 的 z/yaw 都来自 FAST-LIO `/Odometry`，不再只替换 yaw；当前 CANFD 默认已改为发送 `/robot/pose_continuous`。
    - Rc 4.22 起，`rc_serial_driver` 发布 `/rc_serial_driver/can_pose_debug`，一键启动的 `CAN_MONITOR` 可实时打印 CAN 节点实际准备发送的 x/y/z/yaw；手动启动且有图形界面时默认打开，开机和 CAN 自动重启默认不弹窗口。
    - Rc 4.23 起，`raw_odom` CAN 默认不再裸发雷达原点 `/Odometry`，而是把 `/Odometry` 当作 `camera_init -> body`，套用当前 `body -> robot_base` 外参并减去 `robot_origin`，得到机器人中心业务坐标。可用 `RC_CAN_RAW_ODOM_APPLY_ROBOT_EXTRINSIC=0` 临时回退裸 `/Odometry`。
    - Rc 4.24 修复 CAN 自动重启只能成功第一次的问题：`restart_lidar_stack.sh` 在成功拿到 `/tmp/rc_lidar_restart.lock` 后才更新 `latest_restart`，并且在 `nohup start_all_terminals.sh` 前关闭 flock 文件描述符，避免新启动的 ROS 长进程继承重启锁。否则第一次 CAN 重启成功后，后续第二、第三次 CAN 重启会因为锁被旧栈持有而直接退出。
-   - Rc 4.20 新增并行连续位姿链路 `continuous_robot_pose`，默认只在 `RC_LIDAR_MODE=relocalization` 时启动，输出 `/robot/pose_continuous`、`/robot/odom_continuous` 和 `/robot/pose_continuous/status`。它不直接使用 `/map_lidar/odom` 的阶梯 pose 作为控制位姿，而是用 `/map_lidar/odom` 与同时间附近的 FAST-LIO `/Odometry` 反推并平滑更新 `map -> camera_init` 校正，再用最新 `/Odometry` 连续发布机器人业务位姿。默认不替换 `/robot/pose`、`/robot/pose_filtered` 或 CAN；如果要临时让 CAN 试这条链路，显式设置 `RC_CAN_POSE_TOPIC=/robot/pose_continuous`，yaw 仍按当前 raw odom yaw 策略单独发送。
+   - Rc 4.25 起，重定位模式下 FD CAN 默认发送 `/robot/pose_continuous`，并用 `pose_timeout_sec=0.5` 防止 continuous 中断后重发旧坐标；显式设置 `RC_CAN_POSE_TOPIC` 时仍以用户设置优先。
+   - 当前 CANFD 模式默认由 `CANFD_POSE` 监听 FD CAN `0x30` 重启帧，同时继续发送 `/robot/pose_continuous`；`CAN_RESTART` 仅作为手动兜底监听器保留，避免默认情况下两个进程抢同一个 CANable2 串口。`restart_lidar_stack.sh` 增加文件级 cooldown 和锁忙日志，用来避免连续触发导致第二、第三次重启失效或反复杀半启动中的栈。
+   - Rc 4.26 起，旧 `/robot/pose_filtered`、beta/stable filter 和 `/robot/yaw_fusion/status` 默认不再启动，也不再进入 PlotJuggler/健康日志默认订阅；`READY_NOTIFY` 默认改看 `/robot/pose_continuous`。需要对比旧滤波时显式设置 `RC_POSE_FILTER=1`，需要对比旧 yaw fusion 时显式设置 `RC_ROBOT_POSE_YAW_FUSION=1`。
+   - Rc 4.20 新增并行连续位姿链路 `continuous_robot_pose`，默认只在 `RC_LIDAR_MODE=relocalization` 时启动，输出 `/robot/pose_continuous`、`/robot/odom_continuous` 和 `/robot/pose_continuous/status`。它不直接使用 `/map_lidar/odom` 的阶梯 pose 作为控制位姿，而是用 `/map_lidar/odom` 与同时间附近的 FAST-LIO `/Odometry` 反推并平滑更新 `map -> camera_init` 校正，再用最新 `/Odometry` 连续发布机器人业务位姿。
 
 21. `autostart/start_mapping_terminals.sh`、`autostart/save_fast_lio_map.sh`、`autostart/map_localizer.sh`、`autostart/pose_interface_mapping.sh`、`autostart/pose_interface_relocalization.sh`、`autostart/pose_stability_filter.sh`
    - 新增建图保存和地图重定位的一键脚本。
@@ -1691,13 +1696,13 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
    - 未设置 `RC_FASTLIO_MAP_SAVE_PATH` 时，若默认 `maps/mid360_map.pcd` 已存在，会自动保存为带时间戳的新 PCD，避免覆盖旧地图。
    - 建图保存依赖 FAST-LIO 的 `/map_save` 服务。如果保存脚本一直等待，优先检查 `/laser_mapping` 节点、`/map_save` 服务和 `POSE_INTERFACE.log`。当前版本修复了 `pose_from_tf` 对 `publish_rate:=50` 这类整数参数不兼容导致节点退出的问题。
    - `pose_interface_relocalization.sh` 默认 `RC_ROBOT_POSE_SOURCE=odom`，从 `/map_lidar/odom` 同步计算 `/robot/pose`；只有显式设置 `RC_ROBOT_POSE_SOURCE=tf` 时才走 TF 查询链路。
-   - `pose_interface_relocalization.sh` 默认启用 `RC_ROBOT_POSE_YAW_FUSION=1`，额外订阅 FAST-LIO `/Odometry` 作为低延迟 yaw 增量来源，并发布 `/robot/yaw_fusion/status` 供 PlotJuggler 和健康日志观察。该融合只改变 `/robot/pose` 的 yaw，不改变地图重定位给出的 XY，也不改变 TF 树。
-   - 重定位模式默认启动 normal 位姿滤波，并默认把 `/robot/pose_filtered` 作为 CAN 发送来源；`RC_POSE_FILTER_BETA=1` 可额外启动 beta 对比，`RC_POSE_FILTER_STABLE=1` 可额外启动 stable 对比。只有显式 `RC_POSE_FILTER_SELECTED=beta|stable` 时，CAN 才会切到对应候选输出。`stop_all.sh` 和 CAN 重启脚本已同步清理 normal/beta/stable 滤波节点，避免模式切换后残留旧进程。
+   - `pose_interface_relocalization.sh` 默认 `RC_ROBOT_POSE_YAW_FUSION=0`，不额外发布 `/robot/yaw_fusion/status`；需要旧低延迟 yaw 诊断时再显式打开。
+   - 重定位模式默认不启动 normal/beta/stable 位姿滤波，避免旧 `/robot/pose_filtered` 干扰新滤波开发；`stop_all.sh` 和 CAN 重启脚本仍会清理这些节点，防止显式调试后残留。
    - Rc 4.18 起，默认关闭 CAN ready gate：`RC_CAN_REQUIRE_READY=0`。CAN 不再等待 `/map_lidar/quality` 连续稳定才发送，便于现场验证电控链路和消除 quality gate 对控制的影响；需要恢复旧保护时手动设置 `RC_CAN_REQUIRE_READY=1`。
 
 22. `autostart/thermal_pose_monitor.py`、`autostart/thermal_pose_monitor.sh`
    - 新增默认启动的轻量健康日志；`RC_HEALTH_MONITOR=0` 可关闭，旧变量 `RC_THERMAL_POSE_MONITOR` 仍兼容。
-   - 默认 0.2 秒记录一次，也就是 5Hz，记录温度、`load1/load5/load15`、CPU 频率、`/robot/pose`、`/robot/pose_continuous`、`/robot/pose_filtered`、可选 `/robot/pose_filtered_beta`、可选 `/robot/pose_filtered_stable`、`/map_lidar/quality`、continuous/normal/beta/stable 滤波或校正状态、`/robot/yaw_fusion/status`、运动状态和静止窗口 XY 峰峰值。
+   - 默认 0.2 秒记录一次，也就是 5Hz，记录温度、`load1/load5/load15`、CPU 频率、`/robot/pose`、`/robot/pose_continuous`、`/map_lidar/quality`、continuous 校正状态、运动状态和静止窗口 XY 峰峰值。旧 filter/yaw fusion 字段保留为空值；显式指定相关 topic 时才订阅。
    - 输出 `logs/autostart/latest/health_monitor.csv`、`health_monitor_summary.json`、`health_monitor_run.json`、`health_monitor_stop.json` 与 `health_events.jsonl`，用于判断定位抖动是否和热/负载/地图匹配质量正相关。
    - 增加 `spike_candidate`、`sustained_motion` 和 `static_context_*` 字段，避免静止时单帧尖峰被误判成持续运动后把证据清掉。
    - `health_events.jsonl` 在 raw/filter/map/filter-status 出现跳变、拒绝、恢复或 bad fitness 时写入事件前后窗口摘要；`RC_HEALTH_MONITOR_EVENT_CONTEXT_CSV=1` 可额外保存逐点上下文。
@@ -1717,7 +1722,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
 
 25. `autostart/relocalization_ready_notify.py`、`autostart/relocalization_ready_notify.sh`
    - 新增重定位 ready 提示；默认在开机和手动 `RC_LIDAR_MODE=relocalization` 时启动，CAN 自动重启默认不弹窗。
-   - 判据为 `/robot/pose_filtered` 刷新正常，`/map_lidar/quality` 连续 accepted/converged，`fitness <= RC_READY_NOTIFY_MAX_FITNESS`，并稳定 `RC_READY_NOTIFY_STABLE_SEC` 秒。
+   - 判据为 `/robot/pose_continuous` 刷新正常，`/map_lidar/quality` 连续 accepted/converged，`fitness <= RC_READY_NOTIFY_MAX_FITNESS`，并稳定 `RC_READY_NOTIFY_STABLE_SEC` 秒。
    - ready 后写入 `logs/autostart/<run>/relocalization_ready.json`；手动调试且允许 popup 时，会在有图形桌面时弹出“RC LiDAR 重定位完成，现在可以移动小车”的小终端窗口。开机自启默认 `RC_READY_NOTIFY_POPUP=0`，不依赖外接显示器；节点随后退出，常态没有后台负载。
    - `stop_all.sh` 和 CAN 重启清理逻辑已同步处理 `READY_NOTIFY` 进程和窗口。
 

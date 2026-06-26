@@ -10,10 +10,10 @@ chromium-browser --proxy-server="http://127.0.0.1:7897"
    cd '/home/rc2/jwt_new_lidar/rc_lidar_r2_v2'
 ./autostart/stop_all.sh
 
-# 当前可用版本 rc3.2：小场地直接建图，不裁剪，使用这张地图重定位
-# 地图：/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/mid360_map.pcd
+# 当前可用版本：小场地直接建图，不裁剪，使用这张地图重定位
+# 地图：/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/mid360_map_20260625_005422.pcd
 # 启动前提：车放在建图原点附近，所以使用 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1
-# 重定位调试启动：核心仍然低负载，不开 RViz，但自动打开 PlotJuggler
+# 重定位调试/开机启动：核心 headless，CANFD 发 /robot/pose_continuous；有显示器时打开 RViz/PlotJuggler，没显示器时自动跳过 GUI
 cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 RC_LIDAR_MODE=relocalization \
 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
@@ -54,13 +54,16 @@ maps/mid360_map.pcd
 
 
 
-## 滤波参数
+## 旧滤波/旧 yaw fusion 调试参数
+当前默认不启动 `/robot/pose_filtered` 和 `/robot/yaw_fusion/status`，CANFD 直接发 `/robot/pose_continuous`。下面这些只在手动打开旧链路对比时使用。
 <!-- 越大越接近raw,但是过不了门控 -->
+RC_POSE_FILTER=1
 RC_POSE_FILTER_YAW_ALPHA=0.85
 
 <!-- 可以过门控 -->
 RC_POSE_FILTER_USE_RAW_YAW=1
 <!-- 走低延迟odom+map_lidar融合yaw -->
+RC_ROBOT_POSE_YAW_FUSION=1
 RC_CAN_USE_YAW_POSE_TOPIC=1
 # temperature
 
@@ -69,20 +72,26 @@ cat
 
 # 常用控制变量速查（精简版）
 
-只保留最常用的 10 个以内。现场调车优先低负载：headless、不开 PlotJuggler、指定小场地图、默认不启动 stable 候选。
+只保留最常用的 10 个以内。现场调车优先低负载：headless、不开 PlotJuggler、指定小场地图，默认不启动旧 filter/yaw fusion 诊断链路。
 
-## 推荐开机低负载重定位
+## 当前开机/调试重定位
 
 ```bash
 cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 RC_LIDAR_MODE=relocalization \
 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
 RC_AUTOSTART_HEADLESS=1 \
-RC_AUTOSTART_PLOTJUGGLER=0 \
-RC_POSE_FILTER_STABLE=0 \
-RC_LIDAR_MAP_PATH="/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/mid360_map.pcd" \
+RC_AUTOSTART_PLOTJUGGLER=1 \
+RC_AUTOSTART_CANFD=1 \
+RC_CAN_DEBUG_CSV=1 \
+FASTLIO_RVIZ=true \
+RC_LIDAR_MAP_PATH="/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/mid360_map_20260625_005422.pcd" \
 ./autostart/start_all_terminals.sh
 ```
+
+开机自启入口使用 user systemd：`./autostart/install_user_systemd_autostart.sh`。旧的 LiDAR 桌面 XDG 自启动项需要禁用，避免和 systemd 重复启动。
+
+FD CAN 重启功能仍在：监听 FD CAN ID `0x30`，payload 为 `A5 5A 01 FE 00 00 00 00`。当前默认由 `CANFD_POSE` 一边发送 `/robot/pose_continuous`，一边监听这条重启帧；`CAN_RESTART` 只是没有 CANFD 时的手动兜底，不默认启动。重启链路带 8s 节点 debounce 和 15s 脚本 cooldown，防止连续触发把半启动中的雷达栈反复杀掉。
 
 ## 最常用变量
 
@@ -99,13 +108,13 @@ RC_LIDAR_MAP_PATH="/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/mid360_map.pcd" \
    `1` 无头低负载后台启动；`0` 更偏人工调试。开机自启/无显示器用 `1`。
 
 5. `RC_AUTOSTART_PLOTJUGGLER=1|0`
-   `1` 自动打开 PlotJuggler 看曲线；`0` 不打开，低负载调车默认用 `0`。
+   `1` 自动打开 PlotJuggler 看曲线；`0` 不打开。开机当前设为 `1`，但无显示器或 X 不可达时会自动跳过。
 
-6. `RC_POSE_FILTER_STABLE=1|0`
-   `1` 启动 stable 滤波候选 `/robot/pose_filtered_stable`；`0` 关闭 stable 候选。
+6. `RC_POSE_FILTER=1|0`
+   当前默认 `0`，不启动旧 `/robot/pose_filtered`。需要临时对比旧滤波时再设为 `1`。
 
-7. `RC_POSE_FILTER_SELECTED=normal|stable|beta`
-   选择 CAN/生产链路使用哪个滤波输出。选 `stable` 时要同时 `RC_POSE_FILTER_STABLE=1`。
+7. `RC_ROBOT_POSE_YAW_FUSION=1|0`
+   当前默认 `0`，不发布旧 `/robot/yaw_fusion/status`。需要对比旧 yaw fusion 时再设为 `1`。
 
 8. `RC_CAN_REQUIRE_READY=1|0`
    `1` CAN 等重定位 ready 后再发；正式调车建议 `1`。`0` 只适合排查 CAN 通不通。
@@ -122,8 +131,10 @@ RC_LIDAR_MAP_PATH="/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/mid360_map.pcd" \
 /map_lidar/odom
   -> pose_from_odom 加 body -> robot_base 外参
   -> /robot/pose
-  -> /robot/pose_filtered 或所选滤波输出
-  -> CAN
+/Odometry
+  -> continuous_robot_pose 用 map localizer 校正 FAST-LIO 高频 odom
+  -> /robot/pose_continuous
+  -> CANFD
 ```
 
 当前坐标约定：

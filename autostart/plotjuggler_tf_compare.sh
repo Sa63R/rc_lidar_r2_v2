@@ -29,8 +29,6 @@ if [ "${RC_LIDAR_MODE:-tracking}" = "relocalization" ]; then
     "${RC_CONTINUOUS_POSE_STATUS_TOPIC:-/robot/pose_continuous/status}"
     "${RC_ODOM_ONLY_POSE_TOPIC:-/robot/pose_odom_only}"
     "/map_lidar/quality"
-    "/lidar/pose_filter/status"
-    "/robot/yaw_fusion/status"
   )
   SAMPLE_TOPICS+=(
     "/robot/pose"
@@ -39,28 +37,43 @@ if [ "${RC_LIDAR_MODE:-tracking}" = "relocalization" ]; then
     "/map_lidar/quality"
   )
 
-  if [ "${RC_POSE_FILTER:-1}" != "0" ]; then
-    TOPICS+=("/robot/pose_filtered")
-    SAMPLE_TOPICS+=("/robot/pose_filtered")
-  fi
-
-  case "${RC_POSE_FILTER_BETA:-0}" in
+  case "${RC_POSE_FILTER:-0}" in
     1|true|TRUE|yes|YES|on|ON)
       TOPICS+=(
-        "${RC_BETA_FILTERED_POSE_TOPIC:-/robot/pose_filtered_beta}"
-        "/lidar/pose_filter_beta/status"
+        "/robot/pose_filtered"
+        "/lidar/pose_filter/status"
       )
-      SAMPLE_TOPICS+=("${RC_BETA_FILTERED_POSE_TOPIC:-/robot/pose_filtered_beta}")
+      SAMPLE_TOPICS+=("/robot/pose_filtered")
       ;;
   esac
 
-  case "${RC_POSE_FILTER_STABLE:-0}" in
+  case "${RC_ROBOT_POSE_YAW_FUSION:-0}" in
     1|true|TRUE|yes|YES|on|ON)
-      TOPICS+=(
-        "${RC_STABLE_FILTERED_POSE_TOPIC:-/robot/pose_filtered_stable}"
-        "/lidar/pose_filter_stable/status"
-      )
-      SAMPLE_TOPICS+=("${RC_STABLE_FILTERED_POSE_TOPIC:-/robot/pose_filtered_stable}")
+      TOPICS+=("/robot/yaw_fusion/status")
+      ;;
+  esac
+
+  case "${RC_POSE_FILTER:-0}" in
+    1|true|TRUE|yes|YES|on|ON)
+      case "${RC_POSE_FILTER_BETA:-0}" in
+        1|true|TRUE|yes|YES|on|ON)
+          TOPICS+=(
+            "${RC_BETA_FILTERED_POSE_TOPIC:-/robot/pose_filtered_beta}"
+            "/lidar/pose_filter_beta/status"
+          )
+          SAMPLE_TOPICS+=("${RC_BETA_FILTERED_POSE_TOPIC:-/robot/pose_filtered_beta}")
+          ;;
+      esac
+
+      case "${RC_POSE_FILTER_STABLE:-0}" in
+        1|true|TRUE|yes|YES|on|ON)
+          TOPICS+=(
+            "${RC_STABLE_FILTERED_POSE_TOPIC:-/robot/pose_filtered_stable}"
+            "/lidar/pose_filter_stable/status"
+          )
+          SAMPLE_TOPICS+=("${RC_STABLE_FILTERED_POSE_TOPIC:-/robot/pose_filtered_stable}")
+          ;;
+      esac
       ;;
   esac
 fi

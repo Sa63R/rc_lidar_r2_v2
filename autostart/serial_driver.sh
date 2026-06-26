@@ -46,6 +46,11 @@ setup_can_if_possible
 
 sleep 3
 
+RC_CAN_SEND_ENABLED="${RC_CAN_SEND_ENABLED:-1}"
+RC_CAN_RESTART_DEBOUNCE_SEC="${RC_CAN_RESTART_DEBOUNCE_SEC:-8.0}"
+export RC_CAN_SEND_ENABLED
+export RC_CAN_RESTART_DEBOUNCE_SEC
+
 if [ -z "${RC_CAN_POSE_SOURCE:-}" ]; then
   if [ "${RC_LIDAR_MODE:-tracking}" = "relocalization" ]; then
     RC_CAN_POSE_SOURCE="raw_odom"
@@ -141,6 +146,7 @@ export RC_CAN_READY_REQUIRE_ACCEPTED
 export RC_CAN_READY_REQUIRE_CONVERGED
 
 echo "[serial] Launching rc_serial_driver with CAN_INTERFACE=${CAN_INTERFACE:-unset}, CAN_BITRATE=$CAN_BITRATE"
+echo "[serial] send_enabled=$RC_CAN_SEND_ENABLED restart_debounce=$RC_CAN_RESTART_DEBOUNCE_SEC"
 echo "[serial] pose_source=$RC_CAN_POSE_SOURCE pose_topic=$RC_CAN_POSE_TOPIC"
 echo "[serial] can_pose_debug_topic=$RC_CAN_POSE_DEBUG_TOPIC"
 echo "[serial] raw_odom_pose_topic=$RC_CAN_RAW_ODOM_POSE_TOPIC raw_odom_pose_timeout=$RC_CAN_RAW_ODOM_POSE_TIMEOUT_SEC raw_odom_pose_strict=$RC_CAN_RAW_ODOM_POSE_STRICT raw_odom_pose_yaw_offset=$RC_CAN_RAW_ODOM_POSE_YAW_OFFSET_RAD raw_odom_apply_robot_extrinsic=$RC_CAN_RAW_ODOM_APPLY_ROBOT_EXTRINSIC"

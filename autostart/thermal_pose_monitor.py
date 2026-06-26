@@ -414,17 +414,37 @@ class ThermalPoseMonitor(Node):
             self.event_context_file.flush()
         self.write_run_marker()
 
-        self.create_subscription(PoseStamped, args.raw_topic, self.on_raw_pose, 20)
-        self.create_subscription(PoseStamped, args.continuous_topic, self.on_continuous_pose, 20)
-        self.create_subscription(PoseStamped, args.filtered_topic, self.on_filtered_pose, 20)
-        self.create_subscription(PoseStamped, args.beta_topic, self.on_beta_pose, 20)
-        self.create_subscription(PoseStamped, args.stable_topic, self.on_stable_pose, 20)
-        self.create_subscription(Float32MultiArray, args.quality_topic, self.on_quality, 20)
-        self.create_subscription(Float32MultiArray, args.filter_status_topic, self.on_filter_status, 20)
-        self.create_subscription(Float32MultiArray, args.beta_filter_status_topic, self.on_beta_filter_status, 20)
-        self.create_subscription(Float32MultiArray, args.stable_filter_status_topic, self.on_stable_filter_status, 20)
-        self.create_subscription(Float32MultiArray, args.continuous_status_topic, self.on_continuous_status, 20)
-        self.create_subscription(Float32MultiArray, args.yaw_fusion_status_topic, self.on_yaw_fusion_status, 20)
+        self.subscribe_if_configured(PoseStamped, args.raw_topic, self.on_raw_pose)
+        self.subscribe_if_configured(
+            PoseStamped, args.continuous_topic, self.on_continuous_pose
+        )
+        self.subscribe_if_configured(PoseStamped, args.filtered_topic, self.on_filtered_pose)
+        self.subscribe_if_configured(PoseStamped, args.beta_topic, self.on_beta_pose)
+        self.subscribe_if_configured(PoseStamped, args.stable_topic, self.on_stable_pose)
+        self.subscribe_if_configured(Float32MultiArray, args.quality_topic, self.on_quality)
+        self.subscribe_if_configured(
+            Float32MultiArray, args.filter_status_topic, self.on_filter_status
+        )
+        self.subscribe_if_configured(
+            Float32MultiArray,
+            args.beta_filter_status_topic,
+            self.on_beta_filter_status,
+        )
+        self.subscribe_if_configured(
+            Float32MultiArray,
+            args.stable_filter_status_topic,
+            self.on_stable_filter_status,
+        )
+        self.subscribe_if_configured(
+            Float32MultiArray,
+            args.continuous_status_topic,
+            self.on_continuous_status,
+        )
+        self.subscribe_if_configured(
+            Float32MultiArray,
+            args.yaw_fusion_status_topic,
+            self.on_yaw_fusion_status,
+        )
         self.timer = self.create_timer(args.interval, self.sample)
 
         self.get_logger().info(
@@ -440,6 +460,11 @@ class ThermalPoseMonitor(Node):
             f"health monitor markers run={self.run_marker_path} stop={self.stop_marker_path} "
             f"fsync_interval={args.fsync_interval:.1f}s"
         )
+
+    def subscribe_if_configured(self, msg_type, topic: str, callback) -> None:
+        if not topic:
+            return
+        self.create_subscription(msg_type, topic, callback, 20)
 
     def sync_csv(self, force: bool = False) -> None:
         if self.args.fsync_interval <= 0.0 and not force:
@@ -1667,15 +1692,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fsync-interval", type=float, default=5.0)
     parser.add_argument("--raw-topic", default="/robot/pose")
     parser.add_argument("--continuous-topic", default="/robot/pose_continuous")
-    parser.add_argument("--filtered-topic", default="/robot/pose_filtered")
-    parser.add_argument("--beta-topic", default="/robot/pose_filtered_beta")
-    parser.add_argument("--stable-topic", default="/robot/pose_filtered_stable")
+    parser.add_argument("--filtered-topic", default="")
+    parser.add_argument("--beta-topic", default="")
+    parser.add_argument("--stable-topic", default="")
     parser.add_argument("--quality-topic", default="/map_lidar/quality")
-    parser.add_argument("--filter-status-topic", default="/lidar/pose_filter/status")
-    parser.add_argument("--beta-filter-status-topic", default="/lidar/pose_filter_beta/status")
-    parser.add_argument("--stable-filter-status-topic", default="/lidar/pose_filter_stable/status")
+    parser.add_argument("--filter-status-topic", default="")
+    parser.add_argument("--beta-filter-status-topic", default="")
+    parser.add_argument("--stable-filter-status-topic", default="")
     parser.add_argument("--continuous-status-topic", default="/robot/pose_continuous/status")
-    parser.add_argument("--yaw-fusion-status-topic", default="/robot/yaw_fusion/status")
+    parser.add_argument("--yaw-fusion-status-topic", default="")
     parser.add_argument("--static-speed", type=float, default=0.015)
     parser.add_argument("--full-speed", type=float, default=0.12)
     parser.add_argument("--static-yaw-rate-deg", type=float, default=5.0)

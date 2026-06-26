@@ -10,6 +10,38 @@ if [ -z "${FASTLIO_RVIZ:-}" ]; then
   FASTLIO_RVIZ=false
 fi
 
+rviz_requested() {
+  case "${FASTLIO_RVIZ:-false}" in
+    1|true|TRUE|yes|YES|on|ON)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+rviz_force_without_display() {
+  case "${FASTLIO_RVIZ_ALLOW_HEADLESS:-0}" in
+    1|true|TRUE|yes|YES|on|ON)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+if rviz_requested && ! rviz_force_without_display; then
+  if [ -z "${DISPLAY:-}" ]; then
+    echo "[fastlio] WARN: FASTLIO_RVIZ=$FASTLIO_RVIZ but DISPLAY is empty; disabling RViz."
+    FASTLIO_RVIZ=false
+  elif command -v xdpyinfo >/dev/null 2>&1 && ! xdpyinfo >/dev/null 2>&1; then
+    echo "[fastlio] WARN: FASTLIO_RVIZ=$FASTLIO_RVIZ but DISPLAY=${DISPLAY:-} is not reachable; disabling RViz."
+    FASTLIO_RVIZ=false
+  fi
+fi
+
 echo "[fastlio] FASTLIO_RVIZ=$FASTLIO_RVIZ"
 
 choose_auto_map_save_path() {
