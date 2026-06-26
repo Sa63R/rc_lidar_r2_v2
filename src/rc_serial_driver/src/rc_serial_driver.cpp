@@ -765,8 +765,8 @@ bool RCSerialDriver::readPoseFromRawOdom(float & x, float & y, float & z, float 
   const double ex_z = vectorValueOrDefault(raw_odom_lidar_to_base_xyz_, 2, -0.483);
   const double ex_yaw = vectorValueOrDefault(
     raw_odom_lidar_to_base_rpy_, 2, -1.5707963267948966);
-  const double ref_x = vectorValueOrDefault(raw_odom_reference_xyz_, 0, -0.260);
-  const double ref_y = vectorValueOrDefault(raw_odom_reference_xyz_, 1, 0.262);
+  const double ref_x = vectorValueOrDefault(raw_odom_reference_xyz_, 0, 0.237488);
+  const double ref_y = vectorValueOrDefault(raw_odom_reference_xyz_, 1, -0.272804);
   const double ref_z = vectorValueOrDefault(raw_odom_reference_xyz_, 2, -0.483);
   const double ref_yaw = vectorValueOrDefault(
     raw_odom_reference_rpy_, 2, -1.5707963267948966);

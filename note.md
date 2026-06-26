@@ -128,6 +128,7 @@ RC_LIDAR_MAP_PATH="/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/mid360_map.pcd" \
 当前坐标约定：
 
 ```text
+map -> robot_origin xyz = [0.237488, -0.272804, -0.483]
 body -> robot_base yaw = -90 deg
 map -> robot_origin yaw = -90 deg
 robot_base / robot_origin 业务坐标: X 右, Y 前, Z 上

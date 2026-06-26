@@ -11,8 +11,8 @@ def generate_launch_description():
             package="tf2_ros",
             executable="static_transform_publisher",
             arguments=[
-                "--x", "-0.260",
-                "--y", "0.262",
+                "--x", "0.237488",
+                "--y", "-0.272804",
                 "--z", "-0.483",
                 "--roll", "0",
                 "--pitch", "0",

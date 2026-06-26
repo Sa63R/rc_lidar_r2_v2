@@ -40,7 +40,7 @@ def generate_launch_description():
     raw_odom_lidar_to_base_rpy = env_float_list(
         'RC_CAN_RAW_ODOM_LIDAR_TO_BASE_RPY', [0.0, 0.0, -1.5707963267948966])
     raw_odom_reference_xyz = env_float_list(
-        'RC_CAN_RAW_ODOM_REFERENCE_XYZ', [-0.260, 0.262, -0.483])
+        'RC_CAN_RAW_ODOM_REFERENCE_XYZ', [0.237488, -0.272804, -0.483])
     raw_odom_reference_rpy = env_float_list(
         'RC_CAN_RAW_ODOM_REFERENCE_RPY', [0.0, 0.0, -1.5707963267948966])
     yaw_pose_topic_enabled = env_bool('RC_CAN_USE_YAW_POSE_TOPIC', '0')

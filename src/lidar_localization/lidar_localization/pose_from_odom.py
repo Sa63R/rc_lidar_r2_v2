@@ -87,7 +87,7 @@ class PoseFromOdom(Node):
         self.declare_parameter("lidar_to_base_rpy", [0.0, 0.0, -math.pi / 2.0])
         self.declare_parameter("reference_pose_enabled", True)
         self.declare_parameter("reference_frame_id", "robot_origin")
-        self.declare_parameter("reference_pose_xyz", [-0.260, 0.262, -0.483])
+        self.declare_parameter("reference_pose_xyz", [0.237488, -0.272804, -0.483])
         self.declare_parameter("reference_pose_rpy", [0.0, 0.0, -math.pi / 2.0])
         self.declare_parameter("output_stamp_mode", "now")
         self.declare_parameter("log_period_sec", 1.0)

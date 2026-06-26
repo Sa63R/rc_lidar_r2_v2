@@ -55,7 +55,7 @@ def generate_launch_description():
             DeclareLaunchArgument("reference_pose_enabled", default_value="true"),
             DeclareLaunchArgument("reference_frame_id", default_value="robot_origin"),
             DeclareLaunchArgument(
-                "reference_pose_xyz", default_value="[-0.260, 0.262, -0.483]"
+                "reference_pose_xyz", default_value="[0.237488, -0.272804, -0.483]"
             ),
             DeclareLaunchArgument(
                 "reference_pose_rpy",

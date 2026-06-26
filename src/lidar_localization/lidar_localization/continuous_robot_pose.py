@@ -71,7 +71,7 @@ class ContinuousRobotPose(Node):
         self.declare_parameter("lidar_to_base_xyz", [0.237488, -0.272804, -0.483])
         self.declare_parameter("lidar_to_base_rpy", [0.0, 0.0, -math.pi / 2.0])
         self.declare_parameter("reference_pose_enabled", True)
-        self.declare_parameter("reference_pose_xyz", [-0.260, 0.262, -0.483])
+        self.declare_parameter("reference_pose_xyz", [0.237488, -0.272804, -0.483])
         self.declare_parameter("reference_pose_rpy", [0.0, 0.0, -math.pi / 2.0])
         self.declare_parameter("correction_alpha", 0.05)
         self.declare_parameter("odom_buffer_sec", 5.0)
