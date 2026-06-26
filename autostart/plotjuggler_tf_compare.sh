@@ -11,12 +11,16 @@ elif [ "${PLOTJUGGLER_TF_LAYOUT+x}" = "x" ]; then
 else
   LAYOUT_FILE=""
 fi
-WAIT_SECONDS="${PLOTJUGGLER_WAIT_SECONDS:-16}"
+WAIT_SECONDS="${PLOTJUGGLER_WAIT_SECONDS:-8}"
 BUFFER_SIZE="${PLOTJUGGLER_BUFFER_SIZE:-300}"
 PLOTJUGGLER_CONFIG="${PLOTJUGGLER_CONFIG:-$HOME/.config/PlotJuggler/io.plotjuggler.PlotJuggler.ini}"
-TOPIC_SPIN_TIME="${PLOTJUGGLER_TOPIC_SPIN_TIME:-2}"
+TOPIC_SPIN_TIME="${PLOTJUGGLER_TOPIC_SPIN_TIME:-1}"
+SAMPLE_TIMEOUT="${PLOTJUGGLER_SAMPLE_TIMEOUT:-3}"
+REQUIRE_PUBLISHERS="${PLOTJUGGLER_REQUIRE_PUBLISHERS:-0}"
+REQUIRE_SAMPLES="${PLOTJUGGLER_REQUIRE_SAMPLES:-0}"
 
 TOPICS=()
+SAMPLE_TOPICS=()
 
 if [ "${RC_LIDAR_MODE:-tracking}" = "relocalization" ]; then
   TOPICS+=(
@@ -28,9 +32,16 @@ if [ "${RC_LIDAR_MODE:-tracking}" = "relocalization" ]; then
     "/lidar/pose_filter/status"
     "/robot/yaw_fusion/status"
   )
+  SAMPLE_TOPICS+=(
+    "/robot/pose"
+    "${RC_CONTINUOUS_POSE_OUTPUT_TOPIC:-/robot/pose_continuous}"
+    "${RC_ODOM_ONLY_POSE_TOPIC:-/robot/pose_odom_only}"
+    "/map_lidar/quality"
+  )
 
   if [ "${RC_POSE_FILTER:-1}" != "0" ]; then
     TOPICS+=("/robot/pose_filtered")
+    SAMPLE_TOPICS+=("/robot/pose_filtered")
   fi
 
   case "${RC_POSE_FILTER_BETA:-0}" in
@@ -39,6 +50,7 @@ if [ "${RC_LIDAR_MODE:-tracking}" = "relocalization" ]; then
         "${RC_BETA_FILTERED_POSE_TOPIC:-/robot/pose_filtered_beta}"
         "/lidar/pose_filter_beta/status"
       )
+      SAMPLE_TOPICS+=("${RC_BETA_FILTERED_POSE_TOPIC:-/robot/pose_filtered_beta}")
       ;;
   esac
 
@@ -48,11 +60,17 @@ if [ "${RC_LIDAR_MODE:-tracking}" = "relocalization" ]; then
         "${RC_STABLE_FILTERED_POSE_TOPIC:-/robot/pose_filtered_stable}"
         "/lidar/pose_filter_stable/status"
       )
+      SAMPLE_TOPICS+=("${RC_STABLE_FILTERED_POSE_TOPIC:-/robot/pose_filtered_stable}")
       ;;
   esac
 fi
 
 TOPICS+=(
+  "/tf_compare/robot_origin_to_robot_base"
+  "/tf_compare/robot_origin_to_robot_base_highrate"
+  "/tf_compare/map_to_body"
+)
+SAMPLE_TOPICS+=(
   "/tf_compare/robot_origin_to_robot_base"
   "/tf_compare/robot_origin_to_robot_base_highrate"
   "/tf_compare/map_to_body"
@@ -154,11 +172,40 @@ wait_for_topics() {
   local topics
   local topic_output
   local missing
+  local sample_missing
+  local reason
   local topic_list_args=()
+  local topic_info_args=()
+  local topic_echo_args=()
 
   if ros2 topic list -h 2>/dev/null | grep -q -- "--no-daemon"; then
     topic_list_args=(--no-daemon --spin-time "$TOPIC_SPIN_TIME")
+    topic_info_args=(--no-daemon --spin-time "$TOPIC_SPIN_TIME")
+    topic_echo_args=(--no-daemon --spin-time "$TOPIC_SPIN_TIME")
   fi
+
+  topic_has_publisher() {
+    local topic="$1"
+    local info
+    local publishers
+
+    info="$(ros2 topic info "${topic_info_args[@]}" "$topic" 2>/dev/null || true)"
+    publishers="$(awk '/Publisher count:/ { print $3; found=1 } END { if (!found) print 0 }' <<< "$info")"
+    [ "${publishers:-0}" -gt 0 ] 2>/dev/null
+  }
+
+  topic_has_sample() {
+    local topic="$1"
+    local sample_timeout="$SAMPLE_TIMEOUT"
+
+    case "$sample_timeout" in
+      ''|*[!0-9.]*)
+        sample_timeout=3
+        ;;
+    esac
+
+    timeout "${sample_timeout}s" ros2 topic echo --once "${topic_echo_args[@]}" "$topic" >/dev/null 2>&1
+  }
 
   while [ "$SECONDS" -lt "$deadline" ]; do
     if ! topic_output="$(ros2 topic list "${topic_list_args[@]}" 2>&1)"; then
@@ -173,16 +220,44 @@ wait_for_topics() {
 
     for topic in "${TOPICS[@]}"; do
       if ! grep -Fxq "$topic" <<< "$topics"; then
-        missing+=("$topic")
+        missing+=("$topic(no topic)")
+        continue
       fi
+
+      case "$REQUIRE_PUBLISHERS" in
+        1|true|TRUE|yes|YES|on|ON)
+          if ! topic_has_publisher "$topic"; then
+            missing+=("$topic(no publisher)")
+          fi
+          ;;
+      esac
     done
 
+    sample_missing=()
     if [ "${#missing[@]}" -eq 0 ]; then
+      case "$REQUIRE_SAMPLES" in
+        1|true|TRUE|yes|YES|on|ON)
+          for topic in "${SAMPLE_TOPICS[@]}"; do
+            if ! topic_has_sample "$topic"; then
+              sample_missing+=("$topic(no sample)")
+            fi
+          done
+          ;;
+      esac
+    fi
+
+    if [ "${#missing[@]}" -eq 0 ] && [ "${#sample_missing[@]}" -eq 0 ]; then
       echo "[plotjuggler] All requested topics are available."
       return 0
     fi
 
-    echo "[plotjuggler] Waiting for topics: ${missing[*]}"
+    reason="${missing[*]}"
+    if [ -z "$reason" ]; then
+      reason="${sample_missing[*]}"
+    elif [ "${#sample_missing[@]}" -gt 0 ]; then
+      reason="$reason ${sample_missing[*]}"
+    fi
+    echo "[plotjuggler] Waiting for topics: $reason"
     sleep 1
   done
 

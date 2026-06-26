@@ -4,6 +4,20 @@ set -u
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_DIR="$(cd "$DIR/.." && pwd)"
 QUIET=0
+STOP_WAIT_SEC="${RC_STOP_ALL_WAIT_SEC:-2}"
+STOP_FORCE_WAIT_SEC="${RC_STOP_ALL_FORCE_WAIT_SEC:-1}"
+
+case "$STOP_WAIT_SEC" in
+  ''|*[!0-9]*)
+    STOP_WAIT_SEC=2
+    ;;
+esac
+
+case "$STOP_FORCE_WAIT_SEC" in
+  ''|*[!0-9]*)
+    STOP_FORCE_WAIT_SEC=1
+    ;;
+esac
 
 for arg in "$@"; do
   case "$arg" in
@@ -22,6 +36,10 @@ log() {
   if [ "$QUIET" != "1" ]; then
     echo "[stop_all] $*"
   fi
+}
+
+log_always() {
+  echo "[stop_all] $*"
 }
 
 should_kill_cmd() {
@@ -119,6 +137,97 @@ kill_matching_processes() {
       kill_pid_safely "$pid" "$signal"
     done
   done
+}
+
+list_matching_pids() {
+  local pattern
+  local pid
+  local cmd
+  local seen=" "
+  local self_pgid
+  local target_pgid
+
+  self_pgid="$(ps -o pgid= -p "$$" 2>/dev/null | tr -d ' ')"
+
+  for pattern in "${patterns[@]}"; do
+    while IFS= read -r pid; do
+      if ! [[ "$pid" =~ ^[0-9]+$ ]]; then
+        continue
+      fi
+
+      if [ "$pid" = "$$" ]; then
+        continue
+      fi
+
+      case "$seen" in
+        *" $pid "*)
+          continue
+          ;;
+      esac
+
+      if ! kill -0 "$pid" 2>/dev/null; then
+        continue
+      fi
+
+      cmd="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+      if [ -z "$cmd" ] || ! should_kill_cmd "$cmd"; then
+        continue
+      fi
+
+      target_pgid="$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ')"
+      if [ -n "${target_pgid:-}" ] && [ "$target_pgid" = "$self_pgid" ]; then
+        continue
+      fi
+
+      seen="$seen$pid "
+      echo "$pid"
+    done < <(pgrep -f "$pattern" 2>/dev/null || true)
+  done
+}
+
+wait_for_matching_processes_to_exit() {
+  local timeout_sec="$1"
+  local deadline=$((SECONDS + timeout_sec))
+  local pids=()
+
+  while true; do
+    mapfile -t pids < <(list_matching_pids)
+    if [ "${#pids[@]}" -eq 0 ]; then
+      return 0
+    fi
+
+    if [ "$SECONDS" -ge "$deadline" ]; then
+      return 1
+    fi
+
+    sleep 0.5
+  done
+}
+
+log_remaining_processes() {
+  local label="$1"
+  local pids=()
+  local pid
+  local pgid
+  local stat
+  local etime
+  local cmd
+
+  mapfile -t pids < <(list_matching_pids)
+  if [ "${#pids[@]}" -eq 0 ]; then
+    return 1
+  fi
+
+  log_always "$label: ${#pids[@]} matching process(es) still running"
+  for pid in "${pids[@]}"; do
+    pgid="$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ' || true)"
+    stat="$(ps -o stat= -p "$pid" 2>/dev/null | tr -d ' ' || true)"
+    etime="$(ps -o etime= -p "$pid" 2>/dev/null | tr -d ' ' || true)"
+    cmd="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+    log_always "remaining pid=$pid pgid=${pgid:-?} stat=${stat:-?} etime=${etime:-?} cmd=$cmd"
+  done
+
+  return 0
 }
 
 close_terminal_windows_by_title() {
@@ -243,7 +352,11 @@ log "stopping matching RC LIDAR processes"
 kill_matching_processes TERM "${patterns[@]}"
 close_terminal_windows_by_title
 
-sleep 2
+if wait_for_matching_processes_to_exit "$STOP_WAIT_SEC"; then
+  log "all matching RC LIDAR processes exited after TERM"
+else
+  log_remaining_processes "after TERM wait ${STOP_WAIT_SEC}s"
+fi
 
 log "force killing remaining matching RC LIDAR processes"
 for f in "${pidfiles[@]}"; do
@@ -252,6 +365,12 @@ for f in "${pidfiles[@]}"; do
 done
 kill_matching_processes KILL "${patterns[@]}"
 close_terminal_windows_by_title
+
+if wait_for_matching_processes_to_exit "$STOP_FORCE_WAIT_SEC"; then
+  log "all matching RC LIDAR processes exited after KILL"
+else
+  log_remaining_processes "after KILL wait ${STOP_FORCE_WAIT_SEC}s"
+fi
 
 rm -f /tmp/rc_autostart_*.pid 2>/dev/null || true
 log "done"

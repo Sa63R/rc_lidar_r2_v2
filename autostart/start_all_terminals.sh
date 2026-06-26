@@ -11,6 +11,9 @@ LOG_ROOT="${RC_LIDAR_LOG_ROOT:-$WORKSPACE_DIR/logs/autostart}"
 # can_restart：CAN 报文触发重启
 RUN_REASON="${RUN_REASON:-manual}"
 RC_LIDAR_MODE="${RC_LIDAR_MODE:-tracking}"
+if [ "${RC_AUTOSTART_READY_GATES+x}" != "x" ]; then
+  RC_AUTOSTART_READY_GATES=0
+fi
 case "$RC_LIDAR_MODE" in
   tracking|mapping|relocalization)
     ;;
@@ -39,6 +42,21 @@ RC_AUTOSTART_CANFD="${RC_AUTOSTART_CANFD:-0}"
 RC_CAN_DEBUG_CSV="${RC_CAN_DEBUG_CSV:-0}"
 RC_CAN_DEBUG_CSV_PATH="${RC_CAN_DEBUG_CSV_PATH:-}"
 RC_CAN_DEBUG_LOG_PERIOD_SEC="${RC_CAN_DEBUG_LOG_PERIOD_SEC:-1.0}"
+RC_READY_TOPIC_SPIN_TIME="${RC_READY_TOPIC_SPIN_TIME:-2}"
+RC_READY_SAMPLE_TIMEOUT_SEC="${RC_READY_SAMPLE_TIMEOUT_SEC:-4}"
+RC_READY_LIVOX_TIMEOUT_SEC="${RC_READY_LIVOX_TIMEOUT_SEC:-30}"
+RC_READY_FASTLIO_TIMEOUT_SEC="${RC_READY_FASTLIO_TIMEOUT_SEC:-75}"
+RC_READY_MAP_TIMEOUT_SEC="${RC_READY_MAP_TIMEOUT_SEC:-90}"
+RC_READY_POSE_TIMEOUT_SEC="${RC_READY_POSE_TIMEOUT_SEC:-45}"
+RC_READY_FILTER_TIMEOUT_SEC="${RC_READY_FILTER_TIMEOUT_SEC:-45}"
+RC_READY_TF_COMPARE_TIMEOUT_SEC="${RC_READY_TF_COMPARE_TIMEOUT_SEC:-30}"
+RC_READY_PLOTJUGGLER_TIMEOUT_SEC="${RC_READY_PLOTJUGGLER_TIMEOUT_SEC:-20}"
+RC_READY_LIVOX_LIDAR_TOPIC="${RC_READY_LIVOX_LIDAR_TOPIC:-/livox/lidar}"
+RC_READY_LIVOX_IMU_TOPIC="${RC_READY_LIVOX_IMU_TOPIC:-/livox/imu}"
+RC_READY_FASTLIO_ODOM_TOPIC="${RC_READY_FASTLIO_ODOM_TOPIC:-/Odometry}"
+RC_READY_FASTLIO_CLOUD_TOPIC="${RC_READY_FASTLIO_CLOUD_TOPIC:-/cloud_registered}"
+RC_READY_MAP_ODOM_TOPIC="${RC_READY_MAP_ODOM_TOPIC:-/map_lidar/odom}"
+RC_READY_MAP_QUALITY_TOPIC="${RC_READY_MAP_QUALITY_TOPIC:-/map_lidar/quality}"
 case "$RC_POSE_FILTER_SELECTED" in
   normal|beta|stable)
     ;;
@@ -90,6 +108,8 @@ if [ "${RC_CAN_POSE_TOPIC+x}" != "x" ] || [ -z "${RC_CAN_POSE_TOPIC:-}" ]; then
     RC_CAN_POSE_TOPIC="$RC_FILTERED_POSE_TOPIC"
   fi
 fi
+RC_READY_RAW_POSE_TOPIC="${RC_READY_RAW_POSE_TOPIC:-$RC_RAW_POSE_TOPIC}"
+RC_READY_FILTERED_POSE_TOPIC="${RC_READY_FILTERED_POSE_TOPIC:-$RC_CAN_POSE_TOPIC}"
 BOOT_ID="$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo unknown)"
 BOOT_ID_SHORT="$(printf '%s' "$BOOT_ID" | cut -c1-8)"
 
@@ -148,6 +168,24 @@ export RC_CAN_POSE_TOPIC
 export RC_CAN_DEBUG_CSV
 export RC_CAN_DEBUG_CSV_PATH
 export RC_CAN_DEBUG_LOG_PERIOD_SEC
+export RC_AUTOSTART_READY_GATES
+export RC_READY_TOPIC_SPIN_TIME
+export RC_READY_SAMPLE_TIMEOUT_SEC
+export RC_READY_LIVOX_TIMEOUT_SEC
+export RC_READY_FASTLIO_TIMEOUT_SEC
+export RC_READY_MAP_TIMEOUT_SEC
+export RC_READY_POSE_TIMEOUT_SEC
+export RC_READY_FILTER_TIMEOUT_SEC
+export RC_READY_TF_COMPARE_TIMEOUT_SEC
+export RC_READY_PLOTJUGGLER_TIMEOUT_SEC
+export RC_READY_LIVOX_LIDAR_TOPIC
+export RC_READY_LIVOX_IMU_TOPIC
+export RC_READY_FASTLIO_ODOM_TOPIC
+export RC_READY_FASTLIO_CLOUD_TOPIC
+export RC_READY_MAP_ODOM_TOPIC
+export RC_READY_MAP_QUALITY_TOPIC
+export RC_READY_RAW_POSE_TOPIC
+export RC_READY_FILTERED_POSE_TOPIC
 export RC_LIDAR_BOOT_ID="${RC_LIDAR_BOOT_ID:-$BOOT_ID}"
 
 # ROS2 自己的日志目录
@@ -185,6 +223,10 @@ mkdir -p "$ROS_LOG_DIR"
   echo "can_debug_csv: $RC_CAN_DEBUG_CSV"
   echo "can_debug_csv_path: ${RC_CAN_DEBUG_CSV_PATH:-}"
   echo "continuous_pose: $RC_CONTINUOUS_POSE"
+  echo "ready_gates: $RC_AUTOSTART_READY_GATES"
+  echo "ready_gates_note: default off; set RC_AUTOSTART_READY_GATES=1 for deep staged startup diagnostics"
+  echo "ready_topic_spin_time: $RC_READY_TOPIC_SPIN_TIME"
+  echo "ready_sample_timeout_sec: $RC_READY_SAMPLE_TIMEOUT_SEC"
   echo "log_dir: $LOG_DIR"
   echo "dir: $DIR"
   echo "user: $(whoami)"
@@ -646,6 +688,214 @@ EOF
   sleep "${RC_AUTOSTART_TERMINAL_LAUNCH_DELAY:-0.4}"
 }
 
+READY_GATE_ROS_ENV_READY=0
+
+ready_gate_enabled() {
+  case "${RC_AUTOSTART_READY_GATES:-1}" in
+    1|true|TRUE|yes|YES|on|ON)
+      return 0
+      ;;
+    0|false|FALSE|no|NO|off|OFF)
+      return 1
+      ;;
+    *)
+      summary_event "ready_gate: unknown RC_AUTOSTART_READY_GATES=${RC_AUTOSTART_READY_GATES}; enabled"
+      return 0
+      ;;
+  esac
+}
+
+ready_gate_log() {
+  local message="$1"
+  echo "[$(date -Iseconds) uptime_sec=$(current_uptime_sec) elapsed_sec=$(elapsed_since_start)] $message" >> "$LOG_DIR/ready_gates.log"
+  sync_file "$LOG_DIR/ready_gates.log"
+}
+
+prepare_ready_gate_ros_env() {
+  if [ "$READY_GATE_ROS_ENV_READY" = "1" ]; then
+    return 0
+  fi
+
+  if [ ! -f /opt/ros/humble/setup.bash ]; then
+    summary_event "ready_gate: /opt/ros/humble/setup.bash missing; skipping ROS readiness checks"
+    return 1
+  fi
+
+  if [ ! -f "$WORKSPACE_DIR/install/setup.bash" ]; then
+    summary_event "ready_gate: $WORKSPACE_DIR/install/setup.bash missing; skipping ROS readiness checks"
+    return 1
+  fi
+
+  unset CONDA_DEFAULT_ENV CONDA_PREFIX CONDA_PROMPT_MODIFIER CONDA_PYTHON_EXE
+  unset CONDA_EXE CONDA_SHLVL _CE_CONDA _CE_M PYTHONHOME
+
+  local restore_nounset=0
+  case "$-" in
+    *u*)
+      restore_nounset=1
+      set +u
+      ;;
+  esac
+
+  # shellcheck disable=SC1091
+  if ! source /opt/ros/humble/setup.bash; then
+    if [ "$restore_nounset" = "1" ]; then
+      set -u
+    fi
+    summary_event "ready_gate: failed to source /opt/ros/humble/setup.bash; skipping ROS readiness checks"
+    return 1
+  fi
+
+  # shellcheck disable=SC1091
+  if ! source "$WORKSPACE_DIR/install/setup.bash"; then
+    if [ "$restore_nounset" = "1" ]; then
+      set -u
+    fi
+    summary_event "ready_gate: failed to source $WORKSPACE_DIR/install/setup.bash; skipping ROS readiness checks"
+    return 1
+  fi
+
+  if [ "$restore_nounset" = "1" ]; then
+    set -u
+  fi
+
+  if ! command -v ros2 >/dev/null 2>&1; then
+    summary_event "ready_gate: ros2 command not found after sourcing setup files; skipping ROS readiness checks"
+    return 1
+  fi
+
+  READY_GATE_ROS_ENV_READY=1
+  return 0
+}
+
+ready_gate_timeout_or_default() {
+  local value="$1"
+  local fallback="$2"
+
+  case "$value" in
+    ''|*[!0-9]*)
+      echo "$fallback"
+      ;;
+    *)
+      echo "$value"
+      ;;
+  esac
+}
+
+ros_topic_has_publisher() {
+  local topic="$1"
+  local info
+  local publishers
+
+  info="$(ros2 topic info --no-daemon --spin-time "$RC_READY_TOPIC_SPIN_TIME" "$topic" 2>/dev/null || true)"
+  publishers="$(awk '/Publisher count:/ { print $3; found=1 } END { if (!found) print 0 }' <<< "$info")"
+
+  [ "${publishers:-0}" -gt 0 ] 2>/dev/null
+}
+
+ros_topic_has_sample() {
+  local topic="$1"
+  local sample_timeout
+
+  sample_timeout="${RC_READY_SAMPLE_TIMEOUT_SEC:-4}"
+  case "$sample_timeout" in
+    ''|*[!0-9.]*)
+      sample_timeout=4
+      ;;
+  esac
+
+  timeout "${sample_timeout}s" ros2 topic echo --once --no-daemon --spin-time "$RC_READY_TOPIC_SPIN_TIME" "$topic" >/dev/null 2>&1
+}
+
+wait_for_ready_topic() {
+  local label="$1"
+  local topic="$2"
+  local timeout_sec
+  local require_sample="${4:-1}"
+  local deadline
+  local reason="not checked"
+  local last_reason=""
+
+  timeout_sec="$(ready_gate_timeout_or_default "${3:-30}" 30)"
+
+  if [ "$RC_AUTOSTART_DRY_RUN" = "1" ]; then
+    summary_event "ready_gate: dry-run skip $label ($topic)"
+    return 0
+  fi
+
+  if ! ready_gate_enabled; then
+    return 0
+  fi
+
+  if ! prepare_ready_gate_ros_env; then
+    ready_gate_log "skip $label ($topic): ROS environment unavailable"
+    return 0
+  fi
+
+  summary_event "ready_gate: waiting for $label ($topic, timeout=${timeout_sec}s)"
+  ready_gate_log "waiting for $label topic=$topic timeout=${timeout_sec}s require_sample=$require_sample"
+  deadline=$((SECONDS + timeout_sec))
+
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if ros_topic_has_publisher "$topic"; then
+      if [ "$require_sample" != "1" ]; then
+        summary_event "ready_gate: $label ready ($topic publisher)"
+        ready_gate_log "ready $label topic=$topic publisher=1 sample=not-required"
+        return 0
+      fi
+
+      if ros_topic_has_sample "$topic"; then
+        summary_event "ready_gate: $label ready ($topic sample)"
+        ready_gate_log "ready $label topic=$topic publisher=1 sample=1"
+        return 0
+      fi
+
+      reason="publisher present, no sample yet"
+    else
+      reason="no publisher"
+    fi
+
+    if [ "$reason" != "$last_reason" ]; then
+      ready_gate_log "waiting $label topic=$topic reason=$reason"
+      last_reason="$reason"
+    fi
+
+    sleep 1
+  done
+
+  summary_event "ready_gate: WARN timeout waiting for $label ($topic, last=$reason); continuing"
+  ready_gate_log "timeout $label topic=$topic last=$reason"
+  return 0
+}
+
+wait_for_plotjuggler_ready_topics() {
+  if [ "$RC_LIDAR_MODE" = "relocalization" ]; then
+    wait_for_ready_topic "PlotJuggler raw pose" "$RC_READY_RAW_POSE_TOPIC" "$RC_READY_PLOTJUGGLER_TIMEOUT_SEC" 1
+    wait_for_ready_topic "PlotJuggler map quality" "$RC_READY_MAP_QUALITY_TOPIC" "$RC_READY_PLOTJUGGLER_TIMEOUT_SEC" 1
+
+    if should_start_continuous_pose; then
+      wait_for_ready_topic "PlotJuggler continuous pose" "${RC_CONTINUOUS_POSE_OUTPUT_TOPIC:-/robot/pose_continuous}" "$RC_READY_PLOTJUGGLER_TIMEOUT_SEC" 1
+    fi
+
+    if should_start_odom_only_compare; then
+      wait_for_ready_topic "PlotJuggler odom-only pose" "${RC_ODOM_ONLY_POSE_TOPIC:-/robot/pose_odom_only}" "$RC_READY_PLOTJUGGLER_TIMEOUT_SEC" 1
+    fi
+
+    if [ "${RC_POSE_FILTER:-1}" != "0" ]; then
+      wait_for_ready_topic "PlotJuggler filtered pose" "/robot/pose_filtered" "$RC_READY_PLOTJUGGLER_TIMEOUT_SEC" 1
+      if [ "$RC_READY_FILTERED_POSE_TOPIC" != "/robot/pose_filtered" ]; then
+        wait_for_ready_topic "PlotJuggler selected filtered pose" "$RC_READY_FILTERED_POSE_TOPIC" "$RC_READY_PLOTJUGGLER_TIMEOUT_SEC" 1
+      fi
+    fi
+  fi
+
+  if should_start_tf_compare; then
+    wait_for_ready_topic "PlotJuggler TF robot base" "/tf_compare/robot_origin_to_robot_base" "$RC_READY_PLOTJUGGLER_TIMEOUT_SEC" 1
+    wait_for_ready_topic "PlotJuggler TF high-rate robot base" "/tf_compare/robot_origin_to_robot_base_highrate" "$RC_READY_PLOTJUGGLER_TIMEOUT_SEC" 1
+    wait_for_ready_topic "PlotJuggler TF map to body" "/tf_compare/map_to_body" "$RC_READY_PLOTJUGGLER_TIMEOUT_SEC" 1
+  fi
+}
+
 should_start_thermal_pose_monitor() {
   case "${RC_HEALTH_MONITOR:-1}" in
     1|true|TRUE|yes|YES|on|ON)
@@ -731,13 +981,19 @@ else
   start_one "TF_MAP_CAMERA_INIT" "map_to_camera_init_tf.sh"
 fi
 start_one "LIVOX" "livox.sh"
+wait_for_ready_topic "Livox lidar" "$RC_READY_LIVOX_LIDAR_TOPIC" "$RC_READY_LIVOX_TIMEOUT_SEC" 1
+wait_for_ready_topic "Livox imu" "$RC_READY_LIVOX_IMU_TOPIC" "$RC_READY_LIVOX_TIMEOUT_SEC" 1
 start_one "FASTLIO" "fastlio.sh"
 start_one "HIGHRATE_BODY" "highrate_body.sh"
+wait_for_ready_topic "FastLIO odometry" "$RC_READY_FASTLIO_ODOM_TOPIC" "$RC_READY_FASTLIO_TIMEOUT_SEC" 1
+wait_for_ready_topic "FastLIO registered cloud" "$RC_READY_FASTLIO_CLOUD_TOPIC" "$RC_READY_FASTLIO_TIMEOUT_SEC" 1
 summary_event "skipped world_tf; production TF uses map -> robot_origin"
 if [ "$RC_LIDAR_MODE" = "mapping" ]; then
   start_one "POSE_INTERFACE" "pose_interface_mapping.sh"
 elif [ "$RC_LIDAR_MODE" = "relocalization" ]; then
   start_one "MAP_LOCALIZER" "map_localizer.sh"
+  wait_for_ready_topic "map localizer odometry" "$RC_READY_MAP_ODOM_TOPIC" "$RC_READY_MAP_TIMEOUT_SEC" 1
+  wait_for_ready_topic "map localizer quality" "$RC_READY_MAP_QUALITY_TOPIC" "$RC_READY_MAP_TIMEOUT_SEC" 1
   start_one "POSE_INTERFACE" "pose_interface_relocalization.sh"
   if should_start_continuous_pose; then
     start_one "POSE_CONTINUOUS" "continuous_robot_pose.sh"
@@ -749,19 +1005,26 @@ elif [ "$RC_LIDAR_MODE" = "relocalization" ]; then
   else
     summary_event "skipped POSE_ODOM_ONLY compare"
   fi
+  wait_for_ready_topic "robot raw pose" "$RC_READY_RAW_POSE_TOPIC" "$RC_READY_POSE_TIMEOUT_SEC" 1
   if [ "${RC_POSE_FILTER:-1}" = "0" ]; then
     summary_event "skipped POSE_FILTER because RC_POSE_FILTER=0"
   else
     start_one "POSE_FILTER" "pose_stability_filter.sh"
+    wait_for_ready_topic "robot filtered pose" "/robot/pose_filtered" "$RC_READY_FILTER_TIMEOUT_SEC" 1
     if [ "$RC_POSE_FILTER_BETA_ENABLED" = "1" ]; then
       start_one "POSE_FILTER_BETA" "pose_stability_filter_beta.sh"
+      wait_for_ready_topic "robot beta filtered pose" "$RC_BETA_FILTERED_POSE_TOPIC" "$RC_READY_FILTER_TIMEOUT_SEC" 1
     else
       summary_event "skipped POSE_FILTER_BETA because RC_POSE_FILTER_BETA=0"
     fi
     if [ "$RC_POSE_FILTER_STABLE_ENABLED" = "1" ]; then
       start_one "POSE_FILTER_STABLE" "pose_stability_filter_stable.sh"
+      wait_for_ready_topic "robot stable filtered pose" "$RC_STABLE_FILTERED_POSE_TOPIC" "$RC_READY_FILTER_TIMEOUT_SEC" 1
     else
       summary_event "skipped POSE_FILTER_STABLE because RC_POSE_FILTER_STABLE=0"
+    fi
+    if [ "$RC_READY_FILTERED_POSE_TOPIC" != "/robot/pose_filtered" ]; then
+      wait_for_ready_topic "selected CAN/filtered pose" "$RC_READY_FILTERED_POSE_TOPIC" "$RC_READY_FILTER_TIMEOUT_SEC" 1
     fi
   fi
   if should_start_ready_notify; then
@@ -780,6 +1043,9 @@ fi
 if should_start_tf_compare; then
   start_one "TF_ROBOT_OFFSET" "robot_tf_offsets.sh"
   start_one "TF_LIDAR_OFFSET" "lidar_tf_offset.sh"
+  wait_for_ready_topic "TF compare robot base" "/tf_compare/robot_origin_to_robot_base" "$RC_READY_TF_COMPARE_TIMEOUT_SEC" 1
+  wait_for_ready_topic "TF compare high-rate robot base" "/tf_compare/robot_origin_to_robot_base_highrate" "$RC_READY_TF_COMPARE_TIMEOUT_SEC" 1
+  wait_for_ready_topic "TF compare map to body" "/tf_compare/map_to_body" "$RC_READY_TF_COMPARE_TIMEOUT_SEC" 1
 else
   summary_event "skipped TF compare publishers"
 fi
@@ -811,6 +1077,7 @@ else
 fi
 
 if [ "$START_PLOTJUGGLER" = "1" ]; then
+  wait_for_plotjuggler_ready_topics
   start_one "PLOTJUGGLER" "plotjuggler_tf_compare.sh"
 else
   summary_event "skipped PLOTJUGGLER for run_reason=$RUN_REASON"
