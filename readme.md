@@ -1161,16 +1161,19 @@ PlotJuggler 里看机器人中心点滤波前后抖动，优先选这些曲线�
 ```text
 /robot/pose_odom_only/pose/position/x
 /robot/pose/pose/position/x
+/robot/pose_continuous/pose/position/x
 /robot/pose_filtered/pose/position/x
 /robot/pose_filtered_beta/pose/position/x
 /robot/pose_filtered_stable/pose/position/x
 /robot/pose_odom_only/pose/position/y
 /robot/pose/pose/position/y
+/robot/pose_continuous/pose/position/y
 /robot/pose_filtered/pose/position/y
 /robot/pose_filtered_beta/pose/position/y
 /robot/pose_filtered_stable/pose/position/y
 /robot/pose_odom_only/pose/position/z
 /robot/pose/pose/position/z
+/robot/pose_continuous/pose/position/z
 /robot/pose_filtered/pose/position/z
 /robot/pose_filtered_beta/pose/position/z
 /robot/pose_filtered_stable/pose/position/z
@@ -1179,6 +1182,7 @@ PlotJuggler 里看机器人中心点滤波前后抖动，优先选这些曲线�
 滤波观察要区分几件事：
 
 - `/robot/pose` 是滤波前的地图重定位观察值，来源仍然是 `/map_lidar/odom -> pose_from_odom`。Rc 2.4 没有修改 `/robot/pose` 的生成算法、地图匹配参数或坐标转换逻辑。如果重启后看到 `/robot/pose` 比之前稳定，通常不是代码直接调稳了它，而是这次运行的状态更干净、地图匹配收敛更好、现场动态干扰更少，或者 PlotJuggler 里选到的曲线和之前不同。
+- `/robot/pose_continuous` 是 Rc 4.20 新增的连续位姿实验链路。它用 `/map_lidar/odom` 低频校正 `map -> camera_init`，但每次 FAST-LIO `/Odometry` 来时都重新推算机器人中心，因此曲线应该比 `/map_lidar/odom` 的阶梯输出更连续。默认只用于观察，不默认发给 CAN。
 - `/robot/pose_odom_only` 是纯 FAST-LIO `/Odometry` 加机器人中心外参后的对比位姿，不含 map localizer。它只在 PlotJuggler 调试时自动启动，帮助判断原始 odom 与地图重定位结果的差异。
 - `/robot/pose_filtered` 是默认滤波后的观察值。滤波目标是静止时压住小抖动，运动时尽量保留连续轨迹；绕点转圈时，连续的正弦/余弦曲线通常比台阶或锯齿更符合真实运动。
 - `/robot/pose_filtered_beta` 只有 `RC_POSE_FILTER_BETA=1` 时发布，主要用于和 normal 对比静止尖峰抑制效果；PlotJuggler 也只会在 beta 打开时自动等待/订阅 beta topic。
@@ -1568,7 +1572,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
 
 11. `autostart/robot_tf_offsets.sh`、`autostart/lidar_tf_offset.sh`、`autostart/plotjuggler_tf_compare.sh`
     - 一键启动时自动启动 TF 对比发布节点和 PlotJuggler。
-    - `plotjuggler_tf_compare.sh` 在重定位模式下会等待 `/robot/pose`、`/robot/pose_odom_only`、`/robot/pose_filtered`、质量 topic 和 `/tf_compare/...` topic 出现，写入 PlotJuggler 的 `DataStreamROS2/default_topics` 与 `selected_topics`，再打开 PlotJuggler。
+    - `plotjuggler_tf_compare.sh` 在重定位模式下会等待 `/robot/pose`、`/robot/pose_continuous`、`/robot/pose_odom_only`、`/robot/pose_filtered`、质量 topic 和 `/tf_compare/...` topic 出现，写入 PlotJuggler 的 `DataStreamROS2/default_topics` 与 `selected_topics`，再打开 PlotJuggler。
     - 等待 topic 时使用 `ros2 topic list --no-daemon --spin-time 2`，避免 ROS daemon 缓存或 `rclpy.ok()` 错误导致误判 topic 不存在。
 
 12. `src/fastlio_world_init/fastlio_world_init/rotation_extrinsic_calibrator.py`
@@ -1633,6 +1637,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
    - Rc 4.9 起，CAN 的 yaw 单独读取 `/robot/pose`，而 x/y/z 仍读取当前 `RC_CAN_POSE_TOPIC`，默认 `/robot/pose_filtered`。这样电控仍拿到滤波后的稳定位置，但航向角直接使用 Rc 4.8 的低延迟融合 yaw。相关开关为 `RC_CAN_USE_YAW_POSE_TOPIC`、`RC_CAN_YAW_POSE_TOPIC`、`RC_CAN_YAW_POSE_TOPIC_STRICT`。
    - Rc 4.10 起，CAN yaw 默认不再被 `/map_lidar/quality` ready gate 冻住：`RC_CAN_YAW_IGNORE_READY_GATE=1`。quality 不 ready 时，`0x12` 的 x/y 不发，`0x13` 继续发最新 yaw，并沿用最近一次质量通过时的可信 z。这个改动用于降低无头车旋转时因为重定位质量短暂波动导致的航向冻结；如果要恢复旧行为，可设为 `0`。
    - Rc 4.12 起，CAN yaw 默认优先读取 FAST-LIO 原始 `/Odometry`。Rc 4.14 根据现场重新确认把偏置改为 `0`，也就是直接发原始 odom yaw：`RC_CAN_USE_RAW_ODOM_YAW=1`、`RC_CAN_RAW_ODOM_YAW_TOPIC=/Odometry`、`RC_CAN_RAW_ODOM_YAW_STRICT=0`、`RC_CAN_RAW_ODOM_YAW_OFFSET_RAD=0.0`。Rc 4.19 起，raw odom yaw 短暂 stale 时默认继续发送最后一帧原始 odom yaw，不因 stale check 直接冻结 CAN yaw；如需恢复超时保护，可设 `RC_CAN_RAW_ODOM_YAW_STRICT=1`。这个实验策略完全绕过 map yaw fusion 和 pose filter 对 yaw 的影响，用来验证电控无头车实时转向；x/y/z 仍按原生产链路走 `/robot/pose_filtered` 和 ready gate。若发现原始 odom yaw 漂移不可接受，可设置 `RC_CAN_USE_RAW_ODOM_YAW=0` 回退 Rc 4.9 的融合 yaw。
+   - Rc 4.20 新增并行连续位姿链路 `continuous_robot_pose`，默认只在 `RC_LIDAR_MODE=relocalization` 时启动，输出 `/robot/pose_continuous`、`/robot/odom_continuous` 和 `/robot/pose_continuous/status`。它不直接使用 `/map_lidar/odom` 的阶梯 pose 作为控制位姿，而是用 `/map_lidar/odom` 与同时间附近的 FAST-LIO `/Odometry` 反推并平滑更新 `map -> camera_init` 校正，再用最新 `/Odometry` 连续发布机器人业务位姿。默认不替换 `/robot/pose`、`/robot/pose_filtered` 或 CAN；如果要临时让 CAN 试这条链路，显式设置 `RC_CAN_POSE_TOPIC=/robot/pose_continuous`，yaw 仍按当前 raw odom yaw 策略单独发送。
 
 21. `autostart/start_mapping_terminals.sh`、`autostart/save_fast_lio_map.sh`、`autostart/map_localizer.sh`、`autostart/pose_interface_mapping.sh`、`autostart/pose_interface_relocalization.sh`、`autostart/pose_stability_filter.sh`
    - 新增建图保存和地图重定位的一键脚本。
@@ -1646,7 +1651,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
 
 22. `autostart/thermal_pose_monitor.py`、`autostart/thermal_pose_monitor.sh`
    - 新增默认启动的轻量健康日志；`RC_HEALTH_MONITOR=0` 可关闭，旧变量 `RC_THERMAL_POSE_MONITOR` 仍兼容。
-   - 默认 0.2 秒记录一次，也就是 5Hz，记录温度、`load1/load5/load15`、CPU 频率、`/robot/pose`、`/robot/pose_filtered`、可选 `/robot/pose_filtered_beta`、可选 `/robot/pose_filtered_stable`、`/map_lidar/quality`、normal/beta/stable 滤波状态、`/robot/yaw_fusion/status`、运动状态和静止窗口 XY 峰峰值。
+   - 默认 0.2 秒记录一次，也就是 5Hz，记录温度、`load1/load5/load15`、CPU 频率、`/robot/pose`、`/robot/pose_continuous`、`/robot/pose_filtered`、可选 `/robot/pose_filtered_beta`、可选 `/robot/pose_filtered_stable`、`/map_lidar/quality`、continuous/normal/beta/stable 滤波或校正状态、`/robot/yaw_fusion/status`、运动状态和静止窗口 XY 峰峰值。
    - 输出 `logs/autostart/latest/health_monitor.csv`、`health_monitor_summary.json`、`health_monitor_run.json`、`health_monitor_stop.json` 与 `health_events.jsonl`，用于判断定位抖动是否和热/负载/地图匹配质量正相关。
    - 增加 `spike_candidate`、`sustained_motion` 和 `static_context_*` 字段，避免静止时单帧尖峰被误判成持续运动后把证据清掉。
    - `health_events.jsonl` 在 raw/filter/map/filter-status 出现跳变、拒绝、恢复或 bad fitness 时写入事件前后窗口摘要；`RC_HEALTH_MONITOR_EVENT_CONTEXT_CSV=1` 可额外保存逐点上下文。

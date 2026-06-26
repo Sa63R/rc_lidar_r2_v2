@@ -1142,6 +1142,28 @@ git push origin main
 - 如果后续确认了某个现场可用地图/启动组合，也要写清楚它是否真的用了裁剪；Rc 3.2 的结论是小场直接建图可用，裁剪没用到。
 - 如果某次修改只影响实验报告、临时日志或本机私有笔记，可以不写进本文档。
 
+### Rc 4.20 连续位姿链路迁移提醒
+
+当前 Orange Pi 仓库新增 `continuous_robot_pose`，用于解决 `/map_lidar/odom` 阶梯式输出直接进入生产 pose 时不够连续的问题。它的思路是：
+
+```text
+/Odometry                         # FAST-LIO 连续局部位姿 camera_init -> body
+/map_lidar/odom                   # 地图重定位低频结果 map -> body
+map_T_camera_init = map_T_body * inverse(camera_init_T_body)
+map_T_body_continuous = map_T_camera_init_smoothed * latest(camera_init_T_body)
+map_T_robot_base_continuous = map_T_body_continuous * body_T_robot_base
+robot_origin_T_robot_base_continuous -> /robot/pose_continuous
+```
+
+r2 迁移时可以复用这条思路，但必须先确认 r2 的 `/map_lidar/odom` 是否同样表示 `map -> body`，`/Odometry` 是否表示 `camera_init -> body`。如果 r2 的帧语义不同，先改语义再接入，不要只复制 topic 名。
+
+默认策略：
+
+- `RC_CONTINUOUS_POSE=auto`，只在 `RC_LIDAR_MODE=relocalization` 时启动。
+- 默认只发布 `/robot/pose_continuous`、`/robot/odom_continuous`、`/robot/pose_continuous/status`，不替换 `/robot/pose` 和 CAN。
+- PlotJuggler 默认订阅 `/robot/pose_continuous`，健康日志记录 continuous pose 和 correction 状态。
+- 如果 r2 现场确认它比 `/robot/pose` 更适合电控，再显式设置 `RC_CAN_POSE_TOPIC=/robot/pose_continuous` 做测试；yaw 来源仍按各车确认后的策略单独处理。
+
 ## 13. 最终验收清单
 
 完成后逐项验证：
@@ -1160,6 +1182,8 @@ RC_AUTOSTART_PLOTJUGGLER=0 \
 
 sleep 30
 ros2 topic echo /robot/pose --once
+ros2 topic echo /robot/pose_continuous --once
+ros2 topic echo /robot/pose_continuous/status --once
 ros2 topic echo /robot/pose_filtered --once
 # 如果手动启用了 RC_POSE_FILTER_BETA=1：
 ros2 topic echo /robot/pose_filtered_beta --once

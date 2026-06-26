@@ -170,6 +170,20 @@ Rc 4.11 之后，用户继续实测发现：
 
 这符合预期：一旦旧输入不再回放，滤波器收到的 raw pose 本身就更接近当前真实状态。
 
+## Follow-up: Rc 4.20 Continuous Pose Uses Map Localizer As Correction
+
+Rc 4.11 解决的是“不要让历史 scan/odom 输入排队回放”。后续用户继续观察到：即使输入队列修好，`/map_lidar/odom` 仍然是 map localizer 每次匹配完成后发布的离散结果，曲线天然可能呈阶梯状。优秀的定位结构通常不会把低频全局校正直接当成连续控制位姿，而是让连续 odom 负责短时运动，让全局定位只更新 `map -> odom/camera_init` 校正。
+
+因此 Rc 4.20 增加并行 topic：
+
+```text
+/robot/pose_continuous
+/robot/odom_continuous
+/robot/pose_continuous/status
+```
+
+它用 `/map_lidar/odom` 与对应 `/Odometry` 反推 `map -> camera_init`，再把这个校正平滑应用到最新 `/Odometry` 上。默认只用于 PlotJuggler 和健康日志观察，不替换 `/robot/pose` 或 CAN。这样可以判断“离散阶梯感到底来自 map localizer 输出本身，还是来自下游滤波/CAN”。
+
 ## Validation Commands
 
 静态检查：

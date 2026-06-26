@@ -40,7 +40,7 @@ should_kill_cmd() {
     *"fastlio_mapping"*|*"livox_ros_driver2_node"*|*"rc_serial_driver_node"*|*"ekf_node"*)
       return 0
       ;;
-    *"world_from_fastlio_init"*|*"robot_tf_offsets"*|*"lidar_tf_offset"*|*"lidar_xyzr.py"*|*"map_localizer"*|*"pose_from_odom"*|*"pose_from_tf"*)
+    *"world_from_fastlio_init"*|*"robot_tf_offsets"*|*"lidar_tf_offset"*|*"lidar_xyzr.py"*|*"map_localizer"*|*"pose_from_odom"*|*"pose_from_tf"*|*"continuous_robot_pose"*)
       return 0
       ;;
     *"thermal_pose_monitor.sh"*|*"thermal_pose_monitor.py"*)
@@ -141,6 +141,7 @@ close_terminal_windows_by_title() {
     "MAP_LOCALIZER"
     "POSE_INTERFACE"
     "POSE_ODOM_ONLY"
+    "POSE_CONTINUOUS"
     "POSE_FILTER"
     "POSE_FILTER_BETA"
     "POSE_FILTER_STABLE"
@@ -184,6 +185,7 @@ patterns=(
   "$DIR/pose_interface_mapping.sh"
   "$DIR/pose_interface_relocalization.sh"
   "$DIR/pose_odom_only_debug.sh"
+  "$DIR/continuous_robot_pose.sh"
   "$DIR/pose_stability_filter.sh"
   "$DIR/pose_stability_filter_beta.sh"
   "$DIR/thermal_pose_monitor.sh"
@@ -210,6 +212,7 @@ patterns=(
   "map_localizer"
   "pose_from_odom"
   "pose_from_tf"
+  "continuous_robot_pose"
   "pose_stability_filter"
   "thermal_pose_monitor.py"
   "relocalization_ready_notify.py"

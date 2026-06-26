@@ -25,6 +25,7 @@ RC_POSE_FILTER_BETA="${RC_POSE_FILTER_BETA:-0}"
 RC_BETA_FILTERED_POSE_TOPIC="${RC_BETA_FILTERED_POSE_TOPIC:-/robot/pose_filtered_beta}"
 RC_POSE_FILTER_STABLE="${RC_POSE_FILTER_STABLE:-0}"
 RC_STABLE_FILTERED_POSE_TOPIC="${RC_STABLE_FILTERED_POSE_TOPIC:-/robot/pose_filtered_stable}"
+RC_CONTINUOUS_POSE="${RC_CONTINUOUS_POSE:-auto}"
 RC_AUTOSTART_DRY_RUN="${RC_AUTOSTART_DRY_RUN:-0}"
 case "$RC_POSE_FILTER_SELECTED" in
   normal|beta|stable)
@@ -113,6 +114,7 @@ export RC_POSE_FILTER_BETA
 export RC_BETA_FILTERED_POSE_TOPIC
 export RC_POSE_FILTER_STABLE
 export RC_STABLE_FILTERED_POSE_TOPIC
+export RC_CONTINUOUS_POSE
 export RC_LIDAR_BOOT_ID="${RC_LIDAR_BOOT_ID:-$BOOT_ID}"
 
 # ROS2 自己的日志目录
@@ -140,6 +142,7 @@ mkdir -p "$ROS_LOG_DIR"
   echo "beta_filtered_pose_topic: $RC_BETA_FILTERED_POSE_TOPIC"
   echo "pose_filter_stable: $RC_POSE_FILTER_STABLE"
   echo "stable_filtered_pose_topic: $RC_STABLE_FILTERED_POSE_TOPIC"
+  echo "continuous_pose: $RC_CONTINUOUS_POSE"
   echo "log_dir: $LOG_DIR"
   echo "dir: $DIR"
   echo "user: $(whoami)"
@@ -551,6 +554,27 @@ should_start_odom_only_compare() {
   esac
 }
 
+should_start_continuous_pose() {
+  case "${RC_CONTINUOUS_POSE:-auto}" in
+    1|true|TRUE|yes|YES|on|ON)
+      [ "$RC_LIDAR_MODE" = "relocalization" ]
+      return
+      ;;
+    0|false|FALSE|no|NO|off|OFF)
+      return 1
+      ;;
+    auto)
+      [ "$RC_LIDAR_MODE" = "relocalization" ]
+      return
+      ;;
+    *)
+      echo "[WARN] Unknown RC_CONTINUOUS_POSE=${RC_CONTINUOUS_POSE}; using auto." | tee -a "$LOG_DIR/start_summary.txt"
+      [ "$RC_LIDAR_MODE" = "relocalization" ]
+      return
+      ;;
+  esac
+}
+
 start_one "TF_STATIC1" "lidar_to_base_tf.sh"
 start_one "TF_STATIC2" "map_to_init_tf.sh"
 start_one "TF_STATIC3" "lidar_to_base_highrate_tf.sh"
@@ -568,6 +592,11 @@ if [ "$RC_LIDAR_MODE" = "mapping" ]; then
 elif [ "$RC_LIDAR_MODE" = "relocalization" ]; then
   start_one "MAP_LOCALIZER" "map_localizer.sh"
   start_one "POSE_INTERFACE" "pose_interface_relocalization.sh"
+  if should_start_continuous_pose; then
+    start_one "POSE_CONTINUOUS" "continuous_robot_pose.sh"
+  else
+    summary_event "skipped POSE_CONTINUOUS"
+  fi
   if should_start_odom_only_compare; then
     start_one "POSE_ODOM_ONLY" "pose_odom_only_debug.sh"
   else

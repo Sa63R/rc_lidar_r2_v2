@@ -40,6 +40,10 @@ CSV_FIELDS = [
     "raw_y",
     "raw_z",
     "raw_yaw_deg",
+    "continuous_x",
+    "continuous_y",
+    "continuous_z",
+    "continuous_yaw_deg",
     "filtered_x",
     "filtered_y",
     "filtered_z",
@@ -54,6 +58,8 @@ CSV_FIELDS = [
     "stable_yaw_deg",
     "raw_filtered_delta_xy_m",
     "raw_filtered_delta_yaw_deg",
+    "raw_continuous_delta_xy_m",
+    "continuous_filtered_delta_xy_m",
     "raw_beta_delta_xy_m",
     "filtered_beta_delta_xy_m",
     "raw_stable_delta_xy_m",
@@ -61,6 +67,9 @@ CSV_FIELDS = [
     "raw_step_xy_m",
     "raw_speed_xy_mps",
     "raw_yaw_rate_degps",
+    "continuous_step_xy_m",
+    "continuous_speed_xy_mps",
+    "continuous_yaw_rate_degps",
     "filtered_step_xy_m",
     "filtered_speed_xy_mps",
     "filtered_yaw_rate_degps",
@@ -145,6 +154,19 @@ CSV_FIELDS = [
     "stable_filter_status_reason_code",
     "stable_filter_status_hold_state_code",
     "stable_filter_status_confirm_count",
+    "continuous_status_ready",
+    "continuous_status_map_update_accepted",
+    "continuous_status_correction_alpha",
+    "continuous_status_correction_age_sec",
+    "continuous_status_odom_age_sec",
+    "continuous_status_stamp_delta_sec",
+    "continuous_status_candidate_delta_xy_m",
+    "continuous_status_candidate_delta_yaw_deg",
+    "continuous_status_quality_fitness",
+    "continuous_status_update_count",
+    "continuous_status_rejected_count",
+    "continuous_status_match_mode_code",
+    "continuous_status_reason_code",
     "yaw_fusion_enabled",
     "yaw_fusion_ready",
     "yaw_fusion_source_code",
@@ -156,6 +178,7 @@ CSV_FIELDS = [
     "yaw_fusion_delta_yaw_deg",
     "yaw_fusion_map_correction_alpha",
     "raw_age_sec",
+    "continuous_age_sec",
     "filtered_age_sec",
     "beta_age_sec",
     "stable_age_sec",
@@ -163,6 +186,7 @@ CSV_FIELDS = [
     "filter_status_age_sec",
     "beta_filter_status_age_sec",
     "stable_filter_status_age_sec",
+    "continuous_status_age_sec",
     "yaw_fusion_status_age_sec",
 ]
 
@@ -319,6 +343,7 @@ class ThermalPoseMonitor(Node):
         self.last_csv_fsync = self.start_time
 
         self.raw_pose: PoseSample | None = None
+        self.continuous_pose: PoseSample | None = None
         self.filtered_pose: PoseSample | None = None
         self.beta_pose: PoseSample | None = None
         self.stable_pose: PoseSample | None = None
@@ -326,17 +351,21 @@ class ThermalPoseMonitor(Node):
         self.filter_status: tuple[float, list[float]] | None = None
         self.beta_filter_status: tuple[float, list[float]] | None = None
         self.stable_filter_status: tuple[float, list[float]] | None = None
+        self.continuous_status: tuple[float, list[float]] | None = None
         self.yaw_fusion_status: tuple[float, list[float]] | None = None
         self.previous_raw_pose: PoseSample | None = None
+        self.previous_continuous_pose: PoseSample | None = None
         self.previous_filtered_pose: PoseSample | None = None
         self.previous_beta_pose: PoseSample | None = None
         self.previous_stable_pose: PoseSample | None = None
         self.callback_previous_raw_pose: PoseSample | None = None
+        self.callback_previous_continuous_pose: PoseSample | None = None
         self.callback_previous_filtered_pose: PoseSample | None = None
         self.callback_previous_beta_pose: PoseSample | None = None
         self.callback_previous_stable_pose: PoseSample | None = None
 
         self.raw_window: Deque[PoseSample] = deque()
+        self.continuous_window: Deque[PoseSample] = deque()
         self.filtered_window: Deque[PoseSample] = deque()
         self.beta_window: Deque[PoseSample] = deque()
         self.stable_window: Deque[PoseSample] = deque()
@@ -386,6 +415,7 @@ class ThermalPoseMonitor(Node):
         self.write_run_marker()
 
         self.create_subscription(PoseStamped, args.raw_topic, self.on_raw_pose, 20)
+        self.create_subscription(PoseStamped, args.continuous_topic, self.on_continuous_pose, 20)
         self.create_subscription(PoseStamped, args.filtered_topic, self.on_filtered_pose, 20)
         self.create_subscription(PoseStamped, args.beta_topic, self.on_beta_pose, 20)
         self.create_subscription(PoseStamped, args.stable_topic, self.on_stable_pose, 20)
@@ -393,15 +423,18 @@ class ThermalPoseMonitor(Node):
         self.create_subscription(Float32MultiArray, args.filter_status_topic, self.on_filter_status, 20)
         self.create_subscription(Float32MultiArray, args.beta_filter_status_topic, self.on_beta_filter_status, 20)
         self.create_subscription(Float32MultiArray, args.stable_filter_status_topic, self.on_stable_filter_status, 20)
+        self.create_subscription(Float32MultiArray, args.continuous_status_topic, self.on_continuous_status, 20)
         self.create_subscription(Float32MultiArray, args.yaw_fusion_status_topic, self.on_yaw_fusion_status, 20)
         self.timer = self.create_timer(args.interval, self.sample)
 
         self.get_logger().info(
             f"health monitor logging csv={self.csv_path} summary={self.summary_path} "
-            f"events={self.event_path} raw={args.raw_topic} filtered={args.filtered_topic} "
+            f"events={self.event_path} raw={args.raw_topic} continuous={args.continuous_topic} "
+            f"filtered={args.filtered_topic} "
             f"beta={args.beta_topic} stable={args.stable_topic} quality={args.quality_topic} "
             f"filter_status={args.filter_status_topic} beta_status={args.beta_filter_status_topic} "
-            f"stable_status={args.stable_filter_status_topic} yaw_fusion_status={args.yaw_fusion_status_topic}"
+            f"stable_status={args.stable_filter_status_topic} continuous_status={args.continuous_status_topic} "
+            f"yaw_fusion_status={args.yaw_fusion_status_topic}"
         )
         self.get_logger().info(
             f"health monitor markers run={self.run_marker_path} stop={self.stop_marker_path} "
@@ -435,6 +468,7 @@ class ThermalPoseMonitor(Node):
                 ),
                 "stop_marker_path": str(self.stop_marker_path),
                 "raw_topic": self.args.raw_topic,
+                "continuous_topic": self.args.continuous_topic,
                 "filtered_topic": self.args.filtered_topic,
                 "beta_topic": self.args.beta_topic,
                 "stable_topic": self.args.stable_topic,
@@ -442,6 +476,7 @@ class ThermalPoseMonitor(Node):
                 "filter_status_topic": self.args.filter_status_topic,
                 "beta_filter_status_topic": self.args.beta_filter_status_topic,
                 "stable_filter_status_topic": self.args.stable_filter_status_topic,
+                "continuous_status_topic": self.args.continuous_status_topic,
                 "yaw_fusion_status_topic": self.args.yaw_fusion_status_topic,
                 "interval_sec": self.args.interval,
                 "window_sec": self.args.window,
@@ -493,6 +528,12 @@ class ThermalPoseMonitor(Node):
                     "threshold_m": self.args.spike_raw_step,
                 },
             )
+
+    def on_continuous_pose(self, msg: PoseStamped) -> None:
+        p = msg.pose.position
+        pose = (time.monotonic(), float(p.x), float(p.y), float(p.z), yaw_from_pose(msg))
+        self.continuous_pose = pose
+        self.callback_previous_continuous_pose = pose
 
     def on_filtered_pose(self, msg: PoseStamped) -> None:
         p = msg.pose.position
@@ -688,6 +729,11 @@ class ThermalPoseMonitor(Node):
                 },
             )
 
+    def on_continuous_status(self, msg: Float32MultiArray) -> None:
+        now = time.monotonic()
+        values = [float(value) for value in msg.data]
+        self.continuous_status = (now, values)
+
     def on_yaw_fusion_status(self, msg: Float32MultiArray) -> None:
         now = time.monotonic()
         values = [float(value) for value in msg.data]
@@ -847,6 +893,8 @@ class ThermalPoseMonitor(Node):
     ) -> None:
         if self.raw_pose:
             self.raw_window.append(self.raw_pose)
+        if self.continuous_pose:
+            self.continuous_window.append(self.continuous_pose)
         if self.filtered_pose:
             self.filtered_window.append(self.filtered_pose)
         if self.beta_pose:
@@ -873,6 +921,7 @@ class ThermalPoseMonitor(Node):
             self.static_context_filtered_window.clear()
 
         self.trim_window(self.raw_window, now)
+        self.trim_window(self.continuous_window, now)
         self.trim_window(self.filtered_window, now)
         self.trim_window(self.beta_window, now)
         self.trim_window(self.stable_window, now)
@@ -888,6 +937,10 @@ class ThermalPoseMonitor(Node):
         freq_min, freq_max, freq_avg = read_cpu_freq_mhz()
 
         raw_step, raw_speed, raw_yaw_rate = pose_step(self.previous_raw_pose, self.raw_pose)
+        continuous_step, continuous_speed, continuous_yaw_rate = pose_step(
+            self.previous_continuous_pose,
+            self.continuous_pose,
+        )
         filtered_step, filtered_speed, filtered_yaw_rate = pose_step(
             self.previous_filtered_pose,
             self.filtered_pose,
@@ -1025,6 +1078,39 @@ class ThermalPoseMonitor(Node):
             stable_filter_confirm_count = values[19] if len(values) > 19 else math.nan
 
         (
+            continuous_ready,
+            continuous_map_update_accepted,
+            continuous_correction_alpha,
+            continuous_correction_age,
+            continuous_odom_age,
+            continuous_stamp_delta,
+            continuous_candidate_delta_xy,
+            continuous_candidate_delta_yaw,
+            continuous_quality_fitness,
+            continuous_update_count,
+            continuous_rejected_count,
+            continuous_match_mode_code,
+            continuous_reason_code,
+            continuous_status_age,
+        ) = (math.nan,) * 14
+        if self.continuous_status:
+            stamp, values = self.continuous_status
+            continuous_status_age = now - stamp
+            continuous_ready = values[1] if len(values) > 1 else math.nan
+            continuous_map_update_accepted = values[2] if len(values) > 2 else math.nan
+            continuous_correction_alpha = values[3] if len(values) > 3 else math.nan
+            continuous_correction_age = values[4] if len(values) > 4 else math.nan
+            continuous_odom_age = values[5] if len(values) > 5 else math.nan
+            continuous_stamp_delta = values[6] if len(values) > 6 else math.nan
+            continuous_candidate_delta_xy = values[7] if len(values) > 7 else math.nan
+            continuous_candidate_delta_yaw = values[8] if len(values) > 8 else math.nan
+            continuous_quality_fitness = values[11] if len(values) > 11 else math.nan
+            continuous_update_count = values[13] if len(values) > 13 else math.nan
+            continuous_rejected_count = values[14] if len(values) > 14 else math.nan
+            continuous_match_mode_code = values[15] if len(values) > 15 else math.nan
+            continuous_reason_code = values[19] if len(values) > 19 else math.nan
+
+        (
             yaw_fusion_enabled,
             yaw_fusion_ready,
             yaw_fusion_source_code,
@@ -1106,6 +1192,12 @@ class ThermalPoseMonitor(Node):
             stamp, raw_x, raw_y, raw_z, raw_yaw = self.raw_pose
             raw_age = now - stamp
 
+        continuous_x = continuous_y = continuous_z = continuous_yaw = math.nan
+        continuous_age = math.nan
+        if self.continuous_pose:
+            stamp, continuous_x, continuous_y, continuous_z, continuous_yaw = self.continuous_pose
+            continuous_age = now - stamp
+
         filtered_x = filtered_y = filtered_z = filtered_yaw = math.nan
         filtered_age = math.nan
         if self.filtered_pose:
@@ -1126,6 +1218,8 @@ class ThermalPoseMonitor(Node):
 
         delta_xy = math.nan
         delta_yaw = math.nan
+        raw_continuous_delta_xy = math.nan
+        continuous_filtered_delta_xy = math.nan
         raw_beta_delta_xy = math.nan
         filtered_beta_delta_xy = math.nan
         raw_stable_delta_xy = math.nan
@@ -1134,6 +1228,13 @@ class ThermalPoseMonitor(Node):
             delta_xy = math.hypot(raw_x - filtered_x, raw_y - filtered_y)
         if math.isfinite(raw_yaw) and math.isfinite(filtered_yaw):
             delta_yaw = math.degrees(abs(shortest_angle_rad(raw_yaw - filtered_yaw)))
+        if all(math.isfinite(value) for value in (raw_x, raw_y, continuous_x, continuous_y)):
+            raw_continuous_delta_xy = math.hypot(raw_x - continuous_x, raw_y - continuous_y)
+        if all(math.isfinite(value) for value in (continuous_x, continuous_y, filtered_x, filtered_y)):
+            continuous_filtered_delta_xy = math.hypot(
+                continuous_x - filtered_x,
+                continuous_y - filtered_y,
+            )
         if all(math.isfinite(value) for value in (raw_x, raw_y, beta_x, beta_y)):
             raw_beta_delta_xy = math.hypot(raw_x - beta_x, raw_y - beta_y)
         if all(math.isfinite(value) for value in (filtered_x, filtered_y, beta_x, beta_y)):
@@ -1177,6 +1278,10 @@ class ThermalPoseMonitor(Node):
             "raw_y": raw_y,
             "raw_z": raw_z,
             "raw_yaw_deg": math.degrees(raw_yaw) if math.isfinite(raw_yaw) else math.nan,
+            "continuous_x": continuous_x,
+            "continuous_y": continuous_y,
+            "continuous_z": continuous_z,
+            "continuous_yaw_deg": math.degrees(continuous_yaw) if math.isfinite(continuous_yaw) else math.nan,
             "filtered_x": filtered_x,
             "filtered_y": filtered_y,
             "filtered_z": filtered_z,
@@ -1191,6 +1296,8 @@ class ThermalPoseMonitor(Node):
             "stable_yaw_deg": math.degrees(stable_yaw) if math.isfinite(stable_yaw) else math.nan,
             "raw_filtered_delta_xy_m": delta_xy,
             "raw_filtered_delta_yaw_deg": delta_yaw,
+            "raw_continuous_delta_xy_m": raw_continuous_delta_xy,
+            "continuous_filtered_delta_xy_m": continuous_filtered_delta_xy,
             "raw_beta_delta_xy_m": raw_beta_delta_xy,
             "filtered_beta_delta_xy_m": filtered_beta_delta_xy,
             "raw_stable_delta_xy_m": raw_stable_delta_xy,
@@ -1198,6 +1305,9 @@ class ThermalPoseMonitor(Node):
             "raw_step_xy_m": raw_step,
             "raw_speed_xy_mps": raw_speed,
             "raw_yaw_rate_degps": raw_yaw_rate,
+            "continuous_step_xy_m": continuous_step,
+            "continuous_speed_xy_mps": continuous_speed,
+            "continuous_yaw_rate_degps": continuous_yaw_rate,
             "filtered_step_xy_m": filtered_step,
             "filtered_speed_xy_mps": filtered_speed,
             "filtered_yaw_rate_degps": filtered_yaw_rate,
@@ -1282,6 +1392,19 @@ class ThermalPoseMonitor(Node):
             "stable_filter_status_reason_code": stable_filter_reason_code,
             "stable_filter_status_hold_state_code": stable_filter_hold_state,
             "stable_filter_status_confirm_count": stable_filter_confirm_count,
+            "continuous_status_ready": continuous_ready,
+            "continuous_status_map_update_accepted": continuous_map_update_accepted,
+            "continuous_status_correction_alpha": continuous_correction_alpha,
+            "continuous_status_correction_age_sec": continuous_correction_age,
+            "continuous_status_odom_age_sec": continuous_odom_age,
+            "continuous_status_stamp_delta_sec": continuous_stamp_delta,
+            "continuous_status_candidate_delta_xy_m": continuous_candidate_delta_xy,
+            "continuous_status_candidate_delta_yaw_deg": continuous_candidate_delta_yaw,
+            "continuous_status_quality_fitness": continuous_quality_fitness,
+            "continuous_status_update_count": continuous_update_count,
+            "continuous_status_rejected_count": continuous_rejected_count,
+            "continuous_status_match_mode_code": continuous_match_mode_code,
+            "continuous_status_reason_code": continuous_reason_code,
             "yaw_fusion_enabled": yaw_fusion_enabled,
             "yaw_fusion_ready": yaw_fusion_ready,
             "yaw_fusion_source_code": yaw_fusion_source_code,
@@ -1301,6 +1424,7 @@ class ThermalPoseMonitor(Node):
             else math.nan,
             "yaw_fusion_map_correction_alpha": yaw_fusion_map_correction_alpha,
             "raw_age_sec": raw_age,
+            "continuous_age_sec": continuous_age,
             "filtered_age_sec": filtered_age,
             "beta_age_sec": beta_age,
             "stable_age_sec": stable_age,
@@ -1308,6 +1432,7 @@ class ThermalPoseMonitor(Node):
             "filter_status_age_sec": filter_status_age,
             "beta_filter_status_age_sec": beta_filter_status_age,
             "stable_filter_status_age_sec": stable_filter_status_age,
+            "continuous_status_age_sec": continuous_status_age,
             "yaw_fusion_status_age_sec": yaw_fusion_status_age,
         }
 
@@ -1322,6 +1447,7 @@ class ThermalPoseMonitor(Node):
         self.close_finished_events(now)
 
         self.previous_raw_pose = self.raw_pose
+        self.previous_continuous_pose = self.continuous_pose
         self.previous_filtered_pose = self.filtered_pose
         self.previous_beta_pose = self.beta_pose
         self.previous_stable_pose = self.stable_pose
@@ -1540,6 +1666,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--summary-interval", type=float, default=30.0)
     parser.add_argument("--fsync-interval", type=float, default=5.0)
     parser.add_argument("--raw-topic", default="/robot/pose")
+    parser.add_argument("--continuous-topic", default="/robot/pose_continuous")
     parser.add_argument("--filtered-topic", default="/robot/pose_filtered")
     parser.add_argument("--beta-topic", default="/robot/pose_filtered_beta")
     parser.add_argument("--stable-topic", default="/robot/pose_filtered_stable")
@@ -1547,6 +1674,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--filter-status-topic", default="/lidar/pose_filter/status")
     parser.add_argument("--beta-filter-status-topic", default="/lidar/pose_filter_beta/status")
     parser.add_argument("--stable-filter-status-topic", default="/lidar/pose_filter_stable/status")
+    parser.add_argument("--continuous-status-topic", default="/robot/pose_continuous/status")
     parser.add_argument("--yaw-fusion-status-topic", default="/robot/yaw_fusion/status")
     parser.add_argument("--static-speed", type=float, default=0.015)
     parser.add_argument("--full-speed", type=float, default=0.12)

@@ -730,6 +730,50 @@ RC_CAN_RAW_ODOM_YAW_STRICT=0
 
 这次只处理 CAN yaw 的 stale/strict 语义，不改变 x/y/z 来源，不改变 TF 树，不改变 map localizer。
 
+## Rc 4.20: add continuous pose from FAST-LIO odom plus map correction
+
+继续分析后，用户确认了一个更完整的连续定位思路：`/map_lidar/odom` 本身是 map localizer 一帧一帧算出来的离散结果，如果直接把它转换成 `/robot/pose`，曲线会带有阶梯感；而 FAST-LIO `/Odometry` 是连续局部位姿，但会有局部漂移。因此更合理的结构是：
+
+```text
+/Odometry                         # camera_init -> body，连续但会漂
+/map_lidar/odom                   # map -> body，低频但给全局校正
+map_T_camera_init = map_T_body * inverse(camera_init_T_body)
+smoothed(map_T_camera_init)
+smoothed(map_T_camera_init) * latest(camera_init_T_body)
+  -> continuous map_T_body
+  -> body_T_robot_base 外参
+  -> robot_origin_T_robot_base
+  -> /robot/pose_continuous
+```
+
+这次新增 `continuous_robot_pose` 节点，但保持保守接入：
+
+- 默认 `RC_CONTINUOUS_POSE=auto`，只在重定位模式启动。
+- 输出 `/robot/pose_continuous`、`/robot/odom_continuous`、`/robot/pose_continuous/status`。
+- 不默认替换 `/robot/pose`、`/robot/pose_filtered` 或 CAN。
+- PlotJuggler 自动订阅 `/robot/pose_continuous`，健康日志记录 continuous pose 和 correction 状态。
+- 如果现场确认这条链路更适合控制，再手动设置 `RC_CAN_POSE_TOPIC=/robot/pose_continuous` 试验；CAN yaw 仍保持 Rc 4.19 的 raw odom yaw 策略。
+
+状态 topic `/robot/pose_continuous/status` 记录：
+
+```text
+data[1]  correction_ready
+data[2]  本次 map update 是否接受
+data[3]  correction_alpha
+data[4]  correction_age_sec
+data[5]  odom_age_sec
+data[6]  matched_stamp_delta_sec
+data[7]  candidate_delta_xy_m
+data[8]  candidate_delta_yaw_deg
+data[11] quality_fitness
+data[13] update_count
+data[14] rejected_count
+data[15] match_mode_code
+data[19] reject_reason
+```
+
+这个节点的目的不是让 map localizer 算得更快，而是避免把低频/离散 map pose 直接作为控制位姿。它把 map localizer 的输出变成一条平滑更新的全局校正，控制输出则跟随最新 FAST-LIO odom。
+
 ## Appendix: User Questions And Constraints
 
 以下内容按时间顺序整理本次大改相关的用户侧问题、判断和约束。重复发送的同一问题已合并；长启动命令、截图和终端日志只保留摘要。

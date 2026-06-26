@@ -10,6 +10,7 @@ WINDOW="${RC_HEALTH_MONITOR_WINDOW:-${RC_THERMAL_POSE_MONITOR_WINDOW:-10.0}}"
 SUMMARY_INTERVAL="${RC_HEALTH_MONITOR_SUMMARY_INTERVAL:-${RC_THERMAL_POSE_MONITOR_SUMMARY_INTERVAL:-30.0}}"
 FSYNC_INTERVAL="${RC_HEALTH_MONITOR_FSYNC_INTERVAL:-${RC_THERMAL_POSE_MONITOR_FSYNC_INTERVAL:-5.0}}"
 RAW_TOPIC="${RC_HEALTH_MONITOR_RAW_TOPIC:-${RC_THERMAL_POSE_MONITOR_RAW_TOPIC:-/robot/pose}}"
+CONTINUOUS_TOPIC="${RC_HEALTH_MONITOR_CONTINUOUS_TOPIC:-${RC_CONTINUOUS_POSE_OUTPUT_TOPIC:-/robot/pose_continuous}}"
 FILTERED_TOPIC="${RC_HEALTH_MONITOR_FILTERED_TOPIC:-${RC_THERMAL_POSE_MONITOR_FILTERED_TOPIC:-/robot/pose_filtered}}"
 BETA_TOPIC="${RC_HEALTH_MONITOR_BETA_TOPIC:-${RC_BETA_FILTERED_POSE_TOPIC:-/robot/pose_filtered_beta}}"
 STABLE_TOPIC="${RC_HEALTH_MONITOR_STABLE_TOPIC:-${RC_STABLE_FILTERED_POSE_TOPIC:-/robot/pose_filtered_stable}}"
@@ -17,6 +18,7 @@ QUALITY_TOPIC="${RC_HEALTH_MONITOR_QUALITY_TOPIC:-${RC_THERMAL_POSE_MONITOR_QUAL
 FILTER_STATUS_TOPIC="${RC_HEALTH_MONITOR_FILTER_STATUS_TOPIC:-/lidar/pose_filter/status}"
 BETA_FILTER_STATUS_TOPIC="${RC_HEALTH_MONITOR_BETA_FILTER_STATUS_TOPIC:-/lidar/pose_filter_beta/status}"
 STABLE_FILTER_STATUS_TOPIC="${RC_HEALTH_MONITOR_STABLE_FILTER_STATUS_TOPIC:-/lidar/pose_filter_stable/status}"
+CONTINUOUS_STATUS_TOPIC="${RC_HEALTH_MONITOR_CONTINUOUS_STATUS_TOPIC:-${RC_CONTINUOUS_POSE_STATUS_TOPIC:-/robot/pose_continuous/status}}"
 YAW_FUSION_STATUS_TOPIC="${RC_HEALTH_MONITOR_YAW_FUSION_STATUS_TOPIC:-/robot/yaw_fusion/status}"
 STATIC_SPEED="${RC_HEALTH_MONITOR_STATIC_SPEED:-0.015}"
 FULL_SPEED="${RC_HEALTH_MONITOR_FULL_SPEED:-0.12}"
@@ -54,6 +56,7 @@ fi
 echo "[health_monitor] output_dir=$OUTPUT_DIR"
 echo "[health_monitor] interval=$INTERVAL window=$WINDOW summary_interval=$SUMMARY_INTERVAL fsync_interval=$FSYNC_INTERVAL"
 echo "[health_monitor] raw_topic=$RAW_TOPIC"
+echo "[health_monitor] continuous_topic=$CONTINUOUS_TOPIC"
 echo "[health_monitor] filtered_topic=$FILTERED_TOPIC"
 echo "[health_monitor] beta_topic=$BETA_TOPIC"
 echo "[health_monitor] stable_topic=$STABLE_TOPIC"
@@ -61,6 +64,7 @@ echo "[health_monitor] quality_topic=$QUALITY_TOPIC"
 echo "[health_monitor] filter_status_topic=$FILTER_STATUS_TOPIC"
 echo "[health_monitor] beta_filter_status_topic=$BETA_FILTER_STATUS_TOPIC"
 echo "[health_monitor] stable_filter_status_topic=$STABLE_FILTER_STATUS_TOPIC"
+echo "[health_monitor] continuous_status_topic=$CONTINUOUS_STATUS_TOPIC"
 echo "[health_monitor] yaw_fusion_status_topic=$YAW_FUSION_STATUS_TOPIC"
 echo "[health_monitor] events=health_events.jsonl pre=${EVENT_PRE_SEC}s post=${EVENT_POST_SEC}s context_csv=$EVENT_CONTEXT_CSV"
 echo "[health_monitor] spike raw=$SPIKE_RAW_STEP filtered=$SPIKE_FILTERED_STEP map_jump=$SPIKE_MAP_JUMP fitness=$SPIKE_FITNESS sustained_motion=${SUSTAINED_MOTION_SEC}s"
@@ -78,6 +82,7 @@ exec /usr/bin/env python3 -u "$RC_LIDAR_AUTOSTART/thermal_pose_monitor.py" \
   --summary-interval "$SUMMARY_INTERVAL" \
   --fsync-interval "$FSYNC_INTERVAL" \
   --raw-topic "$RAW_TOPIC" \
+  --continuous-topic "$CONTINUOUS_TOPIC" \
   --filtered-topic "$FILTERED_TOPIC" \
   --beta-topic "$BETA_TOPIC" \
   --stable-topic "$STABLE_TOPIC" \
@@ -85,6 +90,7 @@ exec /usr/bin/env python3 -u "$RC_LIDAR_AUTOSTART/thermal_pose_monitor.py" \
   --filter-status-topic "$FILTER_STATUS_TOPIC" \
   --beta-filter-status-topic "$BETA_FILTER_STATUS_TOPIC" \
   --stable-filter-status-topic "$STABLE_FILTER_STATUS_TOPIC" \
+  --continuous-status-topic "$CONTINUOUS_STATUS_TOPIC" \
   --yaw-fusion-status-topic "$YAW_FUSION_STATUS_TOPIC" \
   --static-speed "$STATIC_SPEED" \
   --full-speed "$FULL_SPEED" \
