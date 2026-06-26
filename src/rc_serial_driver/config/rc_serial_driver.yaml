@@ -14,15 +14,15 @@
     raw_odom_pose_strict: true
     raw_odom_pose_yaw_offset_rad: 0.0
     raw_odom_apply_robot_extrinsic: true
-    raw_odom_lidar_to_base_xyz: [-0.240, 0.287302, -0.760]
-    raw_odom_lidar_to_base_rpy: [0.0, 0.0, 1.5707963267948966]
-    raw_odom_reference_xyz: [-0.240, 0.287302, -0.760]
-    raw_odom_reference_rpy: [0.0, 0.0, 1.5707963267948966]
+    raw_odom_lidar_to_base_xyz: [0.237488, -0.272804, -0.483]
+    raw_odom_lidar_to_base_rpy: [0.0, 0.0, -1.5707963267948966]
+    raw_odom_reference_xyz: [-0.260, 0.262, -0.483]
+    raw_odom_reference_rpy: [0.0, 0.0, 0.0]
     yaw_pose_topic_enabled: false
     yaw_pose_topic: "/robot/pose"
     yaw_pose_topic_timeout_sec: 0.5
     yaw_pose_topic_strict: false
     yaw_ignore_quality_gate: true
     restart_enabled: true
-    restart_script: "/home/orangepi/RC_LIDAR_NOW/autostart/restart_lidar_stack.sh"
+    restart_script: "autostart/restart_lidar_stack.sh"
     timestamp_offset: 0.0         # 时间戳偏移

@@ -14,7 +14,8 @@ if [ ! -f "$SOURCE_SERVICE" ]; then
 fi
 
 mkdir -p "$USER_SYSTEMD_DIR"
-install -m 0644 "$SOURCE_SERVICE" "$TARGET_SERVICE"
+sed "s#@RC_LIDAR_WORKSPACE@#$WORKSPACE_DIR#g" "$SOURCE_SERVICE" > "$TARGET_SERVICE"
+chmod 0644 "$TARGET_SERVICE"
 
 systemctl --user daemon-reload
 systemctl --user enable "$SERVICE_NAME"

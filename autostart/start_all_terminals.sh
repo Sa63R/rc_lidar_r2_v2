@@ -2,7 +2,8 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORKSPACE_DIR="$(cd "$DIR/.." && pwd)"
+REPO_ROOT="${RC_LIDAR_ROOT:-$(cd "$DIR/.." && pwd)}"
+WORKSPACE_DIR="${RC_LIDAR_WORKSPACE:-$REPO_ROOT}"
 LOG_ROOT="${RC_LIDAR_LOG_ROOT:-$WORKSPACE_DIR/logs/autostart}"
 
 # manual：手动启动
@@ -18,7 +19,14 @@ case "$RC_LIDAR_MODE" in
     exit 2
     ;;
 esac
-RC_LIDAR_MAP_PATH="${RC_LIDAR_MAP_PATH:-$WORKSPACE_DIR/maps/mid360_map.pcd}"
+if [ "${RC_LOCALIZATION_MAP_PATH+x}" = "x" ] && [ -n "${RC_LOCALIZATION_MAP_PATH:-}" ]; then
+  RC_LIDAR_MAP_PATH="$RC_LOCALIZATION_MAP_PATH"
+else
+  RC_LIDAR_MAP_PATH="${RC_LIDAR_MAP_PATH:-$WORKSPACE_DIR/maps/mid360_map.pcd}"
+fi
+RC_LOCALIZATION_MAP_PATH="$RC_LIDAR_MAP_PATH"
+RC_RAW_POSE_TOPIC="${RC_RAW_POSE_TOPIC:-/robot/pose}"
+RC_FILTERED_POSE_TOPIC="${RC_FILTERED_POSE_TOPIC:-/robot/pose_filtered}"
 RC_HEALTH_MONITOR="${RC_HEALTH_MONITOR:-${RC_THERMAL_POSE_MONITOR:-1}}"
 RC_POSE_FILTER_SELECTED="${RC_POSE_FILTER_SELECTED:-normal}"
 RC_POSE_FILTER_BETA="${RC_POSE_FILTER_BETA:-0}"
@@ -27,6 +35,12 @@ RC_POSE_FILTER_STABLE="${RC_POSE_FILTER_STABLE:-0}"
 RC_STABLE_FILTERED_POSE_TOPIC="${RC_STABLE_FILTERED_POSE_TOPIC:-/robot/pose_filtered_stable}"
 RC_CONTINUOUS_POSE="${RC_CONTINUOUS_POSE:-auto}"
 RC_AUTOSTART_DRY_RUN="${RC_AUTOSTART_DRY_RUN:-0}"
+RC_AUTOSTART_CANFD="${RC_AUTOSTART_CANFD:-0}"
+RC_CAN_FRAME_MODE="${RC_CAN_FRAME_MODE:-normal}"
+RC_CAN_YAW_OFFSET_DEG="${RC_CAN_YAW_OFFSET_DEG:-0.0}"
+RC_CAN_DEBUG_CSV="${RC_CAN_DEBUG_CSV:-0}"
+RC_CAN_DEBUG_CSV_PATH="${RC_CAN_DEBUG_CSV_PATH:-}"
+RC_CAN_DEBUG_LOG_PERIOD_SEC="${RC_CAN_DEBUG_LOG_PERIOD_SEC:-1.0}"
 case "$RC_POSE_FILTER_SELECTED" in
   normal|beta|stable)
     ;;
@@ -67,6 +81,25 @@ if [ "$RC_POSE_FILTER_SELECTED" = "stable" ] && [ "$RC_POSE_FILTER_STABLE_ENABLE
   echo "[ERROR] RC_POSE_FILTER_SELECTED=stable requires RC_POSE_FILTER_STABLE=1." >&2
   exit 2
 fi
+if [ "${RC_CAN_POSE_TOPIC+x}" != "x" ] || [ -z "${RC_CAN_POSE_TOPIC:-}" ]; then
+  if [ "${RC_POSE_FILTER:-1}" = "0" ]; then
+    RC_CAN_POSE_TOPIC="$RC_RAW_POSE_TOPIC"
+  elif [ "$RC_POSE_FILTER_SELECTED" = "beta" ]; then
+    RC_CAN_POSE_TOPIC="$RC_BETA_FILTERED_POSE_TOPIC"
+  elif [ "$RC_POSE_FILTER_SELECTED" = "stable" ]; then
+    RC_CAN_POSE_TOPIC="$RC_STABLE_FILTERED_POSE_TOPIC"
+  else
+    RC_CAN_POSE_TOPIC="$RC_FILTERED_POSE_TOPIC"
+  fi
+fi
+case "$RC_CAN_FRAME_MODE" in
+  normal|yaw_180|flip_xy_yaw_180|flip_x|flip_y|swap_xy|swap_xy_flip_x|swap_xy_flip_y|yaw_neg)
+    ;;
+  *)
+    echo "[ERROR] Unknown RC_CAN_FRAME_MODE=$RC_CAN_FRAME_MODE. Use normal, yaw_180, flip_xy_yaw_180, flip_x, flip_y, swap_xy, swap_xy_flip_x, swap_xy_flip_y, or yaw_neg." >&2
+    exit 2
+    ;;
+esac
 
 BOOT_ID="$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo unknown)"
 BOOT_ID_SHORT="$(printf '%s' "$BOOT_ID" | cut -c1-8)"
@@ -107,7 +140,13 @@ export RUN_ID
 export LOG_DIR
 export RUN_REASON
 export RC_LIDAR_MODE
+export RC_LIDAR_ROOT="$REPO_ROOT"
+export RC_LIDAR_WORKSPACE="$WORKSPACE_DIR"
+export RC_LIDAR_AUTOSTART="$DIR"
 export RC_LIDAR_MAP_PATH
+export RC_LOCALIZATION_MAP_PATH
+export RC_RAW_POSE_TOPIC
+export RC_FILTERED_POSE_TOPIC
 export RC_HEALTH_MONITOR
 export RC_POSE_FILTER_SELECTED
 export RC_POSE_FILTER_BETA
@@ -115,6 +154,13 @@ export RC_BETA_FILTERED_POSE_TOPIC
 export RC_POSE_FILTER_STABLE
 export RC_STABLE_FILTERED_POSE_TOPIC
 export RC_CONTINUOUS_POSE
+export RC_AUTOSTART_CANFD
+export RC_CAN_POSE_TOPIC
+export RC_CAN_FRAME_MODE
+export RC_CAN_YAW_OFFSET_DEG
+export RC_CAN_DEBUG_CSV
+export RC_CAN_DEBUG_CSV_PATH
+export RC_CAN_DEBUG_LOG_PERIOD_SEC
 export RC_LIDAR_BOOT_ID="${RC_LIDAR_BOOT_ID:-$BOOT_ID}"
 
 # ROS2 自己的日志目录
@@ -134,14 +180,25 @@ mkdir -p "$ROS_LOG_DIR"
   echo "uptime_sec: $START_UPTIME_SEC"
   echo "epoch_sec: $(date +%s)"
   echo "pid: $$"
+  echo "repo_root: $REPO_ROOT"
+  echo "workspace: $WORKSPACE_DIR"
   echo "runtime_mode: $RC_LIDAR_MODE"
   echo "map_path: $RC_LIDAR_MAP_PATH"
+  echo "localization_map: $RC_LOCALIZATION_MAP_PATH"
   echo "health_monitor: $RC_HEALTH_MONITOR"
+  echo "raw_pose_topic: $RC_RAW_POSE_TOPIC"
+  echo "filtered_pose_topic: $RC_FILTERED_POSE_TOPIC"
   echo "pose_filter_selected: $RC_POSE_FILTER_SELECTED"
   echo "pose_filter_beta: $RC_POSE_FILTER_BETA"
   echo "beta_filtered_pose_topic: $RC_BETA_FILTERED_POSE_TOPIC"
   echo "pose_filter_stable: $RC_POSE_FILTER_STABLE"
   echo "stable_filtered_pose_topic: $RC_STABLE_FILTERED_POSE_TOPIC"
+  echo "can_pose_topic: $RC_CAN_POSE_TOPIC"
+  echo "canfd: $RC_AUTOSTART_CANFD"
+  echo "can_frame_mode: $RC_CAN_FRAME_MODE"
+  echo "can_yaw_offset_deg: $RC_CAN_YAW_OFFSET_DEG"
+  echo "can_debug_csv: $RC_CAN_DEBUG_CSV"
+  echo "can_debug_csv_path: ${RC_CAN_DEBUG_CSV_PATH:-}"
   echo "continuous_pose: $RC_CONTINUOUS_POSE"
   echo "log_dir: $LOG_DIR"
   echo "dir: $DIR"
@@ -189,12 +246,12 @@ else
 fi
 sync_file "$LOG_DIR/start_summary.txt"
 
-if [ -x "$DIR/can_setup.sh" ]; then
-  "$DIR/can_setup.sh" --check-only > "$LOG_DIR/can_preflight.txt" 2>&1 || true
+if [ -x "$DIR/canable2_preflight.sh" ]; then
+  "$DIR/canable2_preflight.sh" --check-only > "$LOG_DIR/canable2_preflight.txt" 2>&1 || true
 else
-  echo "can_setup.sh not found or not executable, skipped." > "$LOG_DIR/can_preflight.txt"
+  echo "canable2_preflight.sh not found or not executable, skipped." > "$LOG_DIR/canable2_preflight.txt"
 fi
-sync_file "$LOG_DIR/can_preflight.txt"
+sync_file "$LOG_DIR/canable2_preflight.txt"
 
 resolve_headless_mode() {
   case "${RC_AUTOSTART_HEADLESS:-auto}" in
@@ -741,11 +798,22 @@ if should_start_tf_compare; then
 else
   summary_event "skipped TF compare publishers"
 fi
-if [ "$RC_LIDAR_MODE" = "mapping" ] && [ "${RC_AUTOSTART_CAN_DURING_MAPPING:-0}" != "1" ]; then
-  summary_event "skipped CAN_SERIAL in mapping mode"
-else
-  start_one "CAN_SERIAL" "serial_driver.sh"
-fi
+case "${RC_AUTOSTART_LEGACY_CAN_SERIAL:-0}" in
+  1|true|TRUE|yes|YES|on|ON)
+    start_one "CAN_SERIAL" "serial_driver.sh"
+    ;;
+  *)
+    summary_event "skipped CAN_SERIAL; legacy Classic CAN is disabled by default"
+    ;;
+esac
+case "$RC_AUTOSTART_CANFD" in
+  1|true|TRUE|yes|YES|on|ON)
+    start_one "CANFD_POSE" "canfd_pose_sender.sh"
+    ;;
+  *)
+    summary_event "skipped CANFD_POSE because RC_AUTOSTART_CANFD=0"
+    ;;
+esac
 if should_start_can_monitor; then
   start_one_gui_terminal "CAN_MONITOR" "can_pose_monitor.sh"
 else

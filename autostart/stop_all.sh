@@ -34,13 +34,13 @@ should_kill_cmd() {
     *"ros2 launch my_static_tf "*|*"ros2 launch fast_lio "*|*"ros2 launch livox_ros_driver2 "*|*"ros2 launch rc_serial_driver "*|*"ros2 launch lidar_map_localization "*|*"ros2 launch lidar_localization "*)
       return 0
       ;;
-    *"ros2 run robot_localization "*|*"ros2 run fastlio_world_init "*)
+    *"ros2 run robot_localization "*|*"ros2 run fastlio_world_init "*|*"ros2 run lidar_localization canfd_pose_sender"*)
       return 0
       ;;
     *"fastlio_mapping"*|*"livox_ros_driver2_node"*|*"rc_serial_driver_node"*|*"ekf_node"*)
       return 0
       ;;
-    *"world_from_fastlio_init"*|*"robot_tf_offsets"*|*"lidar_tf_offset"*|*"lidar_xyzr.py"*|*"map_localizer"*|*"pose_from_odom"*|*"pose_from_tf"*|*"continuous_robot_pose"*)
+    *"world_from_fastlio_init"*|*"robot_tf_offsets"*|*"lidar_tf_offset"*|*"lidar_xyzr.py"*|*"map_localizer"*|*"pose_from_odom"*|*"pose_from_tf"*|*"continuous_robot_pose"*|*"canfd_pose_sender"*)
       return 0
       ;;
     *"thermal_pose_monitor.sh"*|*"thermal_pose_monitor.py"*)
@@ -126,6 +126,7 @@ close_terminal_windows_by_title() {
     "LIVOX"
     "FASTLIO"
     "CAN_SERIAL"
+    "CANFD_POSE"
     "CAN+SERIAL"
     "CAN_MONITOR"
     "LIDAR_XYZR"
@@ -172,6 +173,7 @@ patterns=(
   "$DIR/livox.sh"
   "$DIR/fastlio.sh"
   "$DIR/serial_driver.sh"
+  "$DIR/canfd_pose_sender.sh"
   "$DIR/can_pose_monitor.sh"
   "$DIR/lidar_xyzr.sh"
   "$DIR/lidar_to_base_tf.sh"
@@ -201,10 +203,12 @@ patterns=(
   "ros2 launch lidar_localization"
   "ros2 run robot_localization"
   "ros2 run fastlio_world_init"
+  "ros2 run lidar_localization canfd_pose_sender"
   "fastlio_mapping"
   "livox_ros_driver2_node"
   "rc_serial_driver_node"
   "can_pose_monitor.py"
+  "canfd_pose_sender"
   "ekf_node"
   "static_transform_publisher"
   "world_from_fastlio_init"

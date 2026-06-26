@@ -1,18 +1,20 @@
 [Unit]
 Description=RC LiDAR low-load relocalization autostart
-Documentation=file:/home/orangepi/RC_LIDAR_NOW/readme.md
+Documentation=file:@RC_LIDAR_WORKSPACE@/readme.md
 After=default.target
-ConditionPathExists=/home/orangepi/RC_LIDAR_NOW/autostart/boot_start.sh
+ConditionPathExists=@RC_LIDAR_WORKSPACE@/autostart/boot_start.sh
 
 [Service]
 Type=oneshot
-WorkingDirectory=/home/orangepi/RC_LIDAR_NOW
+WorkingDirectory=@RC_LIDAR_WORKSPACE@
 Environment=RUN_REASON=boot
 Environment=RC_LIDAR_MODE=relocalization
-Environment=RC_LIDAR_MAP_PATH=/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd
+Environment=RC_LOCALIZATION_MAP_PATH=@RC_LIDAR_WORKSPACE@/maps/mid360_map.pcd
 Environment=RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1
 Environment=RC_AUTOSTART_HEADLESS=1
 Environment=RC_AUTOSTART_PLOTJUGGLER=0
+Environment=RC_AUTOSTART_CANFD=0
+Environment=RC_CAN_FRAME_MODE=normal
 Environment=RC_CAN_POSE_SOURCE=raw_odom
 Environment=RC_CAN_POSE_TOPIC=/robot/pose_filtered
 Environment=RC_CAN_RAW_ODOM_POSE_TOPIC=/Odometry
@@ -32,7 +34,7 @@ Environment=RC_POSE_FILTER_STABLE=0
 Environment=RC_HEALTH_MONITOR=1
 Environment=RC_READY_NOTIFY=1
 Environment=RC_READY_NOTIFY_POPUP=0
-ExecStart=/home/orangepi/RC_LIDAR_NOW/autostart/boot_start.sh
+ExecStart=@RC_LIDAR_WORKSPACE@/autostart/boot_start.sh
 RemainAfterExit=yes
 TimeoutStartSec=240
 

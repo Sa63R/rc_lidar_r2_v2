@@ -2,7 +2,7 @@
 set -u
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORKSPACE_DIR="$(cd "$DIR/.." && pwd)"
+WORKSPACE_DIR="${RC_LIDAR_WORKSPACE:-$(cd "$DIR/.." && pwd)}"
 LOG_ROOT="${RC_LIDAR_LOG_ROOT:-$WORKSPACE_DIR/logs/autostart}"
 RESTART_LOG_DIR="$LOG_ROOT/restart"
 mkdir -p "$RESTART_LOG_DIR"
@@ -77,6 +77,7 @@ close_terminal_windows_by_title() {
     "LIVOX"
     "FASTLIO"
     "CAN_SERIAL"
+    "CANFD_POSE"
     "CAN+SERIAL"
     "CAN_MONITOR"
     "LIDAR_XYZR"
@@ -138,6 +139,7 @@ close_terminal_windows_by_title() {
     "$DIR/livox.sh"
     "$DIR/fastlio.sh"
     "$DIR/serial_driver.sh"
+    "$DIR/canfd_pose_sender.sh"
     "$DIR/can_pose_monitor.sh"
     "$DIR/lidar_xyzr.sh"
     "$DIR/lidar_to_base_tf.sh"
@@ -158,6 +160,7 @@ close_terminal_windows_by_title() {
     "$DIR/thermal_pose_monitor.sh"
     "$DIR/relocalization_ready_notify.sh"
     "ros2 launch rc_serial_driver serial_driver.launch.py"
+    "ros2 run lidar_localization canfd_pose_sender"
     "ros2 launch lidar_map_localization"
     "ros2 launch lidar_localization"
     "map_localizer"
@@ -165,6 +168,7 @@ close_terminal_windows_by_title() {
     "pose_from_tf"
     "continuous_robot_pose"
     "can_pose_monitor.py"
+    "canfd_pose_sender"
     "pose_stability_filter"
     "thermal_pose_monitor.py"
     "relocalization_ready_notify.py"
@@ -195,19 +199,25 @@ close_terminal_windows_by_title() {
   rm -f /tmp/rc_autostart_*.pid 2>/dev/null || true
 
   echo "[4/5] starting new stack..."
-  cd "$DIR"
+  cd "$WORKSPACE_DIR"
 
   # Do not let the new LiDAR stack inherit the restart flock fd. If this fd is
   # inherited by long-running ROS nodes, later CAN restart requests can never
   # acquire the lock even though the restart script has already finished.
   exec 9>&-
 
+  RESTART_MAP_PATH="${RC_LOCALIZATION_MAP_PATH:-${RC_LIDAR_MAP_PATH:-$WORKSPACE_DIR/maps/mid360_map.pcd}}"
+
   RUN_REASON="can_restart" \
     RC_LIDAR_MODE="${RC_LIDAR_MODE:-relocalization}" \
-    RC_LIDAR_MAP_PATH="${RC_LIDAR_MAP_PATH:-/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd}" \
+    RC_LOCALIZATION_MAP_PATH="$RESTART_MAP_PATH" \
+    RC_LIDAR_MAP_PATH="$RESTART_MAP_PATH" \
     RC_RELOCALIZATION_ASSUME_MAP_ORIGIN="${RC_RELOCALIZATION_ASSUME_MAP_ORIGIN:-1}" \
     RC_AUTOSTART_HEADLESS="${RC_AUTOSTART_HEADLESS:-1}" \
     RC_AUTOSTART_PLOTJUGGLER="${RC_AUTOSTART_PLOTJUGGLER:-0}" \
+    RC_AUTOSTART_LEGACY_CAN_SERIAL="${RC_AUTOSTART_LEGACY_CAN_SERIAL:-0}" \
+    RC_AUTOSTART_CANFD="${RC_AUTOSTART_CANFD:-0}" \
+    RC_CAN_FRAME_MODE="${RC_CAN_FRAME_MODE:-normal}" \
     RC_POSE_FILTER_SELECTED="${RC_POSE_FILTER_SELECTED:-normal}" \
     RC_POSE_FILTER_BETA="${RC_POSE_FILTER_BETA:-0}" \
     RC_BETA_FILTERED_POSE_TOPIC="${RC_BETA_FILTERED_POSE_TOPIC:-/robot/pose_filtered_beta}" \

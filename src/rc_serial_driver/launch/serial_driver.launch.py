@@ -40,6 +40,14 @@ def generate_launch_description():
     quality_min_accepts = int(os.environ.get('RC_CAN_READY_MIN_ACCEPTS', '5'))
     quality_require_accepted = env_bool('RC_CAN_READY_REQUIRE_ACCEPTED', '1')
     quality_require_converged = env_bool('RC_CAN_READY_REQUIRE_CONVERGED', '1')
+    restart_script = os.environ.get(
+        'RC_RESTART_SCRIPT',
+        os.path.join(
+            os.environ.get('RC_LIDAR_WORKSPACE', os.getcwd()),
+            'autostart',
+            'restart_lidar_stack.sh',
+        ),
+    )
 
     rc_serial_driver_node = Node(
         package='rc_serial_driver',
@@ -78,6 +86,7 @@ def generate_launch_description():
                 'quality_min_consecutive_accepts': quality_min_accepts,
                 'quality_require_accepted': quality_require_accepted,
                 'quality_require_converged': quality_require_converged,
+                'restart_script': restart_script,
             },
         ],
     )

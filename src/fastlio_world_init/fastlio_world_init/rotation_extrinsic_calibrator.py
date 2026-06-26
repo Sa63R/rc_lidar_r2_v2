@@ -24,10 +24,10 @@ from tf2_ros.buffer import Buffer
 from tf2_ros.transform_listener import TransformListener
 
 
-DEFAULT_STATIC_X = -0.240
-DEFAULT_STATIC_Y = 0.287302
-DEFAULT_STATIC_Z = -0.760
-DEFAULT_STATIC_YAW = math.pi / 2.0
+DEFAULT_STATIC_X = 0.237488
+DEFAULT_STATIC_Y = -0.272804
+DEFAULT_STATIC_Z = -0.483
+DEFAULT_STATIC_YAW = -math.pi / 2.0
 
 FIT_YAW_SOURCES = (
     'robot_origin_body_highrate',

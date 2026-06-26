@@ -37,7 +37,7 @@ namespace
 constexpr uint8_t RESTART_PAYLOAD[8] = {0xA5, 0x5A, 0x01, 0xFE, 0x00, 0x00, 0x00, 0x00};
 
 int g_can_id_restart = 0x30;
-std::string g_restart_script = "/home/orangepi/RC_LIDAR_NOW/autostart/restart_lidar_stack.sh";
+std::string g_restart_script = "autostart/restart_lidar_stack.sh";
 bool g_restart_enabled = true;
 std::chrono::steady_clock::time_point g_last_restart_time{};
 rclcpp::TimerBase::SharedPtr g_recv_timer;
@@ -307,7 +307,7 @@ void RCSerialDriver::getParams()
   g_can_id_restart = declare_parameter<int>("can_id_restart", 0x30);
   g_restart_script = declare_parameter<std::string>(
     "restart_script",
-    "/home/orangepi/RC_LIDAR_NOW/autostart/restart_lidar_stack.sh");
+    "autostart/restart_lidar_stack.sh");
   g_restart_enabled = declare_parameter<bool>("restart_enabled", true);
 
   RCLCPP_INFO(get_logger(), "Restart CAN ID: 0x%X", g_can_id_restart);
@@ -760,15 +760,15 @@ bool RCSerialDriver::readPoseFromRawOdom(float & x, float & y, float & z, float 
     return true;
   }
 
-  const double ex_x = vectorValueOrDefault(raw_odom_lidar_to_base_xyz_, 0, -0.240);
-  const double ex_y = vectorValueOrDefault(raw_odom_lidar_to_base_xyz_, 1, 0.287302);
-  const double ex_z = vectorValueOrDefault(raw_odom_lidar_to_base_xyz_, 2, -0.760);
+  const double ex_x = vectorValueOrDefault(raw_odom_lidar_to_base_xyz_, 0, 0.237488);
+  const double ex_y = vectorValueOrDefault(raw_odom_lidar_to_base_xyz_, 1, -0.272804);
+  const double ex_z = vectorValueOrDefault(raw_odom_lidar_to_base_xyz_, 2, -0.483);
   const double ex_yaw = vectorValueOrDefault(
-    raw_odom_lidar_to_base_rpy_, 2, 1.5707963267948966);
-  const double ref_x = vectorValueOrDefault(raw_odom_reference_xyz_, 0, -0.240);
-  const double ref_y = vectorValueOrDefault(raw_odom_reference_xyz_, 1, 0.287302);
-  const double ref_z = vectorValueOrDefault(raw_odom_reference_xyz_, 2, -0.760);
-  const double ref_yaw = vectorValueOrDefault(raw_odom_reference_rpy_, 2, 1.5707963267948966);
+    raw_odom_lidar_to_base_rpy_, 2, -1.5707963267948966);
+  const double ref_x = vectorValueOrDefault(raw_odom_reference_xyz_, 0, -0.260);
+  const double ref_y = vectorValueOrDefault(raw_odom_reference_xyz_, 1, 0.262);
+  const double ref_z = vectorValueOrDefault(raw_odom_reference_xyz_, 2, -0.483);
+  const double ref_yaw = vectorValueOrDefault(raw_odom_reference_rpy_, 2, 0.0);
 
   const double c_lidar = std::cos(lidar_yaw);
   const double s_lidar = std::sin(lidar_yaw);

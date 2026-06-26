@@ -41,7 +41,7 @@ def generate_launch_description():
                     [
                         EnvironmentVariable(
                             "RC_LIDAR_WORKSPACE",
-                            default_value="/home/orangepi/RC_LIDAR_NOW",
+                            default_value=".",
                         ),
                         "maps",
                         "mid360_map.pcd",

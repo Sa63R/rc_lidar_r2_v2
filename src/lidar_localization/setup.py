@@ -21,6 +21,7 @@ setup(
     license="MIT",
     entry_points={
         "console_scripts": [
+            "canfd_pose_sender = lidar_localization.canfd_pose_sender:main",
             "pose_from_odom = lidar_localization.pose_from_odom:main",
             "continuous_robot_pose = lidar_localization.continuous_robot_pose:main",
             "pose_from_tf = lidar_localization.pose_from_tf:main",

@@ -2,8 +2,8 @@
 Type=Application
 Name=RC Lidar Autostart
 Comment=Start RC LiDAR localization stack after desktop login
-Exec=/home/orangepi/RC_LIDAR_NOW/autostart/boot_start.sh
-Path=/home/orangepi/RC_LIDAR_NOW
+Exec=@RC_LIDAR_WORKSPACE@/autostart/boot_start.sh
+Path=@RC_LIDAR_WORKSPACE@
 Terminal=false
 X-GNOME-Autostart-enabled=true
 X-GNOME-Autostart-Delay=10

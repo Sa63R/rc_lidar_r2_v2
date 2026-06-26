@@ -14,16 +14,16 @@ lidar_pose_from_odom:
     zero_on_first_pose: false
     zero_delay_sec: 5.0
     zero_frame_id: robot_origin
-    # Current Orange Pi static extrinsic, matching my_static_tf body -> robot_base.
-    lidar_to_base_xyz: [-0.240, 0.287302, -0.760]
-    lidar_to_base_rpy: [0.0, 0.0, 1.5707963267948966]
+    # Current R2 v2 static extrinsic, matching my_static_tf body -> robot_base.
+    lidar_to_base_xyz: [0.237488, -0.272804, -0.483]
+    lidar_to_base_rpy: [0.0, 0.0, -1.5707963267948966]
     # Relocalization mode uses /map_lidar/odom -> pose_from_odom by default.
     # These values define map -> robot_origin and are used to compute
     # robot_origin -> robot_base without querying a mixed-frequency TF chain.
     reference_pose_enabled: true
     reference_frame_id: robot_origin
-    reference_pose_xyz: [-0.240, 0.287302, -0.760]
-    reference_pose_rpy: [0.0, 0.0, 1.5707963267948966]
+    reference_pose_xyz: [-0.260, 0.262, -0.483]
+    reference_pose_rpy: [0.0, 0.0, 0.0]
     # Relocalization yaw can lag because /map_lidar/odom waits for scan matching.
     # This optional fusion keeps map-localized XY but uses FAST-LIO /Odometry yaw
     # increments between map updates for lower steering latency.

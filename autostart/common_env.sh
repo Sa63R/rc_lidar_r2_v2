@@ -9,11 +9,15 @@ case "$-" in
     ;;
 esac
 
-AUTOSTART_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORKSPACE_DIR="$(cd "$AUTOSTART_DIR/.." && pwd)"
+SCRIPT_AUTOSTART_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEFAULT_ROOT="$(cd "$SCRIPT_AUTOSTART_DIR/.." && pwd)"
 
-export RC_LIDAR_AUTOSTART="$AUTOSTART_DIR"
-export RC_LIDAR_WORKSPACE="$WORKSPACE_DIR"
+export RC_LIDAR_ROOT="${RC_LIDAR_ROOT:-$DEFAULT_ROOT}"
+export RC_LIDAR_AUTOSTART="${RC_LIDAR_AUTOSTART:-$RC_LIDAR_ROOT/autostart}"
+export RC_LIDAR_WORKSPACE="${RC_LIDAR_WORKSPACE:-$RC_LIDAR_ROOT}"
+
+AUTOSTART_DIR="$RC_LIDAR_AUTOSTART"
+WORKSPACE_DIR="$RC_LIDAR_WORKSPACE"
 
 # ROS 2 Humble on this board uses the system Python 3.10. If a terminal has
 # conda activated, python3 may point at Miniconda Python 3.13 and rclpy imports
