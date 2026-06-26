@@ -261,13 +261,13 @@ RC_CAN_USE_YAW_POSE_TOPIC=1
 RC_CAN_YAW_POSE_TOPIC=/robot/pose
 RC_CAN_YAW_POSE_TOPIC_STRICT=1
 RC_CAN_YAW_IGNORE_READY_GATE=1
-RC_CAN_REQUIRE_READY=1
+RC_CAN_REQUIRE_READY=0
 RC_CAN_READY_QUALITY_TOPIC=/map_lidar/quality
 RC_CAN_READY_MAX_FITNESS=0.05
 RC_CAN_READY_MIN_ACCEPTS=5
 ```
 
-`RC_CAN_REQUIRE_READY=1` 表示 CAN 发送前必须看到 `/map_lidar/quality` 连续 accepted/converged、fitness 达标并且没有超时。迁移到 R2 时建议保留这个门控，避免重定位还没稳定时把早期假坐标发给电控。只有在临时排查 CAN 链路本身时，才考虑短时间设为 `0`。
+当前 Orange Pi 默认关闭 CAN ready gate：`RC_CAN_REQUIRE_READY=0`。这表示 CAN 不再等待 `/map_lidar/quality` 连续 accepted/converged 才发送，便于现场验证电控链路和避免 quality gate 对控制造成冻结。迁移到 R2 时如果更重视启动早期安全保护，可以设回 `RC_CAN_REQUIRE_READY=1`，让 CAN 在地图质量稳定后再发。
 
 Orange Pi Rc 4.12 起，CAN 的位置和 yaw 来源进一步分开：x/y/z 默认来自 `/robot/pose_filtered`，yaw 默认来自 FAST-LIO 原始 `/Odometry`。Rc 4.14 根据现场重新确认“电控需要的是原始 odom yaw 的旋转角，先不做额外零点偏置”，把 raw odom yaw offset 改为 `0`。R2 迁移时如果电控优先要求无头车旋转实时性，可先保留这个结构；它绕过 map yaw fusion、pose filter 和 ready gate 对 yaw 的影响，但代价是原始 FAST-LIO yaw 转多圈后可能有累计漂移。若 R2 现场发现 raw odom yaw 漂移不可接受，设置 `RC_CAN_USE_RAW_ODOM_YAW=0` 回退 Rc 4.9 的 `/robot/pose` 低延迟融合 yaw。`RC_CAN_YAW_POSE_TOPIC_STRICT=1` 会让融合 yaw 不刷新时暂停发送，避免回退到慢 yaw。
 
@@ -417,7 +417,7 @@ CAN 重启脚本也应保持同样默认策略：
 grep -n "RC_LIDAR_MODE\\|RC_CAN_POSE_TOPIC\\|RC_HEALTH_MONITOR" autostart/restart_lidar_stack.sh
 ```
 
-Orange Pi 当前生产默认已经固定为小场地图 `/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd`，不开 PlotJuggler，ready 只写 json 不弹窗口，并默认不启动 stable 候选滤波。CAN 的 `x/y/z` 发 normal `/robot/pose_filtered`，`yaw` 发 FAST-LIO `/Odometry` 原始 yaw，偏置为 `0`。R2 不能照搬这个绝对路径，但应该采用同样策略：把 `boot_start.sh`、`rc-lidar-autostart.service` 和 `restart_lidar_stack.sh` 的默认 `RC_LIDAR_MAP_PATH` 都指向 R2 自己验证过的小场 PCD，并保持 `RC_POSE_FILTER_STABLE=0`；开机入口只保留 user systemd，只有需要曲线对比时才手动设置 `RC_AUTOSTART_PLOTJUGGLER=1` 或 `RC_POSE_FILTER_STABLE=1`。
+Orange Pi 当前生产默认已经固定为小场地图 `/home/orangepi/RC_LIDAR_NOW/maps/mid360_map_20260625_064655.pcd`，不开 PlotJuggler，ready 只写 json 不弹窗口，并默认不启动 stable 候选滤波。CAN 的 `x/y/z` 发 normal `/robot/pose_filtered`，`yaw` 发 FAST-LIO `/Odometry` 原始 yaw，偏置为 `0`，且默认 `RC_CAN_REQUIRE_READY=0` 不等待 quality ready。R2 不能照搬这个绝对路径，但应该采用同样策略：把 `boot_start.sh`、`rc-lidar-autostart.service` 和 `restart_lidar_stack.sh` 的默认 `RC_LIDAR_MAP_PATH` 都指向 R2 自己验证过的小场 PCD，并保持 `RC_POSE_FILTER_STABLE=0`；开机入口只保留 user systemd，只有需要曲线对比时才手动设置 `RC_AUTOSTART_PLOTJUGGLER=1` 或 `RC_POSE_FILTER_STABLE=1`。
 
 ## 6. 建图、保存地图和地图质量
 
@@ -579,7 +579,7 @@ tail -n 120 logs/autostart/latest/CAN_SERIAL.log
 - `/robot/pose` 有连续输出。
 - `/robot/pose_filtered` 跟随 `/robot/pose`，静止时更稳，运动时不长时间卡死。
 - `CAN_SERIAL.log` 显示 `pose_source=pose_topic pose_topic=/robot/pose_filtered`。
-- `CAN_SERIAL.log` 显示 ready gate enabled；`/map_lidar/quality` 未稳定时 CAN 应暂停发送，稳定后 TX 计数才持续增加。
+- `CAN_SERIAL.log` 默认显示 `ready_gate=0`；如果手动设置 `RC_CAN_REQUIRE_READY=1`，才应看到未稳定时 CAN 暂停发送，稳定后 TX 计数持续增加。
 
 Orange Pi Rc 4.4 起，`/robot/pose` 和 `/robot/pose_filtered` 默认使用本机发布时刻作为 header stamp，避免 `/map_lidar/odom` 的旧 stamp 让 CAN 和健康日志误判 topic stale。迁移到 R2 时建议保留这个默认值；只有为了复现实验才回退：
 

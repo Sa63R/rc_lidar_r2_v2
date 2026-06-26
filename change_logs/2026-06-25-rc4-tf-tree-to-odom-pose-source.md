@@ -531,6 +531,23 @@ RC_CAN_YAW_IGNORE_READY_GATE=0
 
 这个改动不是为了解决所有旋转延迟，而是为了排除一个明确风险：地图质量短暂波动时不应该让无头车航向角完全冻结。x/y 继续走 ready gate，避免低质量定位结果污染位置控制。
 
+## Rc 4.18: Default CAN Ready Gate Disabled
+
+后续继续排查 map localizer 离散阶梯输出和电控无头车响应时，用户要求先把默认启动里的 CAN ready gate 关掉。这次只改默认值，不删除门控功能：
+
+```bash
+RC_CAN_REQUIRE_READY=0
+```
+
+影响：
+
+- CAN 默认不再等待 `/map_lidar/quality` 连续 accepted/converged 才发送。
+- `x/y/z` 仍来自当前 `RC_CAN_POSE_TOPIC`，默认 `/robot/pose_filtered`。
+- `yaw` 仍按当前 raw FAST-LIO `/Odometry` 策略发送。
+- 如果需要恢复旧保护，启动时设置 `RC_CAN_REQUIRE_READY=1` 即可。
+
+这次改动的目的不是改变坐标算法，而是排除 quality ready gate 对电控链路造成冻结或误判的影响。真正的定位质量仍然需要通过 `/map_lidar/quality`、健康日志和 PlotJuggler 观察。
+
 ## Rc 4.11: map localizer drops queued history instead of replaying old scan/odom
 
 后续实车观察发现，即使 CAN yaw 已经直接读取 `/robot/pose`，无头车旋转时仍存在“车停了，yaw 还继续慢慢追到正确角度”的现象。通过 `/robot/yaw_fusion/status` 对比可见：

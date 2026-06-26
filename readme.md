@@ -1062,12 +1062,12 @@ robot_origin -> robot_base = inverse(map -> robot_origin) * (map -> body) * (bod
 RC_ROBOT_POSE_SOURCE=tf ./autostart/start_all_terminals.sh
 ```
 
-Rc 3.0 起，重定位模式下 CAN 还会默认等待 `/map_lidar/quality` 连续稳定后才发送。判据和 READY 提示保持同一方向：本帧 accepted/converged、`fitness <= 0.05`、连续 accepted 数达到阈值，并且质量 topic 没有超时。这样即使 `/robot/pose_filtered` 和 `/robot/pose` 已经存在，只要地图匹配还没真正稳定，电控也不会收到早期的假定位坐标。
+当前默认关闭 CAN ready gate：`RC_CAN_REQUIRE_READY=0`。也就是说，CAN 不再等待 `/map_lidar/quality` 连续稳定才发送；只要 `/robot/pose_filtered` 和 `/Odometry` yaw 可用，就会按当前来源发送。需要恢复“地图质量稳定后再发”的保护时，设置 `RC_CAN_REQUIRE_READY=1`。开启后判据和 READY 提示保持同一方向：本帧 accepted/converged、`fitness <= 0.05`、连续 accepted 数达到阈值，并且质量 topic 没有超时。
 
 可调参数：
 
 ```bash
-RC_CAN_REQUIRE_READY=1                 # relocalization 模式默认开启；tracking/mapping 默认关闭
+RC_CAN_REQUIRE_READY=0                 # 当前默认关闭；设为 1 可恢复等待 /map_lidar/quality 稳定后再发 CAN
 RC_CAN_READY_QUALITY_TOPIC=/map_lidar/quality
 RC_CAN_READY_TIMEOUT_SEC=1.0
 RC_CAN_READY_MAX_FITNESS=0.05
@@ -1642,7 +1642,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
    - `pose_interface_relocalization.sh` 默认 `RC_ROBOT_POSE_SOURCE=odom`，从 `/map_lidar/odom` 同步计算 `/robot/pose`；只有显式设置 `RC_ROBOT_POSE_SOURCE=tf` 时才走 TF 查询链路。
    - `pose_interface_relocalization.sh` 默认启用 `RC_ROBOT_POSE_YAW_FUSION=1`，额外订阅 FAST-LIO `/Odometry` 作为低延迟 yaw 增量来源，并发布 `/robot/yaw_fusion/status` 供 PlotJuggler 和健康日志观察。该融合只改变 `/robot/pose` 的 yaw，不改变地图重定位给出的 XY，也不改变 TF 树。
    - 重定位模式默认启动 normal 位姿滤波，并默认把 `/robot/pose_filtered` 作为 CAN 发送来源；`RC_POSE_FILTER_BETA=1` 可额外启动 beta 对比，`RC_POSE_FILTER_STABLE=1` 可额外启动 stable 对比。只有显式 `RC_POSE_FILTER_SELECTED=beta|stable` 时，CAN 才会切到对应候选输出。`stop_all.sh` 和 CAN 重启脚本已同步清理 normal/beta/stable 滤波节点，避免模式切换后残留旧进程。
-   - Rc 3.0 起，重定位模式下 CAN 默认启用 `RC_CAN_REQUIRE_READY=1`，等待 `/map_lidar/quality` 连续稳定后才发送 `/robot/pose_filtered`，避免开机早期或匹配失败时把假坐标发给电控。
+   - Rc 4.18 起，默认关闭 CAN ready gate：`RC_CAN_REQUIRE_READY=0`。CAN 不再等待 `/map_lidar/quality` 连续稳定才发送，便于现场验证电控链路和消除 quality gate 对控制的影响；需要恢复旧保护时手动设置 `RC_CAN_REQUIRE_READY=1`。
 
 22. `autostart/thermal_pose_monitor.py`、`autostart/thermal_pose_monitor.sh`
    - 新增默认启动的轻量健康日志；`RC_HEALTH_MONITOR=0` 可关闭，旧变量 `RC_THERMAL_POSE_MONITOR` 仍兼容。
