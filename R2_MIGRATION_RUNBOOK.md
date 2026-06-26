@@ -187,6 +187,8 @@ arping -I "$R2_LIVOX_IFACE" -c 3 192.168.1.124
 
 当前 Orange Pi 的 CAN 激活已经包含在一键启动里：`start_all_terminals.sh -> CAN_SERIAL -> serial_driver.sh -> can_setup.sh -> rc_serial_driver`。迁移到 r2 时也应保持这个结构，不要另写一套独立 CAN 启动流程。`can_setup.sh` 会自动检测第一个 `can*` / `slcan*`，并在有免密权限或 udev 自动配置时设置 `1000000` bit/s、`restart-ms 100`、`UP`。
 
+Orange Pi 还带有一个轻量 `CAN_MONITOR` 观察终端：`rc_serial_driver` 每次准备 CAN 数据时发布 `/rc_serial_driver/can_pose_debug`，`CAN_MONITOR` 订阅后打印 `x/y/z/yaw`。迁移到 r2 时建议保留这套结构，因为它比直接猜 `/Odometry` 或 `/robot/pose_filtered` 更接近“CAN 实际准备发出的数据”。默认只在手动启动且有图形界面时弹终端；开机和 CAN 重启不弹，必要时用 `RC_AUTOSTART_CAN_MONITOR=1` 强制打开。
+
 真正免密一键启动依赖一次性系统配置：
 
 ```bash
@@ -582,6 +584,7 @@ tail -n 120 logs/autostart/latest/CAN_SERIAL.log
 - `/robot/pose` 有连续输出。
 - `/robot/pose_filtered` 跟随 `/robot/pose`，静止时更稳，运动时不长时间卡死。
 - `CAN_SERIAL.log` 显示 `pose_source=raw_odom`，并显示 `raw_odom_pose_topic=/Odometry`。
+- `/rc_serial_driver/can_pose_debug` 有数据；手动启动时 `CAN_MONITOR` 终端能看到 `x/y/z/yaw`。
 - `CAN_SERIAL.log` 默认显示 `ready_gate=0`；如果手动设置 `RC_CAN_REQUIRE_READY=1`，才应看到未稳定时 CAN 暂停发送，稳定后 TX 计数持续增加。
 
 Orange Pi Rc 4.4 起，`/robot/pose` 和 `/robot/pose_filtered` 默认使用本机发布时刻作为 header stamp，避免 `/map_lidar/odom` 的旧 stamp 让 CAN 和健康日志误判 topic stale。迁移到 R2 时建议保留这个默认值；只有为了复现实验才回退：

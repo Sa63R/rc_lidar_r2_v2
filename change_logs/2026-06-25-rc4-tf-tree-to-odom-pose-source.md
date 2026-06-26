@@ -807,6 +807,41 @@ RC_CAN_RAW_ODOM_YAW_STRICT=0
 RC_CAN_RAW_ODOM_YAW_OFFSET_RAD=0.0
 ```
 
+## Rc 4.22: CAN monitor prints the actual CAN pose payload
+
+为了方便现场观察电控收到的核心输入，`rc_serial_driver` 新增轻量调试 topic：
+
+```text
+/rc_serial_driver/can_pose_debug
+```
+
+消息类型仍用 `std_msgs/Float32MultiArray`，字段为：
+
+```text
+data[0] = x_can
+data[1] = y_can
+data[2] = z_can
+data[3] = yaw_can(rad)
+data[4] = 本轮 0x12 的 x/y 是否发送
+data[5] = 0x13 的 CAN ID 十进制值
+```
+
+新增 `autostart/can_pose_monitor.py` 和 `autostart/can_pose_monitor.sh`，一键启动时可拉起 `CAN_MONITOR` 终端实时打印：
+
+```text
+CAN #000123 x=...m y=...m z=...m yaw=...rad yaw=...deg xy_sent=1
+```
+
+启动策略：
+
+- 手动启动且有图形界面时，默认打开 `CAN_MONITOR` 终端。
+- 开机自启和 CAN 自动重启默认不弹窗口，避免无头运行被 GUI 卡住。
+- `RC_AUTOSTART_CAN_MONITOR=1` 可强制打开。
+- `RC_AUTOSTART_CAN_MONITOR=0` 可强制关闭。
+- `RC_CAN_MONITOR_PRINT_HZ` 控制终端打印频率，默认 `10Hz`。
+
+这个监视器不直接猜 `/Odometry`、`/robot/pose` 或 `/robot/pose_filtered`，而是订阅 CAN 节点自己发布的打包前数据，因此更接近“实际发给电控的 x/y/yaw”。
+
 ## Appendix: User Questions And Constraints
 
 以下内容按时间顺序整理本次大改相关的用户侧问题、判断和约束。重复发送的同一问题已合并；长启动命令、截图和终端日志只保留摘要。
@@ -946,3 +981,5 @@ RC_CAN_RAW_ODOM_YAW_OFFSET_RAD=0.0
 47. 用户要求：“你现在先改一下给 CAN 发的数据，就先直接用 odom 的原始数据，方便电控调车。”随后特别澄清：“这里指的原始数据不是 Map localizer 的原始 Odom，而是说就是雷达的原始 Odom，没有经过建图的数据。”因此本次不能使用 `/map_lidar/odom`，必须直接使用 FAST-LIO `/Odometry`。
 
 48. 基于这个澄清，CAN 不能只做 raw odom yaw override，而要让 `0x12` 的 x/y 和 `0x13` 的 z/yaw 都来自 FAST-LIO `/Odometry`。旧的 `/robot/pose_filtered` 和 TF 链路保留为可手动回退路径，但默认调车链路切到 `RC_CAN_POSE_SOURCE=raw_odom`。
+
+49. 用户要求：“一键启动的时候除了参数控制的启动 PlotJuggler，还要启动一个终端实时打印发给 CAN 的 xy 和 yaw 的内容方便我观察。”因此新增 `CAN_MONITOR`，打印源使用 `rc_serial_driver` 自己发布的 `/rc_serial_driver/can_pose_debug`，避免误把上游 topic 当成实际 CAN payload。

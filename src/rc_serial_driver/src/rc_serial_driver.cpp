@@ -134,6 +134,9 @@ RCSerialDriver::RCSerialDriver(const rclcpp::NodeOptions & options)
 
   getParams();
   
+  can_pose_debug_pub_ = create_publisher<std_msgs::msg::Float32MultiArray>(
+    can_pose_debug_topic_,
+    10);
 
   // TF buffer and listener for map->body transform
   tf_buffer_ = std::make_unique<tf2_ros::Buffer>(this->get_clock());
@@ -239,6 +242,8 @@ void RCSerialDriver::getParams()
   can_id_frame1_ = declare_parameter<int>("can_id_frame1", 0x12);
   can_id_frame2_ = declare_parameter<int>("can_id_frame2", 0x13);
   can_bitrate_ = declare_parameter<int>("can_bitrate", 1000000);
+  can_pose_debug_topic_ = declare_parameter<std::string>(
+    "can_pose_debug_topic", "/rc_serial_driver/can_pose_debug");
   pose_source_ = declare_parameter<std::string>("pose_source", "tf");
   pose_topic_ = declare_parameter<std::string>("pose_topic", "/lidar/pose");
   pose_topic_timeout_sec_ = declare_parameter<double>("pose_topic_timeout_sec", 0.5);
@@ -292,6 +297,7 @@ void RCSerialDriver::getParams()
 
   RCLCPP_INFO(get_logger(), "CAN Interface: %s", can_interface_.c_str());
   RCLCPP_INFO(get_logger(), "Expected CAN Bitrate: %d bit/s (ensure pre-configured)", can_bitrate_);
+  RCLCPP_INFO(get_logger(), "CAN pose debug topic: %s", can_pose_debug_topic_.c_str());
   RCLCPP_INFO(
     get_logger(),
     "Pose source: %s (pose_topic=%s timeout=%.2fs raw_odom_topic=%s raw_odom_timeout=%.2fs raw_odom_strict=%s raw_odom_yaw_offset=%.6frad)",
@@ -516,6 +522,7 @@ void RCSerialDriver::sendMapBodyPose()
       << " yaw_left_positive=" << yaw_can
       << "]");
 
+    bool x_y_sent = false;
     if (quality_ready) {
       // === 帧1: x_can, y_can (ID = 0x12) ===
       struct can_frame frame1;
@@ -533,6 +540,8 @@ void RCSerialDriver::sendMapBodyPose()
           reopenPort();
           return;
         }
+      } else {
+        x_y_sent = true;
       }
     }
 
@@ -553,6 +562,7 @@ void RCSerialDriver::sendMapBodyPose()
         return;
       }
     }
+    publishCanPoseDebug(x_can, y_can, z_can, yaw_can, x_y_sent);
 
   } catch (tf2::TransformException & ex) {
     RCLCPP_DEBUG_THROTTLE(get_logger(), *get_clock(), 1000, "TF not ready: %s", ex.what());
@@ -814,6 +824,23 @@ bool RCSerialDriver::readPoseFromTf(float & x, float & y, float & z, float & yaw
 
     yaw = yawFromQuaternion(tf_high.transform.rotation);
     return true;
+}
+
+void RCSerialDriver::publishCanPoseDebug(float x, float y, float z, float yaw, bool x_y_sent)
+{
+  if (!can_pose_debug_pub_) {
+    return;
+  }
+
+  std_msgs::msg::Float32MultiArray msg;
+  msg.data.reserve(6);
+  msg.data.push_back(x);
+  msg.data.push_back(y);
+  msg.data.push_back(z);
+  msg.data.push_back(yaw);
+  msg.data.push_back(x_y_sent ? 1.0f : 0.0f);
+  msg.data.push_back(static_cast<float>(can_id_frame2_));
+  can_pose_debug_pub_->publish(msg);
 }
 
 void RCSerialDriver::reopenPort()

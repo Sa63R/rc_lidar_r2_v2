@@ -14,6 +14,7 @@ def generate_launch_description():
 
     can_interface = os.environ.get('CAN_INTERFACE', 'can0')
     can_bitrate = int(os.environ.get('CAN_BITRATE', '1000000'))
+    can_pose_debug_topic = os.environ.get('RC_CAN_POSE_DEBUG_TOPIC', '/rc_serial_driver/can_pose_debug')
     pose_source = os.environ.get('RC_CAN_POSE_SOURCE', 'tf')
     pose_topic = os.environ.get('RC_CAN_POSE_TOPIC', '/lidar/pose')
     raw_odom_pose_topic = os.environ.get('RC_CAN_RAW_ODOM_POSE_TOPIC', '/Odometry')
@@ -50,6 +51,7 @@ def generate_launch_description():
             {
                 'can_interface': can_interface,
                 'can_bitrate': can_bitrate,
+                'can_pose_debug_topic': can_pose_debug_topic,
                 'pose_source': pose_source,
                 'pose_topic': pose_topic,
                 'raw_odom_pose_topic': raw_odom_pose_topic,

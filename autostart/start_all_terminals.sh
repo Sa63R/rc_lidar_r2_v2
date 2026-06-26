@@ -499,6 +499,111 @@ should_start_lidar_xyzr() {
   esac
 }
 
+should_start_can_monitor() {
+  case "${RC_AUTOSTART_CAN_MONITOR:-auto}" in
+    1|true|TRUE|yes|YES|on|ON)
+      return 0
+      ;;
+    0|false|FALSE|no|NO|off|OFF)
+      return 1
+      ;;
+    auto)
+      [ "$RUN_REASON" = "manual" ] && [ -n "${DISPLAY:-}" ]
+      return
+      ;;
+    *)
+      echo "[WARN] Unknown RC_AUTOSTART_CAN_MONITOR=${RC_AUTOSTART_CAN_MONITOR}; using auto." | tee -a "$LOG_DIR/start_summary.txt"
+      [ "$RUN_REASON" = "manual" ] && [ -n "${DISPLAY:-}" ]
+      return
+      ;;
+  esac
+}
+
+start_one_gui_terminal() {
+  local title="$1"
+  local script="$2"
+  local pidfile="/tmp/rc_autostart_${title}.pid"
+  local logfile="$LOG_DIR/${title}.log"
+  local statusfile="$LOG_DIR/${title}.status"
+
+  if [ "$RC_AUTOSTART_DRY_RUN" = "1" ]; then
+    echo "[dry-run] would launch GUI terminal $title using $DIR/$script" | tee -a "$LOG_DIR/start_summary.txt"
+    return 0
+  fi
+
+  if [ -z "${DISPLAY:-}" ]; then
+    summary_event "no DISPLAY for $title; launching as background log instead"
+    start_one "$title" "$script"
+    return 0
+  fi
+
+  local terminal
+  terminal="$(resolve_gui_terminal)"
+  if [ -z "$terminal" ]; then
+    summary_event "no GUI terminal for $title; launching as background log instead"
+    start_one "$title" "$script"
+    return 0
+  fi
+
+  local runner="$LOG_DIR/${title}.terminal_runner.sh"
+  cat > "$runner" <<EOF
+#!/usr/bin/env bash
+echo \$\$ > '$pidfile'
+
+export RUN_ID='$RUN_ID'
+export LOG_DIR='$LOG_DIR'
+export RUN_REASON='$RUN_REASON'
+export ROS_LOG_DIR='$ROS_LOG_DIR'
+export RCUTILS_LOGGING_USE_STDOUT=1
+export RCUTILS_LOGGING_BUFFERED_STREAM=0
+
+{
+  echo '========== TERMINAL START =========='
+  echo 'time: '"\$(date -Iseconds)"
+  echo 'title: $title'
+  echo 'script: $DIR/$script'
+  echo 'pidfile: $pidfile'
+  echo 'logfile: $logfile'
+  echo 'log_dir: $LOG_DIR'
+  echo '===================================='
+  echo
+
+  '$DIR/$script'
+  rc=\$?
+
+  echo
+  echo '========== TERMINAL EXIT =========='
+  echo 'time: '"\$(date -Iseconds)"
+  echo 'title: $title'
+  echo 'exit_code:' \$rc
+  echo 'logfile: $logfile'
+  echo '==================================='
+  echo \$rc > '$statusfile'
+
+  echo
+  echo 'Press Enter to close this terminal...'
+  read -r
+
+  exit \$rc
+} 2>&1 | tee -a '$logfile'
+EOF
+  chmod +x "$runner"
+
+  {
+    echo "[$(date -Iseconds) uptime_sec=$(current_uptime_sec) elapsed_sec=$(elapsed_since_start)] launching GUI $title -> $script"
+    echo "logfile: $logfile"
+    echo "pidfile: $pidfile"
+  } >> "$LOG_DIR/start_summary.txt"
+
+  if [ "$terminal" = "xfce4-terminal" ]; then
+    xfce4-terminal --disable-server --title="$title" --command "$runner" >> "$LOG_DIR/terminal_launch.log" 2>&1 &
+  else
+    gnome-terminal --title="$title" -- "$runner" >> "$LOG_DIR/terminal_launch.log" 2>&1 &
+  fi
+
+  sleep "${RC_AUTOSTART_TERMINAL_LAUNCH_DELAY:-0.4}"
+}
+
 should_start_thermal_pose_monitor() {
   case "${RC_HEALTH_MONITOR:-1}" in
     1|true|TRUE|yes|YES|on|ON)
@@ -640,6 +745,11 @@ if [ "$RC_LIDAR_MODE" = "mapping" ] && [ "${RC_AUTOSTART_CAN_DURING_MAPPING:-0}"
   summary_event "skipped CAN_SERIAL in mapping mode"
 else
   start_one "CAN_SERIAL" "serial_driver.sh"
+fi
+if should_start_can_monitor; then
+  start_one_gui_terminal "CAN_MONITOR" "can_pose_monitor.sh"
+else
+  summary_event "skipped CAN_MONITOR"
 fi
 if should_start_lidar_xyzr; then
   start_one "LIDAR_XYZR" "lidar_xyzr.sh"
