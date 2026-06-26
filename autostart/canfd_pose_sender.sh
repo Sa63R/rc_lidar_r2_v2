@@ -8,6 +8,7 @@ CAN_DEVICE_DEFAULT="/dev/serial/by-id/usb-Openlight_Labs_CANable2_b158aa7_github
 CAN_DEVICE="${CAN_DEVICE:-$CAN_DEVICE_DEFAULT}"
 CAN_SEND_RATE="${CAN_SEND_RATE:-100.0}"
 CAN_POSE_TOPIC="${CAN_POSE_TOPIC:-${RC_CAN_POSE_TOPIC:-/robot/pose_filtered}}"
+CAN_POSE_TIMEOUT_SEC="${CAN_POSE_TIMEOUT_SEC:-${RC_CAN_POSE_TIMEOUT_SEC:-0.5}}"
 CAN_DEBUG_CSV="${CAN_DEBUG_CSV:-${RC_CAN_DEBUG_CSV:-0}}"
 CAN_DEBUG_CSV_PATH="${CAN_DEBUG_CSV_PATH:-${RC_CAN_DEBUG_CSV_PATH:-}}"
 CAN_DEBUG_LOG_PERIOD_SEC="${CAN_DEBUG_LOG_PERIOD_SEC:-${RC_CAN_DEBUG_LOG_PERIOD_SEC:-1.0}}"
@@ -26,10 +27,12 @@ if truthy "$CAN_DEBUG_CSV" && [ -z "$CAN_DEBUG_CSV_PATH" ] && [ -n "${LOG_DIR:-}
 fi
 
 echo "CAN FD pose topic: $CAN_POSE_TOPIC"
+echo "CAN FD pose timeout: ${CAN_POSE_TIMEOUT_SEC}s"
 echo "CAN FD debug CSV: ${CAN_DEBUG_CSV_PATH:-off}"
 
 exec ros2 run lidar_localization canfd_pose_sender --ros-args \
   -p pose_topic:="$CAN_POSE_TOPIC" \
+  -p pose_timeout_sec:="$CAN_POSE_TIMEOUT_SEC" \
   -p debug_csv_path:="$CAN_DEBUG_CSV_PATH" \
   -p debug_log_period_sec:="$CAN_DEBUG_LOG_PERIOD_SEC" \
   -p transport:=slcan_fd \

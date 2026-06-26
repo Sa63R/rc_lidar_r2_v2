@@ -24,6 +24,7 @@ CANFD_FRAME_SIZE = struct.calcsize(CANFD_FRAME_FORMAT)
 DEFAULT_SEND_RATE_HZ = 100.0
 DEFAULT_AUTO_RETRANSMIT = True
 DEFAULT_POSE_TOPIC = "/robot/pose_filtered"
+DEFAULT_POSE_TIMEOUT_SEC = 0.5
 DEFAULT_CAN_FRAME_MODE = "normal"
 CAN_FRAME_MODES = (
     "normal",
@@ -202,6 +203,7 @@ class CanFdPoseSender(Node):
         self.declare_parameter("serial_device", "auto")
         self.declare_parameter("can_id", 0x12)
         self.declare_parameter("send_rate_hz", DEFAULT_SEND_RATE_HZ)
+        self.declare_parameter("pose_timeout_sec", DEFAULT_POSE_TIMEOUT_SEC)
         self.declare_parameter("enable_brs", True)
         self.declare_parameter("auto_retransmit", DEFAULT_AUTO_RETRANSMIT)
         self.declare_parameter("yaw_offset_deg", 0.0)
@@ -227,6 +229,7 @@ class CanFdPoseSender(Node):
         self.serial_device = self.configured_serial_device
         self.can_id = int(self.get_parameter("can_id").value)
         self.send_rate_hz = float(self.get_parameter("send_rate_hz").value)
+        self.pose_timeout_sec = float(self.get_parameter("pose_timeout_sec").value)
         self.enable_brs = bool(self.get_parameter("enable_brs").value)
         self.auto_retransmit = bool(self.get_parameter("auto_retransmit").value)
         self.slcan_nominal_speed_command = self.get_parameter(
@@ -261,6 +264,7 @@ class CanFdPoseSender(Node):
             "serial_fallback_globs"
         )
         self.latest_pose: Optional[PoseStamped] = None
+        self.latest_pose_monotonic: Optional[float] = None
         self.transport = None
         self.next_reconnect_monotonic = 0.0
         self.last_reconnect_log_monotonic = 0.0
@@ -279,6 +283,7 @@ class CanFdPoseSender(Node):
         self.get_logger().info(
             f"sending {self.pose_topic} as CAN FD id=0x{self.can_id:03X} "
             f"via {self.transport_name} rate={self.send_rate_hz:.1f}Hz "
+            f"pose_timeout_sec={self.pose_timeout_sec:.3f} "
             f"brs={'on' if self.enable_brs else 'off'} "
             f"auto_retransmit={'on' if self.auto_retransmit else 'off'} "
             f"can_frame_mode={self.can_frame_mode} "
@@ -440,6 +445,7 @@ class CanFdPoseSender(Node):
 
     def pose_callback(self, msg: PoseStamped) -> None:
         self.latest_pose = msg
+        self.latest_pose_monotonic = time.monotonic()
 
     def timer_callback(self) -> None:
         if self.latest_pose is None:
@@ -447,6 +453,22 @@ class CanFdPoseSender(Node):
                 f"waiting for {self.pose_topic}", throttle_duration_sec=2.0
             )
             return
+
+        if self.pose_timeout_sec > 0.0:
+            now = time.monotonic()
+            pose_age = (
+                now - self.latest_pose_monotonic
+                if self.latest_pose_monotonic is not None
+                else math.inf
+            )
+            if pose_age > self.pose_timeout_sec:
+                self.get_logger().warn(
+                    f"stale pose from {self.pose_topic}: "
+                    f"age={pose_age:.3f}s > timeout={self.pose_timeout_sec:.3f}s; "
+                    "skipping CAN FD send",
+                    throttle_duration_sec=2.0,
+                )
+                return
 
         pose = self.latest_pose.pose
         _, _, yaw = rpy_from_quat(pose.orientation)

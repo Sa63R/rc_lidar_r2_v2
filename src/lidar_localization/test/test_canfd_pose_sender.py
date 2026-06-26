@@ -119,6 +119,9 @@ class CanFdPoseSenderTest(unittest.TestCase):
     def test_filtered_pose_topic_is_default_can_input(self):
         self.assertEqual(canfd_pose_sender.DEFAULT_POSE_TOPIC, "/robot/pose_filtered")
 
+    def test_pose_timeout_default_is_half_second(self):
+        self.assertEqual(canfd_pose_sender.DEFAULT_POSE_TIMEOUT_SEC, 0.5)
+
     def test_pose_payload_is_little_endian_float_xyz_yaw(self):
         payload = canfd_pose_sender.pack_pose_payload(1.0, 2.0, -3.0, 0.25)
         self.assertEqual(payload, struct.pack("<ffff", 1.0, 2.0, -3.0, 0.25))
@@ -207,6 +210,52 @@ class CanFdPoseSenderTest(unittest.TestCase):
         sender.get_logger = lambda: sender.logger
         sender.open_transport = lambda: transports.pop(0)
         return sender
+
+    def make_timer_sender(self, pose_age_sec, pose_timeout_sec):
+        sender = CanFdPoseSender.__new__(CanFdPoseSender)
+        sender.pose_topic = "/robot/pose_continuous"
+        sender.pose_timeout_sec = pose_timeout_sec
+        sender.can_frame_mode = "normal"
+        sender.yaw_offset_rad = 0.0
+        sender.debug_log_period_sec = -1.0
+        sender.debug_csv_writer = None
+        sender.logger = FakeLogger()
+        sender.get_logger = lambda: sender.logger
+
+        msg = canfd_pose_sender.PoseStamped()
+        msg.pose.position.x = 1.0
+        msg.pose.position.y = 2.0
+        msg.pose.position.z = 3.0
+        sender.latest_pose = msg
+        sender.latest_pose_monotonic = (
+            canfd_pose_sender.time.monotonic() - pose_age_sec
+        )
+
+        sender.sent_payloads = []
+        sender.send_payload = (
+            lambda payload: sender.sent_payloads.append(payload) or True
+        )
+        return sender
+
+    def test_timer_skips_send_when_pose_is_stale(self):
+        sender = self.make_timer_sender(pose_age_sec=1.0, pose_timeout_sec=0.5)
+
+        sender.timer_callback()
+
+        self.assertEqual(sender.sent_payloads, [])
+        self.assertTrue(
+            any("stale pose from /robot/pose_continuous" in w for w in sender.logger.warnings)
+        )
+
+    def test_timer_keeps_previous_behavior_when_pose_timeout_disabled(self):
+        sender = self.make_timer_sender(pose_age_sec=10.0, pose_timeout_sec=0.0)
+
+        sender.timer_callback()
+
+        self.assertEqual(
+            sender.sent_payloads,
+            [struct.pack("<ffff", 1.0, 2.0, 3.0, 0.0)],
+        )
 
     def test_send_error_closes_stale_transport_and_reopens_next_device(self):
         stale = FakeTransport(fail=True)
