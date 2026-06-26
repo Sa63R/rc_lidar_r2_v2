@@ -242,7 +242,7 @@ void RCSerialDriver::getParams()
   raw_odom_yaw_enabled_ = declare_parameter<bool>("raw_odom_yaw_enabled", false);
   raw_odom_yaw_topic_ = declare_parameter<std::string>("raw_odom_yaw_topic", "/Odometry");
   raw_odom_yaw_timeout_sec_ = declare_parameter<double>("raw_odom_yaw_timeout_sec", 0.5);
-  raw_odom_yaw_strict_ = declare_parameter<bool>("raw_odom_yaw_strict", true);
+  raw_odom_yaw_strict_ = declare_parameter<bool>("raw_odom_yaw_strict", false);
   raw_odom_yaw_offset_rad_ = declare_parameter<double>(
     "raw_odom_yaw_offset_rad", 0.0);
   raw_odom_yaw_ignore_quality_gate_ = declare_parameter<bool>(
@@ -409,12 +409,9 @@ void RCSerialDriver::sendMapBodyPose()
           get_logger(),
           *get_clock(),
           1000,
-          "CAN raw odom yaw topic %s is not ready%s.",
-          raw_odom_yaw_topic_.c_str(),
-          raw_odom_yaw_strict_ ? "; holding CAN pose output" : "; trying fallback yaw source");
-        if (raw_odom_yaw_strict_) {
-          return;
-        }
+          "CAN raw odom yaw topic %s is not ready; holding CAN pose output until raw odom yaw is available.",
+          raw_odom_yaw_topic_.c_str());
+        return;
       }
     }
 
@@ -706,10 +703,13 @@ bool RCSerialDriver::readRawOdomYaw(float & yaw)
         get_logger(),
         *get_clock(),
         1000,
-        "CAN raw odom yaw topic %s is stale: receive_age=%.3fs",
+        "CAN raw odom yaw topic %s is stale: receive_age=%.3fs%s",
         raw_odom_yaw_topic_.c_str(),
-        age_sec);
-      return false;
+        age_sec,
+        raw_odom_yaw_strict_ ? "" : "; using last raw odom yaw");
+      if (raw_odom_yaw_strict_) {
+        return false;
+      }
     }
   }
 

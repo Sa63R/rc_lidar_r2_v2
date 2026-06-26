@@ -66,7 +66,7 @@ private:
   geometry_msgs::msg::PoseStamped::SharedPtr latest_yaw_pose_;
   rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr yaw_pose_sub_;
   bool raw_odom_yaw_enabled_{false};
-  bool raw_odom_yaw_strict_{true};
+  bool raw_odom_yaw_strict_{false};
   bool raw_odom_yaw_ignore_quality_gate_{true};
   std::string raw_odom_yaw_topic_;
   double raw_odom_yaw_timeout_sec_{0.5};

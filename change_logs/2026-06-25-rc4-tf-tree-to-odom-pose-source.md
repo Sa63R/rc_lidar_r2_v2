@@ -703,13 +703,32 @@ RC_CAN_POSE_TOPIC=/robot/pose_filtered
 RC_CAN_USE_YAW_POSE_TOPIC=0
 RC_CAN_USE_RAW_ODOM_YAW=1
 RC_CAN_RAW_ODOM_YAW_TOPIC=/Odometry
-RC_CAN_RAW_ODOM_YAW_STRICT=1
+RC_CAN_RAW_ODOM_YAW_STRICT=0
 RC_CAN_RAW_ODOM_YAW_OFFSET_RAD=0.0
 RC_CAN_RAW_ODOM_YAW_IGNORE_READY_GATE=1
 RC_POSE_FILTER_STABLE=0
 ```
 
 这表示开机和无显示器场景下，核心链路仍然 headless 后台启动；CAN 的 `x/y/z` 走 normal `/robot/pose_filtered`，`yaw` 走 FAST-LIO 原始 `/Odometry` yaw，偏置为 0。旧的 `/robot/pose` yaw topic override 不再作为开机默认，以避免读文档和日志时误判 yaw 来源。
+
+## Rc 4.19: raw odom CAN yaw no longer strict by default
+
+用户继续实车观察后强调：“yaw 要发原始 odom”，不能因为质量门控或超时保护又把航向角冻住。复查代码发现，虽然 CAN yaw 来源已经是 `/Odometry`，但 `RC_CAN_RAW_ODOM_YAW_STRICT=1` 时，只要 `/Odometry` 短暂超过 timeout，CAN 仍会暂停发送。这会在现场表现成 yaw 又被 hold。
+
+因此 Rc 4.19 修改默认策略：
+
+```bash
+RC_CAN_RAW_ODOM_YAW_STRICT=0
+```
+
+并调整 `rc_serial_driver` 的 raw odom yaw 读取逻辑：
+
+- `/Odometry` 正常更新时，继续发送最新原始 odom yaw。
+- `/Odometry` 短暂 stale 时，默认继续使用最后一帧原始 odom yaw。
+- 不 fallback 到 `/robot/pose_filtered` 的 yaw。
+- 需要恢复“raw odom yaw 超时就暂停 CAN”的保守保护时，手动设置 `RC_CAN_RAW_ODOM_YAW_STRICT=1`。
+
+这次只处理 CAN yaw 的 stale/strict 语义，不改变 x/y/z 来源，不改变 TF 树，不改变 map localizer。
 
 ## Appendix: User Questions And Constraints
 

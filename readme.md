@@ -241,7 +241,7 @@ RC_CAN_POSE_TOPIC=/robot/pose_filtered
 RC_CAN_USE_YAW_POSE_TOPIC=0
 RC_CAN_USE_RAW_ODOM_YAW=1
 RC_CAN_RAW_ODOM_YAW_TOPIC=/Odometry
-RC_CAN_RAW_ODOM_YAW_STRICT=1
+RC_CAN_RAW_ODOM_YAW_STRICT=0
 RC_CAN_RAW_ODOM_YAW_OFFSET_RAD=0.0
 RC_CAN_RAW_ODOM_YAW_IGNORE_READY_GATE=1
 RC_POSE_FILTER_STABLE=0
@@ -1021,17 +1021,17 @@ pose_source=pose_topic
 pose_topic=/robot/pose_filtered
 ```
 
-Rc 4.12 起，按电控现场要求，CAN 的 yaw 默认直接从 FAST-LIO 原始 `/Odometry` 读取。Rc 4.14 起，根据现场重新确认“电控需要的是原始 odom yaw 的旋转角，先不做额外零点偏置”，raw odom yaw offset 默认改为 `0`：
+Rc 4.12 起，按电控现场要求，CAN 的 yaw 默认直接从 FAST-LIO 原始 `/Odometry` 读取。Rc 4.14 起，根据现场重新确认“电控需要的是原始 odom yaw 的旋转角，先不做额外零点偏置”，raw odom yaw offset 默认改为 `0`。Rc 4.19 起，raw odom yaw 默认不再因为短暂 stale 直接 hold CAN，而是继续使用最后一帧原始 odom yaw，避免无头车航向角被超时保护冻结：
 
 ```text
 RC_CAN_USE_RAW_ODOM_YAW=1
 RC_CAN_RAW_ODOM_YAW_TOPIC=/Odometry
-RC_CAN_RAW_ODOM_YAW_STRICT=1
+RC_CAN_RAW_ODOM_YAW_STRICT=0
 RC_CAN_RAW_ODOM_YAW_OFFSET_RAD=0.0
 RC_CAN_RAW_ODOM_YAW_IGNORE_READY_GATE=1
 ```
 
-也就是说，电控收到的 `0x12: x,y` 和 `0x13` 的 `z` 仍来自 `/robot/pose_filtered`，保留地图重定位和滤波后的稳定位置；`0x13` 的 `yaw` 临时改为 FAST-LIO `/Odometry` 原始 yaw，不经过 map localizer 拉回、不经过 yaw fusion、不经过 pose filter，也不被 `/map_lidar/quality` ready gate 冻住。这样优先满足无头车转向实时性；代价是原始 FAST-LIO yaw 转多圈后可能有累计漂移。如果现场确认电控需要零点偏置，可以只覆盖 `RC_CAN_RAW_ODOM_YAW_OFFSET_RAD`；需要回退到上一版融合 yaw 时，设置：
+也就是说，电控收到的 `0x12: x,y` 和 `0x13` 的 `z` 仍来自 `/robot/pose_filtered`，保留地图重定位和滤波后的稳定位置；`0x13` 的 `yaw` 临时改为 FAST-LIO `/Odometry` 原始 yaw，不经过 map localizer 拉回、不经过 yaw fusion、不经过 pose filter，也不被 `/map_lidar/quality` ready gate 冻住。`RC_CAN_RAW_ODOM_YAW_STRICT=0` 时，如果 `/Odometry` 短暂超过 timeout，没有新数据，CAN 会继续发送最后一帧原始 odom yaw，不 fallback 到 `/robot/pose_filtered` 的 yaw；需要恢复“raw odom yaw 超时就暂停”的保护时设为 `1`。这样优先满足无头车转向实时性；代价是原始 FAST-LIO yaw 转多圈后可能有累计漂移。如果现场确认电控需要零点偏置，可以只覆盖 `RC_CAN_RAW_ODOM_YAW_OFFSET_RAD`；需要回退到上一版融合 yaw 时，设置：
 
 ```bash
 RC_CAN_USE_RAW_ODOM_YAW=0
@@ -1081,7 +1081,7 @@ RC_CAN_YAW_POSE_TOPIC_STRICT=1
 RC_CAN_USE_RAW_ODOM_YAW=1
 RC_CAN_RAW_ODOM_YAW_TOPIC=/Odometry
 RC_CAN_RAW_ODOM_YAW_TIMEOUT_SEC=0.5
-RC_CAN_RAW_ODOM_YAW_STRICT=1
+RC_CAN_RAW_ODOM_YAW_STRICT=0
 RC_CAN_RAW_ODOM_YAW_OFFSET_RAD=0.0
 RC_CAN_RAW_ODOM_YAW_IGNORE_READY_GATE=1
 ```
@@ -1632,7 +1632,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
    - Rc 4.8 在 `pose_from_odom` 增加低延迟 yaw 融合：`/robot/pose` 的 XY 仍来自 `/map_lidar/odom` 地图重定位结果，但 yaw 默认使用“最近一次地图 yaw 基准 + FAST-LIO `/Odometry` 高频 yaw 增量”。这样保留全局地图方向，又降低无头车自转时等待 map localizer 更新造成的约 1 秒级航向延迟。可用 `RC_ROBOT_POSE_YAW_FUSION=0` 回退旧 map yaw；`RC_ROBOT_POSE_YAW_FUSION_MAP_CORRECTION_ALPHA` 控制每次地图 yaw 更新对融合 yaw 的校正力度，Rc 4.11 默认 `0.05`，避免旧 map 结果强拖 fast yaw。
    - Rc 4.9 起，CAN 的 yaw 单独读取 `/robot/pose`，而 x/y/z 仍读取当前 `RC_CAN_POSE_TOPIC`，默认 `/robot/pose_filtered`。这样电控仍拿到滤波后的稳定位置，但航向角直接使用 Rc 4.8 的低延迟融合 yaw。相关开关为 `RC_CAN_USE_YAW_POSE_TOPIC`、`RC_CAN_YAW_POSE_TOPIC`、`RC_CAN_YAW_POSE_TOPIC_STRICT`。
    - Rc 4.10 起，CAN yaw 默认不再被 `/map_lidar/quality` ready gate 冻住：`RC_CAN_YAW_IGNORE_READY_GATE=1`。quality 不 ready 时，`0x12` 的 x/y 不发，`0x13` 继续发最新 yaw，并沿用最近一次质量通过时的可信 z。这个改动用于降低无头车旋转时因为重定位质量短暂波动导致的航向冻结；如果要恢复旧行为，可设为 `0`。
-   - Rc 4.12 起，CAN yaw 默认优先读取 FAST-LIO 原始 `/Odometry`。Rc 4.14 根据现场重新确认把偏置改为 `0`，也就是直接发原始 odom yaw：`RC_CAN_USE_RAW_ODOM_YAW=1`、`RC_CAN_RAW_ODOM_YAW_TOPIC=/Odometry`、`RC_CAN_RAW_ODOM_YAW_STRICT=1`、`RC_CAN_RAW_ODOM_YAW_OFFSET_RAD=0.0`。这个实验策略完全绕过 map yaw fusion 和 pose filter 对 yaw 的影响，用来验证电控无头车实时转向；x/y/z 仍按原生产链路走 `/robot/pose_filtered` 和 ready gate。若发现原始 odom yaw 漂移不可接受，可设置 `RC_CAN_USE_RAW_ODOM_YAW=0` 回退 Rc 4.9 的融合 yaw。
+   - Rc 4.12 起，CAN yaw 默认优先读取 FAST-LIO 原始 `/Odometry`。Rc 4.14 根据现场重新确认把偏置改为 `0`，也就是直接发原始 odom yaw：`RC_CAN_USE_RAW_ODOM_YAW=1`、`RC_CAN_RAW_ODOM_YAW_TOPIC=/Odometry`、`RC_CAN_RAW_ODOM_YAW_STRICT=0`、`RC_CAN_RAW_ODOM_YAW_OFFSET_RAD=0.0`。Rc 4.19 起，raw odom yaw 短暂 stale 时默认继续发送最后一帧原始 odom yaw，不因 stale check 直接冻结 CAN yaw；如需恢复超时保护，可设 `RC_CAN_RAW_ODOM_YAW_STRICT=1`。这个实验策略完全绕过 map yaw fusion 和 pose filter 对 yaw 的影响，用来验证电控无头车实时转向；x/y/z 仍按原生产链路走 `/robot/pose_filtered` 和 ready gate。若发现原始 odom yaw 漂移不可接受，可设置 `RC_CAN_USE_RAW_ODOM_YAW=0` 回退 Rc 4.9 的融合 yaw。
 
 21. `autostart/start_mapping_terminals.sh`、`autostart/save_fast_lio_map.sh`、`autostart/map_localizer.sh`、`autostart/pose_interface_mapping.sh`、`autostart/pose_interface_relocalization.sh`、`autostart/pose_stability_filter.sh`
    - 新增建图保存和地图重定位的一键脚本。
