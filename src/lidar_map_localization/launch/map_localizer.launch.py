@@ -21,6 +21,10 @@ def generate_launch_description():
     quality_overlap_distance = LaunchConfiguration("quality_overlap_distance")
     quality_overlap_period_sec = LaunchConfiguration("quality_overlap_period_sec")
     quality_overlap_max_points = LaunchConfiguration("quality_overlap_max_points")
+    timestamp_mismatch_warn_sec = LaunchConfiguration("timestamp_mismatch_warn_sec")
+    timestamp_mismatch_log_period_sec = LaunchConfiguration(
+        "timestamp_mismatch_log_period_sec"
+    )
     input_queue_depth = LaunchConfiguration("input_queue_depth")
 
     return LaunchDescription(
@@ -60,6 +64,10 @@ def generate_launch_description():
             DeclareLaunchArgument("quality_overlap_distance", default_value="0.20"),
             DeclareLaunchArgument("quality_overlap_period_sec", default_value="1.0"),
             DeclareLaunchArgument("quality_overlap_max_points", default_value="1000"),
+            DeclareLaunchArgument("timestamp_mismatch_warn_sec", default_value="0.03"),
+            DeclareLaunchArgument(
+                "timestamp_mismatch_log_period_sec", default_value="2.0"
+            ),
             DeclareLaunchArgument("input_queue_depth", default_value="1"),
             Node(
                 package="lidar_map_localization",
@@ -105,6 +113,12 @@ def generate_launch_description():
                         ),
                         "quality_overlap_max_points": ParameterValue(
                             quality_overlap_max_points, value_type=int
+                        ),
+                        "timestamp_mismatch_warn_sec": ParameterValue(
+                            timestamp_mismatch_warn_sec, value_type=float
+                        ),
+                        "timestamp_mismatch_log_period_sec": ParameterValue(
+                            timestamp_mismatch_log_period_sec, value_type=float
                         ),
                         "input_queue_depth": ParameterValue(
                             input_queue_depth, value_type=int

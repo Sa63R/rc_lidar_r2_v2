@@ -242,6 +242,8 @@ RC_AUTOSTART_TF_COMPARE=auto
 RC_AUTOSTART_LIDAR_XYZR=auto
 RC_CONTINUOUS_POSE=auto
 RC_CONTINUOUS_POSE_OUTPUT_TOPIC=/robot/pose_continuous
+RC_CONTINUOUS_POSE_STAMP_MATCH_MODE=stamp
+RC_CONTINUOUS_POSE_MAX_STAMP_DELTA=0.03
 RC_CAN_POSE_TOPIC=/robot/pose_continuous
 RC_CAN_POSE_TIMEOUT_SEC=0.5
 RC_CAN_RAW_ODOM_POSE_TOPIC=/Odometry
@@ -260,7 +262,7 @@ RC_READY_NOTIFY=1
 RC_READY_NOTIFY_POPUP=0
 ```
 
-也就是说，开机后会自动用当前已验证的小场地图 `maps/mid360_map_20260625_005422.pcd` 做重定位，启动 TF、Livox、FAST-LIO、地图匹配、位姿接口、continuous 高频融合位姿、CANFD 和健康日志等核心链路。旧 `/robot/pose_filtered` 与 `/robot/yaw_fusion/status` 默认不再启动，避免干扰后续滤波开发和 PlotJuggler 观察。CANFD 默认发送 `/robot/pose_continuous`，并用 `RC_CAN_POSE_TIMEOUT_SEC=0.5` 防止 continuous 中断后 100Hz 重发旧坐标。开机参数允许 RViz 和 PlotJuggler；如果无线 HDMI/图形桌面已经可用，它们会打开。如果无显示器、`DISPLAY` 为空或 X 无法连接，脚本会自动跳过 RViz/PlotJuggler，只保留核心 headless 后台定位和 CANFD。
+也就是说，开机后会自动用当前已验证的小场地图 `maps/mid360_map_20260625_005422.pcd` 做重定位，启动 TF、Livox、FAST-LIO、地图匹配、位姿接口、continuous 高频融合位姿、CANFD 和健康日志等核心链路。旧 `/robot/pose_filtered` 与 `/robot/yaw_fusion/status` 默认不再启动，避免干扰后续滤波开发和 PlotJuggler 观察。CANFD 默认发送 `/robot/pose_continuous`，并用 `RC_CAN_POSE_TIMEOUT_SEC=0.5` 防止 continuous 中断后 100Hz 重发旧坐标。continuous 默认使用严格时间戳匹配：`/map_lidar/odom` 只能和 30ms 内的 `/Odometry` 历史帧配对，超限会拒绝本次地图修正并在 `POSE_CONTINUOUS.log` 写入 `TIMESTAMP MATCH ERROR`。开机参数允许 RViz 和 PlotJuggler；如果无线 HDMI/图形桌面已经可用，它们会打开。如果无显示器、`DISPLAY` 为空或 X 无法连接，脚本会自动跳过 RViz/PlotJuggler，只保留核心 headless 后台定位和 CANFD。
 
 检查开机自启是否触发：
 
@@ -338,11 +340,13 @@ yaw_can = yaw_tf
 ```text
 RC_CONTINUOUS_POSE=auto
 RC_CONTINUOUS_POSE_OUTPUT_TOPIC=/robot/pose_continuous
+RC_CONTINUOUS_POSE_STAMP_MATCH_MODE=stamp
+RC_CONTINUOUS_POSE_MAX_STAMP_DELTA=0.03
 RC_CAN_POSE_TOPIC=/robot/pose_continuous
 RC_CAN_POSE_TIMEOUT_SEC=0.5
 ```
 
-也就是说，电控收到的是 `continuous_robot_pose` 输出的机器人中心业务坐标：它用 map localizer 的低频重定位结果校正 FAST-LIO `/Odometry`，再以较高频率连续发布 `robot_origin -> robot_base` 语义的位姿。如果 `/robot/pose_continuous` 超过 timeout 没有刷新，CANFD 会暂停发送，不会 100Hz 重发旧坐标。需要临时回到旧 raw odom 调车策略时，再显式设置 raw odom 相关环境变量。
+也就是说，电控收到的是 `continuous_robot_pose` 输出的机器人中心业务坐标：它用 map localizer 的低频重定位结果校正 FAST-LIO `/Odometry`，再以较高频率连续发布 `robot_origin -> robot_base` 语义的位姿。地图修正默认只接受严格时间戳匹配：`RC_CONTINUOUS_POSE_STAMP_MATCH_MODE=stamp` 禁止拿最新 odom 兜底，`RC_CONTINUOUS_POSE_MAX_STAMP_DELTA=0.03` 表示 `/map_lidar/odom` 和 `/Odometry` 的 header stamp 超过 30ms 就拒绝这次修正，并在 `POSE_CONTINUOUS.log` 写入 `TIMESTAMP MATCH ERROR`。如果 `/robot/pose_continuous` 超过 timeout 没有刷新，CANFD 会暂停发送，不会 100Hz 重发旧坐标。需要临时回到旧 raw odom 调车策略时，再显式设置 raw odom 相关环境变量。
 
 CAN 帧格式保持不变：
 
@@ -1665,6 +1669,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
    - Rc 3.0 新增 `pcd_prepare_local_map`，用于从大场馆 PCD 裁出比赛局部图并降采样；输出已存在时自动改名，避免覆盖原图或旧局部图。
    - Rc 3.2 确认可用方案是“直接绕比赛小场地建小 PCD，不裁剪”。本机可用地图为 `maps/mid360_map.pcd`，裁剪工具保留为备用但本检查点没有用到。
    - Rc 4.11 起，`map_localizer` 的 scan/odom 输入默认使用 `RC_MAP_LOCALIZER_INPUT_QUEUE_DEPTH=1`。如果地图匹配算不过来，ROS 输入队列只保留最新 scan/odom，旧帧会被覆盖，不再排队回放到 yaw/pose 修正链路。这个改动不按 header stamp 强丢弃结果，先避免历史点云积压；`scan_age_sec`、`odom_age_sec`、`align_ms` 仍通过 `/map_lidar/quality` 和健康日志记录，用来判断是否还存在真实延迟。
+   - 当前版本额外增加轻量时间戳报警：`map_localizer` 不维护 odom 队列、不改变当前 latest scan/latest odom 逻辑，但如果 latest scan header stamp 和 latest `/Odometry` header stamp 差值超过 `RC_MAP_TIMESTAMP_MISMATCH_WARN_SEC=0.03`，会在 `MAP_LOCALIZER.log` 写入 `TIMESTAMP MATCH ERROR`。正常同步时不产生日志噪音。
 
 20. `src/lidar_localization`
    - 新增 `pose_from_odom` 位姿接口。
@@ -1689,6 +1694,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
    - 当前 CANFD 模式默认由 `CANFD_POSE` 监听 FD CAN `0x30` 重启帧，同时继续发送 `/robot/pose_continuous`；`CAN_RESTART` 仅作为手动兜底监听器保留，避免默认情况下两个进程抢同一个 CANable2 串口。`restart_lidar_stack.sh` 增加文件级 cooldown 和锁忙日志，用来避免连续触发导致第二、第三次重启失效或反复杀半启动中的栈。
    - Rc 4.26 起，旧 `/robot/pose_filtered`、beta/stable filter 和 `/robot/yaw_fusion/status` 默认不再启动，也不再进入 PlotJuggler/健康日志默认订阅；`READY_NOTIFY` 默认改看 `/robot/pose_continuous`。需要对比旧滤波时显式设置 `RC_POSE_FILTER=1`，需要对比旧 yaw fusion 时显式设置 `RC_ROBOT_POSE_YAW_FUSION=1`。
    - Rc 4.20 新增并行连续位姿链路 `continuous_robot_pose`，默认只在 `RC_LIDAR_MODE=relocalization` 时启动，输出 `/robot/pose_continuous`、`/robot/odom_continuous` 和 `/robot/pose_continuous/status`。它不直接使用 `/map_lidar/odom` 的阶梯 pose 作为控制位姿，而是用 `/map_lidar/odom` 与同时间附近的 FAST-LIO `/Odometry` 反推并平滑更新 `map -> camera_init` 校正，再用最新 `/Odometry` 连续发布机器人业务位姿。
+   - 当前版本把 continuous 默认时间戳策略收紧为 `RC_CONTINUOUS_POSE_STAMP_MATCH_MODE=stamp`、`RC_CONTINUOUS_POSE_MAX_STAMP_DELTA=0.03`。也就是 `/map_lidar/odom` 必须匹配到 30ms 内的 `/Odometry` 历史帧才会更新 `map -> camera_init`；匹配失败会拒绝本次 map correction，并在 `POSE_CONTINUOUS.log` 写入 `TIMESTAMP MATCH ERROR`，避免旧地图位姿和最新 odom 错配后污染 CANFD 输出。
 
 21. `autostart/start_mapping_terminals.sh`、`autostart/save_fast_lio_map.sh`、`autostart/map_localizer.sh`、`autostart/pose_interface_mapping.sh`、`autostart/pose_interface_relocalization.sh`、`autostart/pose_stability_filter.sh`
    - 新增建图保存和地图重定位的一键脚本。

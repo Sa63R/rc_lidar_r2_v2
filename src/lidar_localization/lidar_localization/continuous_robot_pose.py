@@ -75,8 +75,9 @@ class ContinuousRobotPose(Node):
         self.declare_parameter("reference_pose_rpy", [0.0, 0.0, -math.pi / 2.0])
         self.declare_parameter("correction_alpha", 0.05)
         self.declare_parameter("odom_buffer_sec", 5.0)
-        self.declare_parameter("max_stamp_delta_sec", 0.20)
-        self.declare_parameter("stamp_match_mode", "auto")
+        self.declare_parameter("max_stamp_delta_sec", 0.03)
+        self.declare_parameter("stamp_match_mode", "stamp")
+        self.declare_parameter("stamp_mismatch_log_period_sec", 2.0)
         self.declare_parameter("quality_gate_enabled", True)
         self.declare_parameter("quality_timeout_sec", 1.0)
         self.declare_parameter("quality_max_fitness", 0.20)
@@ -114,9 +115,13 @@ class ContinuousRobotPose(Node):
         ).lower()
         if self.stamp_match_mode not in {"auto", "stamp", "latest"}:
             self.get_logger().warn(
-                "stamp_match_mode must be auto, stamp, or latest; using auto"
+                "stamp_match_mode must be auto, stamp, or latest; using stamp"
             )
-            self.stamp_match_mode = "auto"
+            self.stamp_match_mode = "stamp"
+        self.stamp_mismatch_log_period_sec = max(
+            0.0,
+            float(self.get_parameter("stamp_mismatch_log_period_sec").value),
+        )
         self.quality_gate_enabled = bool(
             self.get_parameter("quality_gate_enabled").value
         )
@@ -161,6 +166,7 @@ class ContinuousRobotPose(Node):
         self.last_quality_wall_sec: float | None = None
         self.last_quality_data: list[float] | None = None
         self.last_status_data: list[float] = []
+        self.last_stamp_mismatch_log_wall_sec = 0.0
         self.update_count = 0
         self.rejected_count = 0
         self.output_count = 0
@@ -283,6 +289,7 @@ class ContinuousRobotPose(Node):
         )
         if matched_sample is None:
             self.rejected_count += 1
+            self.log_stamp_match_error(stamp_to_sec(msg.header.stamp), matched_delta_sec)
             self.publish_status(
                 map_update_accepted=0.0,
                 reject_reason=7,
@@ -360,6 +367,32 @@ class ContinuousRobotPose(Node):
         if self.stamp_match_mode == "auto":
             return latest, best_delta, 2
         return None, best_delta, 3
+
+    def log_stamp_match_error(self, map_stamp_sec: float, matched_delta_sec: float) -> None:
+        now = time.monotonic()
+        if (
+            self.stamp_mismatch_log_period_sec > 0.0
+            and now - self.last_stamp_mismatch_log_wall_sec
+            < self.stamp_mismatch_log_period_sec
+        ):
+            return
+        self.last_stamp_mismatch_log_wall_sec = now
+
+        if math.isfinite(matched_delta_sec):
+            delta_ms = matched_delta_sec * 1000.0
+            limit_ms = self.max_stamp_delta_sec * 1000.0
+            self.get_logger().error(
+                "TIMESTAMP MATCH ERROR: /map_lidar/odom stamp cannot be matched "
+                f"to /Odometry within {limit_ms:.1f}ms; "
+                f"nearest_delta={delta_ms:.1f}ms, map_stamp={map_stamp_sec:.6f}. "
+                "Rejected this map correction."
+            )
+        else:
+            self.get_logger().error(
+                "TIMESTAMP MATCH ERROR: no /Odometry sample is available for "
+                f"/map_lidar/odom stamp {map_stamp_sec:.6f}. "
+                "Rejected this map correction."
+            )
 
     def output_pose_from_fast_pose(self, fast_body_pose: Pose) -> Pose:
         map_body = compose_pose(self.map_to_camera_init, fast_body_pose)
@@ -443,7 +476,8 @@ def main(args=None) -> None:
         pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":

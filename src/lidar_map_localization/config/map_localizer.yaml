@@ -41,6 +41,10 @@ map_localizer:
     quality_overlap_distance: 0.20
     quality_overlap_period_sec: 1.0
     quality_overlap_max_points: 1000
+    # Lightweight timestamp guard only: warn loudly if the latest scan and
+    # latest FAST-LIO odom no longer describe the same sensor frame.
+    timestamp_mismatch_warn_sec: 0.03
+    timestamp_mismatch_log_period_sec: 2.0
     # Keep only the latest scan/odom input for real-time control. If map
     # matching is slower than incoming data, old sensor frames are dropped
     # instead of being replayed later into the yaw/pose correction path.

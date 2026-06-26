@@ -10,12 +10,15 @@ QUALITY_TOPIC="${RC_CONTINUOUS_POSE_QUALITY_TOPIC:-/map_lidar/quality}"
 OUTPUT_POSE_TOPIC="${RC_CONTINUOUS_POSE_OUTPUT_TOPIC:-/robot/pose_continuous}"
 OUTPUT_ODOM_TOPIC="${RC_CONTINUOUS_POSE_OUTPUT_ODOM_TOPIC:-/robot/odom_continuous}"
 STATUS_TOPIC="${RC_CONTINUOUS_POSE_STATUS_TOPIC:-/robot/pose_continuous/status}"
+STAMP_MATCH_MODE="${RC_CONTINUOUS_POSE_STAMP_MATCH_MODE:-stamp}"
+MAX_STAMP_DELTA="${RC_CONTINUOUS_POSE_MAX_STAMP_DELTA:-0.03}"
+STAMP_MISMATCH_LOG_PERIOD="${RC_CONTINUOUS_POSE_STAMP_MISMATCH_LOG_PERIOD:-2.0}"
 
 echo "[continuous_pose] fast_odom=$FAST_ODOM_TOPIC"
 echo "[continuous_pose] map_odom=$MAP_ODOM_TOPIC"
 echo "[continuous_pose] output_pose=$OUTPUT_POSE_TOPIC output_odom=$OUTPUT_ODOM_TOPIC"
 echo "[continuous_pose] status=$STATUS_TOPIC"
-echo "[continuous_pose] alpha=${RC_CONTINUOUS_POSE_CORRECTION_ALPHA:-0.05} stamp_match=${RC_CONTINUOUS_POSE_STAMP_MATCH_MODE:-auto}"
+echo "[continuous_pose] alpha=${RC_CONTINUOUS_POSE_CORRECTION_ALPHA:-0.05} stamp_match=$STAMP_MATCH_MODE max_stamp_delta=$MAX_STAMP_DELTA"
 echo "[continuous_pose] quality_gate=${RC_CONTINUOUS_POSE_QUALITY_GATE:-1}"
 
 exec ros2 run lidar_localization continuous_robot_pose --ros-args \
@@ -35,8 +38,9 @@ exec ros2 run lidar_localization continuous_robot_pose --ros-args \
   -p reference_pose_rpy:="${RC_ROBOT_ORIGIN_RPY:-[0.0, 0.0, -1.5707963267948966]}" \
   -p correction_alpha:="${RC_CONTINUOUS_POSE_CORRECTION_ALPHA:-0.05}" \
   -p odom_buffer_sec:="${RC_CONTINUOUS_POSE_ODOM_BUFFER_SEC:-5.0}" \
-  -p max_stamp_delta_sec:="${RC_CONTINUOUS_POSE_MAX_STAMP_DELTA:-0.20}" \
-  -p stamp_match_mode:="${RC_CONTINUOUS_POSE_STAMP_MATCH_MODE:-auto}" \
+  -p max_stamp_delta_sec:="$MAX_STAMP_DELTA" \
+  -p stamp_match_mode:="$STAMP_MATCH_MODE" \
+  -p stamp_mismatch_log_period_sec:="$STAMP_MISMATCH_LOG_PERIOD" \
   -p quality_gate_enabled:="${RC_CONTINUOUS_POSE_QUALITY_GATE:-true}" \
   -p quality_timeout_sec:="${RC_CONTINUOUS_POSE_QUALITY_TIMEOUT:-1.0}" \
   -p quality_max_fitness:="${RC_CONTINUOUS_POSE_QUALITY_MAX_FITNESS:-0.20}" \

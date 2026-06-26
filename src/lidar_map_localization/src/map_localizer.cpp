@@ -74,6 +74,9 @@ class MapLocalizer : public rclcpp::Node {
     quality_overlap_distance_ = declare_parameter<double>("quality_overlap_distance", 0.20);
     quality_overlap_period_sec_ = declare_parameter<double>("quality_overlap_period_sec", 1.0);
     quality_overlap_max_points_ = declare_parameter<int>("quality_overlap_max_points", 1000);
+    timestamp_mismatch_warn_sec_ = declare_parameter<double>("timestamp_mismatch_warn_sec", 0.03);
+    timestamp_mismatch_log_period_sec_ =
+        declare_parameter<double>("timestamp_mismatch_log_period_sec", 2.0);
     input_queue_depth_ = std::max(
         1, static_cast<int>(declare_parameter<int>("input_queue_depth", 1)));
 
@@ -264,6 +267,23 @@ class MapLocalizer : public rclcpp::Node {
     CloudT::Ptr filtered_scan = downsample(scan, scan_leaf_size_);
     const double scan_age_sec = ageSec(now(), stamp);
     const double odom_age_sec = ageSec(now(), rclcpp::Time(odom->header.stamp));
+    const double scan_odom_stamp_delta_sec = std::abs(
+        (stamp - rclcpp::Time(odom->header.stamp)).seconds());
+    if (
+        timestamp_mismatch_warn_sec_ > 0.0 &&
+        std::isfinite(scan_odom_stamp_delta_sec) &&
+        scan_odom_stamp_delta_sec > timestamp_mismatch_warn_sec_) {
+      RCLCPP_ERROR_THROTTLE(
+          get_logger(), *get_clock(),
+          static_cast<int>(std::max(0.1, timestamp_mismatch_log_period_sec_) * 1000.0),
+          "TIMESTAMP MATCH ERROR: map_localizer latest scan stamp and latest /Odometry "
+          "stamp differ by %.1fms > %.1fms; scan_stamp=%.6f odom_stamp=%.6f. "
+          "Map matching will continue, but this can inject a wrong map correction.",
+          scan_odom_stamp_delta_sec * 1000.0,
+          timestamp_mismatch_warn_sec_ * 1000.0,
+          stamp.seconds(),
+          rclcpp::Time(odom->header.stamp).seconds());
+    }
     const std::size_t raw_scan_points = scan->size();
     if (static_cast<int>(filtered_scan->size()) < min_scan_points_) {
       RCLCPP_WARN_THROTTLE(
@@ -637,6 +657,8 @@ class MapLocalizer : public rclcpp::Node {
   double quality_overlap_distance_{0.20};
   double quality_overlap_period_sec_{1.0};
   int quality_overlap_max_points_{1000};
+  double timestamp_mismatch_warn_sec_{0.03};
+  double timestamp_mismatch_log_period_sec_{2.0};
   int input_queue_depth_{1};
   double last_overlap_time_sec_{-1.0};
   double last_overlap_ratio_{-1.0};
