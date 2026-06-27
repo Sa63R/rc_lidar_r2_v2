@@ -1418,6 +1418,20 @@ RC_LIDAR_MODE=mapping \
 
 显式设置 `RC_FASTLIO_MAP_SAVE_PATH` 时脚本会尊重该请求路径；如果该文件已存在，`/map_save` 仍会自动生成不冲突的新文件名。
 
+建图时也可以只对 FAST-LIO 的部分参数做一次性覆盖；不设置这些变量时仍完全使用 `src/FAST_LIO/config/mid360.yaml` 里的默认值：
+
+```bash
+RC_FASTLIO_MAP_SAVE_PATH=/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/site_fine_det30.pcd \
+RC_FASTLIO_DET_RANGE=30 \
+RC_FASTLIO_FILTER_SIZE_SURF=0.20 \
+RC_FASTLIO_FILTER_SIZE_MAP=0.30 \
+FASTLIO_RVIZ=true \
+RC_LIDAR_MODE=mapping \
+./autostart/start_all_terminals.sh
+```
+
+对应的 `ros2 launch fast_lio mapping.launch.py` 也支持直接传 `det_range:=...`、`filter_size_surf:=...` 和 `filter_size_map:=...`。这些覆盖只影响本次 FAST-LIO 进程，不会改写 YAML 文件。
+
 ### 地图质量评分
 
 可以离线检查 PCD 地图的基本质量：

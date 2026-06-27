@@ -1,4 +1,4 @@
-# codex 不对这个文件做记录，但是必要错误可修改
+# codex 不主动对这个文件做修改，但是必要错误可修改，以及我要求可修改
 
 # TEST
 ## 性能测试
@@ -25,6 +25,22 @@ FASTLIO_RVIZ=true \
 RC_LIDAR_MAP_PATH="/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/mid360_map_20260625_005422.pcd" \
 ./autostart/start_all_terminals.sh
 
+## 建图（原始参数，对照组）
+
+FASTLIO_RVIZ=true \
+RC_LIDAR_MODE=mapping \
+RC_FASTLIO_MAP_SAVE_PATH=/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/map_default.pcd \
+./autostart/start_all_terminals.sh
+
+## 建图（功耗更大，更实验性的参数）
+
+FASTLIO_RVIZ=true \
+RC_LIDAR_MODE=mapping \
+RC_FASTLIO_MAP_SAVE_PATH=/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/map_fine_det30.pcd \
+RC_FASTLIO_DET_RANGE=30 \
+RC_FASTLIO_FILTER_SIZE_SURF=0.20 \
+RC_FASTLIO_FILTER_SIZE_MAP=0.30 \
+./autostart/start_all_terminals.sh
 
 
 <!-- 旋转自校正脚本 -->
@@ -41,8 +57,10 @@ ros2 run fastlio_world_init rotation_extrinsic_calibrator \
 建图模块
 
 # 建图
-cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
-RC_LIDAR_MODE=mapping ./autostart/start_all_terminals.sh
+FASTLIO_RVIZ=true \
+RC_LIDAR_MODE=mapping \
+RC_FASTLIO_MAP_SAVE_PATH=/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/map_default.pcd \
+./autostart/start_all_terminals.sh
 
 # 保存地图
 cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
