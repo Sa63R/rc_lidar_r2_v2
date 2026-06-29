@@ -237,7 +237,12 @@ RC_AUTOSTART_HEADLESS=1
 RC_AUTOSTART_PLOTJUGGLER=1
 RC_AUTOSTART_CANFD=1
 RC_CAN_DEBUG_CSV=1
-FASTLIO_RVIZ=true
+RC_MAP_LOCALIZER_LOCALIZE_PERIOD_SEC=0.2
+RC_FASTLIO_FILTER_SIZE_SURF=0.15
+RC_FASTLIO_FILTER_SIZE_MAP=0.25
+RC_FASTLIO_RUNTIME_POS_LOG_ENABLE=0
+RC_FASTLIO_DET_RANGE=100
+FASTLIO_RVIZ=false
 RC_AUTOSTART_TF_COMPARE=auto
 RC_AUTOSTART_LIDAR_XYZR=auto
 RC_CONTINUOUS_POSE=auto
@@ -262,7 +267,7 @@ RC_READY_NOTIFY=1
 RC_READY_NOTIFY_POPUP=0
 ```
 
-也就是说，开机后会自动用当前已验证的小场地图 `maps/mid360_map_20260625_005422.pcd` 做重定位，启动 TF、Livox、FAST-LIO、地图匹配、位姿接口、continuous 高频融合位姿、CANFD 和健康日志等核心链路。旧 `/robot/pose_filtered` 与 `/robot/yaw_fusion/status` 默认不再启动，避免干扰后续滤波开发和 PlotJuggler 观察。CANFD 默认发送 `/robot/pose_continuous`，并用 `RC_CAN_POSE_TIMEOUT_SEC=0.5` 防止 continuous 中断后 100Hz 重发旧坐标。continuous 默认使用严格时间戳匹配：`/map_lidar/odom` 只能和 30ms 内的 `/Odometry` 历史帧配对，超限会拒绝本次地图修正并在 `POSE_CONTINUOUS.log` 写入 `TIMESTAMP MATCH ERROR`。开机参数允许 RViz 和 PlotJuggler；如果无线 HDMI/图形桌面已经可用，它们会打开。如果无显示器、`DISPLAY` 为空或 X 无法连接，脚本会自动跳过 RViz/PlotJuggler，只保留核心 headless 后台定位和 CANFD。
+也就是说，开机后会自动用当前已验证的小场地图 `maps/mid360_map_20260625_005422.pcd` 做重定位，启动 TF、Livox、FAST-LIO、地图匹配、位姿接口、continuous 高频融合位姿、CANFD 和健康日志等核心链路。旧 `/robot/pose_filtered` 与 `/robot/yaw_fusion/status` 默认不再启动，避免干扰后续滤波开发和 PlotJuggler 观察。CANFD 默认发送 `/robot/pose_continuous`，并用 `RC_CAN_POSE_TIMEOUT_SEC=0.5` 防止 continuous 中断后 100Hz 重发旧坐标。continuous 默认使用严格时间戳匹配：`/map_lidar/odom` 只能和 30ms 内的 `/Odometry` 历史帧配对，超限会拒绝本次地图修正并在 `POSE_CONTINUOUS.log` 写入 `TIMESTAMP MATCH ERROR`。默认不开 RViz；PlotJuggler 仍按 `RC_AUTOSTART_PLOTJUGGLER=1` 请求启动，如果无显示器、`DISPLAY` 为空或 X 无法连接，脚本会自动跳过 GUI，只保留核心 headless 后台定位和 CANFD。
 
 检查开机自启是否触发：
 
@@ -554,20 +559,21 @@ HEALTH_MONITOR   低频记录温度、CPU 负载、CPU 频率、地图质量和�
 RC_HEALTH_MONITOR=0 ./autostart/start_all_terminals.sh
 ```
 
-默认运行模式是：
+默认运行模式现在是：
 
 ```text
-RC_LIDAR_MODE=tracking
+RC_LIDAR_MODE=relocalization
 ```
 
-这个模式保持 FAST-LIO + `map -> camera_init` identity + 机器人业务 TF + CAN 输出链路，不依赖地图文件。新增的模式有：
+这个模式读取当前小场地图做地图匹配重定位，并输出 `/robot/pose_continuous` 给 CANFD。仍可显式切回无地图跟踪模式：
 
 ```text
+RC_LIDAR_MODE=tracking         # FAST-LIO + map->camera_init identity，不依赖地图文件
 RC_LIDAR_MODE=mapping          # 建图，用 /map_save 保存 PCD 地图
 RC_LIDAR_MODE=relocalization   # 读取 maps/mid360_map.pcd 做地图匹配重定位
 ```
 
-当前默认策略：直接运行一键脚本默认不打开 RViz，包括手动正常启动、低负载启动、建图和重定位。开机 systemd 配置当前会设置 `FASTLIO_RVIZ=true`，但只有图形显示可达时才会真正打开；无显示器时脚本会自动禁用 RViz，核心定位继续跑。需要临时打开 RViz 调试时，显式设置：
+当前默认策略：直接运行一键脚本、开机 systemd 和 CANFD 重启都默认不打开 RViz，包括手动正常启动、低负载启动、建图和重定位。需要临时打开 RViz 调试时，显式设置：
 
 ```bash
 FASTLIO_RVIZ=true ./autostart/start_all_terminals.sh
@@ -943,9 +949,9 @@ ls -lh maps/mid360_map_20260625_005422.pcd
 
 2026-06-25 实测可用检查点：使用只绕小场地建出的 `/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/mid360_map_20260625_005422.pcd`，不做裁剪，并用 `RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1` 从建图原点附近启动，重定位表现正确。这是当前优先复刻方案。
 
-当前开机自启和 CAN 重启默认使用这张小场地图 `maps/mid360_map_20260625_005422.pcd`，设置 `RC_AUTOSTART_PLOTJUGGLER=1`、`FASTLIO_RVIZ=true`、`RC_AUTOSTART_CANFD=1` 和 `RC_CAN_DEBUG_CSV=1`。CANFD 当前默认发送 `/robot/pose_continuous`；无显示器或 X 不可达时，RViz/PlotJuggler 自动跳过，核心 headless 定位和 CANFD 继续运行。如果需要最低负载，再额外设置 `RC_AUTOSTART_PLOTJUGGLER=0 FASTLIO_RVIZ=false`；如果需要对比 stable，再额外设置 `RC_POSE_FILTER_STABLE=1`。
+当前开机自启和 CANFD 重启默认使用这张小场地图 `maps/mid360_map_20260625_005422.pcd`，设置 `RC_AUTOSTART_PLOTJUGGLER=1`、`FASTLIO_RVIZ=false`、`RC_AUTOSTART_CANFD=1`、`RC_CAN_DEBUG_CSV=1`、`RC_MAP_LOCALIZER_LOCALIZE_PERIOD_SEC=0.2`、`RC_FASTLIO_FILTER_SIZE_SURF=0.15`、`RC_FASTLIO_FILTER_SIZE_MAP=0.25`、`RC_FASTLIO_RUNTIME_POS_LOG_ENABLE=0` 和 `RC_FASTLIO_DET_RANGE=100`。CANFD 当前默认发送 `/robot/pose_continuous`；无显示器或 X 不可达时，PlotJuggler 自动跳过，核心 headless 定位和 CANFD 继续运行。如果需要最低负载，再额外设置 `RC_AUTOSTART_PLOTJUGGLER=0`；如果需要对比 stable，再额外设置 `RC_POSE_FILTER_STABLE=1`。
 
-现在默认不再假设当前启动点就是地图原点；重定位启动后，如果没有初始位姿，`MAP_LOCALIZER.log` 会提示等待 `/initialpose` 或 `RC_RELOCALIZATION_INITIAL_GUESS=1`，并且不会发布看起来像 0 的假定位结果。
+当前默认参数假设机器人从建图原点附近启动：`RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1`。如果机器人不在建图原点附近启动，需要显式改成 `RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=0` 并提供 `/initialpose` 或 `RC_RELOCALIZATION_INITIAL_GUESS=1`。
 
 如果机器人确实放在建图开始时的原点附近，可以显式允许地图原点初值：
 
@@ -1430,7 +1436,7 @@ RC_LIDAR_MODE=mapping \
 ./autostart/start_all_terminals.sh
 ```
 
-对应的 `ros2 launch fast_lio mapping.launch.py` 也支持直接传 `det_range:=...`、`filter_size_surf:=...` 和 `filter_size_map:=...`。这些覆盖只影响本次 FAST-LIO 进程，不会改写 YAML 文件。
+对应的 `ros2 launch fast_lio mapping.launch.py` 也支持直接传 `det_range:=...`、`filter_size_surf:=...`、`filter_size_map:=...` 和 `runtime_pos_log_enable:=...`。这些覆盖只影响本次 FAST-LIO 进程，不会改写 YAML 文件。
 
 ### 地图质量评分
 

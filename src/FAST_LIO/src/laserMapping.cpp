@@ -974,15 +974,30 @@ public:
             cout << "~~~~"<<ROOT_DIR<<" doesn't exist" << endl;
 
         /*** ROS subscribe initialization ***/
+        constexpr size_t LIDAR_QUEUE_DEPTH = 2;
+        constexpr size_t IMU_QUEUE_DEPTH = 80;
+        auto pointcloud_qos = rclcpp::SensorDataQoS();
+        pointcloud_qos.keep_last(LIDAR_QUEUE_DEPTH);
+        RCLCPP_INFO(
+            this->get_logger(),
+            "FAST-LIO subscription queue depths: lidar=%zu imu=%zu",
+            LIDAR_QUEUE_DEPTH,
+            IMU_QUEUE_DEPTH);
         if (p_pre->lidar_type == AVIA)
         {
-            sub_pcl_livox_ = this->create_subscription<livox_ros_driver2::msg::CustomMsg>(lid_topic, 20, livox_pcl_cbk);
+            sub_pcl_livox_ = this->create_subscription<livox_ros_driver2::msg::CustomMsg>(
+                lid_topic,
+                LIDAR_QUEUE_DEPTH,
+                livox_pcl_cbk);
         }
         else
         {
-            sub_pcl_pc_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(lid_topic, rclcpp::SensorDataQoS(), standard_pcl_cbk);
+            sub_pcl_pc_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
+                lid_topic,
+                pointcloud_qos,
+                standard_pcl_cbk);
         }
-        sub_imu_ = this->create_subscription<sensor_msgs::msg::Imu>(imu_topic, 10, imu_cbk);
+        sub_imu_ = this->create_subscription<sensor_msgs::msg::Imu>(imu_topic, IMU_QUEUE_DEPTH, imu_cbk);
         pubLaserCloudFull_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/cloud_registered", 20);
         pubLaserCloudFull_body_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/cloud_registered_body", 20);
         pubLaserCloudEffect_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/cloud_effected", 20);

@@ -26,6 +26,7 @@ def generate_launch_description():
         "timestamp_mismatch_log_period_sec"
     )
     input_queue_depth = LaunchConfiguration("input_queue_depth")
+    localize_period_sec = LaunchConfiguration("localize_period_sec")
 
     return LaunchDescription(
         [
@@ -69,6 +70,7 @@ def generate_launch_description():
                 "timestamp_mismatch_log_period_sec", default_value="2.0"
             ),
             DeclareLaunchArgument("input_queue_depth", default_value="1"),
+            DeclareLaunchArgument("localize_period_sec", default_value="0.1"),
             Node(
                 package="lidar_map_localization",
                 executable="map_localizer",
@@ -122,6 +124,9 @@ def generate_launch_description():
                         ),
                         "input_queue_depth": ParameterValue(
                             input_queue_depth, value_type=int
+                        ),
+                        "localize_period_sec": ParameterValue(
+                            localize_period_sec, value_type=float
                         ),
                     },
                 ],

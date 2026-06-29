@@ -20,6 +20,18 @@ def _optional_float_override(context, launch_arg, parameter_name):
         raise RuntimeError(f"{launch_arg} must be a float, got {value!r}") from exc
 
 
+def _optional_bool_override(context, launch_arg, parameter_name):
+    value = LaunchConfiguration(launch_arg).perform(context).strip()
+    if not value:
+        return None
+
+    if value in ('1', 'true', 'TRUE', 'yes', 'YES', 'on', 'ON'):
+        return parameter_name, True
+    if value in ('0', 'false', 'FALSE', 'no', 'NO', 'off', 'OFF'):
+        return parameter_name, False
+    raise RuntimeError(f"{launch_arg} must be a bool, got {value!r}")
+
+
 def _launch_fast_lio_node(context, *args, **kwargs):
     use_sim_time = LaunchConfiguration('use_sim_time')
     config_path = LaunchConfiguration('config_path')
@@ -44,6 +56,15 @@ def _launch_fast_lio_node(context, *args, **kwargs):
         if override is not None:
             key, value = override
             overrides[key] = value
+
+    override = _optional_bool_override(
+        context,
+        'runtime_pos_log_enable',
+        'runtime_pos_log_enable',
+    )
+    if override is not None:
+        key, value = override
+        overrides[key] = value
 
     if overrides:
         parameters.append(overrides)
@@ -114,6 +135,11 @@ def generate_launch_description():
         default_value='',
         description='Optional override for FAST-LIO mapping.det_range'
     )
+    declare_runtime_pos_log_enable_cmd = DeclareLaunchArgument(
+        'runtime_pos_log_enable',
+        default_value='',
+        description='Optional override for FAST-LIO runtime_pos_log_enable'
+    )
     rviz_node = Node(
         package='rviz2',
         executable='rviz2',
@@ -131,6 +157,7 @@ def generate_launch_description():
     ld.add_action(declare_filter_size_surf_cmd)
     ld.add_action(declare_filter_size_map_cmd)
     ld.add_action(declare_det_range_cmd)
+    ld.add_action(declare_runtime_pos_log_enable_cmd)
 
     ld.add_action(OpaqueFunction(function=_launch_fast_lio_node))
     ld.add_action(rviz_node)
