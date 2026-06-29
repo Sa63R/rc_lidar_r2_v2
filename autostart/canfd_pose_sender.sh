@@ -12,6 +12,7 @@ CAN_POSE_TIMEOUT_SEC="${CAN_POSE_TIMEOUT_SEC:-${RC_CAN_POSE_TIMEOUT_SEC:-0.5}}"
 CAN_DEBUG_CSV="${CAN_DEBUG_CSV:-${RC_CAN_DEBUG_CSV:-0}}"
 CAN_DEBUG_CSV_PATH="${CAN_DEBUG_CSV_PATH:-${RC_CAN_DEBUG_CSV_PATH:-}}"
 CAN_DEBUG_LOG_PERIOD_SEC="${CAN_DEBUG_LOG_PERIOD_SEC:-${RC_CAN_DEBUG_LOG_PERIOD_SEC:-1.0}}"
+CANFD_SERIAL_PRESENCE_CHECK_PERIOD_SEC="${CANFD_SERIAL_PRESENCE_CHECK_PERIOD_SEC:-${RC_CANFD_SERIAL_PRESENCE_CHECK_PERIOD_SEC:-0.5}}"
 CANFD_RESTART_ENABLED="${CANFD_RESTART_ENABLED:-${RC_CANFD_RESTART_ENABLED:-1}}"
 CANFD_RESTART_CAN_ID="${CANFD_RESTART_CAN_ID:-${RC_CANFD_RESTART_CAN_ID:-0x30}}"
 CANFD_RESTART_PAYLOAD_HEX="${CANFD_RESTART_PAYLOAD_HEX:-${RC_CANFD_RESTART_PAYLOAD_HEX:-A55A01FE00000000}}"
@@ -41,6 +42,7 @@ fi
 echo "CAN FD pose topic: $CAN_POSE_TOPIC"
 echo "CAN FD pose timeout: ${CAN_POSE_TIMEOUT_SEC}s"
 echo "CAN FD debug CSV: ${CAN_DEBUG_CSV_PATH:-off}"
+echo "CAN FD serial presence check: ${CANFD_SERIAL_PRESENCE_CHECK_PERIOD_SEC}s"
 echo "CAN FD restart listener: $CANFD_RESTART_ENABLED id=$CANFD_RESTART_CAN_ID payload=$CANFD_RESTART_PAYLOAD_HEX"
 
 exec ros2 run lidar_localization canfd_pose_sender --ros-args \
@@ -56,6 +58,7 @@ exec ros2 run lidar_localization canfd_pose_sender --ros-args \
   -p auto_retransmit:=true \
   -p reconnect_on_error:=true \
   -p reconnect_period_sec:=0.5 \
+  -p serial_presence_check_period_sec:="$CANFD_SERIAL_PRESENCE_CHECK_PERIOD_SEC" \
   -p allow_serial_fallback:=false \
   -p restart_enabled:="$CANFD_RESTART_ENABLED_PARAM" \
   -p restart_can_id:="$CANFD_RESTART_CAN_ID_PARAM" \

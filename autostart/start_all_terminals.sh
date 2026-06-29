@@ -53,6 +53,7 @@ RC_AUTOSTART_CANFD="${RC_AUTOSTART_CANFD:-0}"
 RC_AUTOSTART_CANFD_TX_MONITOR="${RC_AUTOSTART_CANFD_TX_MONITOR:-1}"
 RC_CAN_RESTART_LISTENER="${RC_CAN_RESTART_LISTENER:-auto}"
 RC_CANFD_RESTART_ENABLED="${RC_CANFD_RESTART_ENABLED:-1}"
+RC_CANFD_SERIAL_PRESENCE_CHECK_PERIOD_SEC="${RC_CANFD_SERIAL_PRESENCE_CHECK_PERIOD_SEC:-0.5}"
 RC_CAN_DEBUG_CSV="${RC_CAN_DEBUG_CSV:-1}"
 RC_CAN_DEBUG_CSV_PATH="${RC_CAN_DEBUG_CSV_PATH:-}"
 RC_CAN_DEBUG_LOG_PERIOD_SEC="${RC_CAN_DEBUG_LOG_PERIOD_SEC:-1.0}"
@@ -218,6 +219,7 @@ export RC_AUTOSTART_CANFD
 export RC_AUTOSTART_CANFD_TX_MONITOR
 export RC_CAN_RESTART_LISTENER
 export RC_CANFD_RESTART_ENABLED
+export RC_CANFD_SERIAL_PRESENCE_CHECK_PERIOD_SEC
 export RC_CAN_POSE_TOPIC
 export RC_CAN_DEBUG_CSV
 export RC_CAN_DEBUG_CSV_PATH
@@ -284,6 +286,7 @@ mkdir -p "$ROS_LOG_DIR"
   echo "canfd_tx_monitor: $RC_AUTOSTART_CANFD_TX_MONITOR"
   echo "can_restart_listener: $RC_CAN_RESTART_LISTENER"
   echo "canfd_restart_enabled: $RC_CANFD_RESTART_ENABLED"
+  echo "canfd_serial_presence_check_period_sec: $RC_CANFD_SERIAL_PRESENCE_CHECK_PERIOD_SEC"
   echo "can_debug_csv: $RC_CAN_DEBUG_CSV"
   echo "can_debug_csv_path: ${RC_CAN_DEBUG_CSV_PATH:-}"
   echo "continuous_pose: $RC_CONTINUOUS_POSE"
@@ -1226,7 +1229,7 @@ case "$RC_AUTOSTART_CANFD" in
     ;;
 esac
 if should_start_canfd_tx_monitor; then
-  start_one "CANFD_TX_MONITOR" "canfd_tx_monitor.sh"
+  start_one_gui_terminal "CANFD_TX_MONITOR" "canfd_tx_monitor.sh"
 else
   summary_event "skipped CANFD_TX_MONITOR"
 fi

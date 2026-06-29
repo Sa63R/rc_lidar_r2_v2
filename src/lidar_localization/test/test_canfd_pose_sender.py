@@ -339,6 +339,38 @@ class CanFdPoseSenderTest(unittest.TestCase):
         sender.send_payload(b"1234567890abcdef")
         self.assertEqual(reopened.sent, [(0x12, b"1234567890abcdef", True)])
 
+    def test_serial_presence_check_closes_transport_when_device_disappears(self):
+        sender = CanFdPoseSender.__new__(CanFdPoseSender)
+        stale = FakeTransport()
+        stale.device = "/dev/serial/by-id/canable"
+        sender.transport = stale
+        sender.serial_device = stale.device
+        sender.transport_name = f"slcan_fd:{stale.device}"
+        sender.serial_presence_check_period_sec = 0.0
+        sender.reconnect_period_sec = 0.5
+        sender.next_reconnect_monotonic = 0.0
+        sender.last_serial_presence_check_monotonic = 0.0
+        sender.logger = FakeLogger()
+        sender.get_logger = lambda: sender.logger
+
+        sender.check_transport_presence()
+        self.assertIs(sender.transport, stale)
+
+        sender.serial_presence_check_period_sec = 0.5
+        original_exists = canfd_pose_sender.os.path.exists
+        try:
+            canfd_pose_sender.os.path.exists = lambda path: False
+            sender.check_transport_presence()
+        finally:
+            canfd_pose_sender.os.path.exists = original_exists
+
+        self.assertTrue(stale.closed)
+        self.assertIsNone(sender.transport)
+        self.assertTrue(sender.next_reconnect_monotonic > 0.0)
+        self.assertTrue(
+            any("serial device disappeared" in w for w in sender.logger.warnings)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

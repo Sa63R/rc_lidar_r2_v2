@@ -236,7 +236,9 @@ RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1
 RC_AUTOSTART_HEADLESS=1
 RC_AUTOSTART_PLOTJUGGLER=1
 RC_AUTOSTART_CANFD=1
+RC_AUTOSTART_CANFD_TX_MONITOR=1
 RC_CAN_DEBUG_CSV=1
+RC_CANFD_SERIAL_PRESENCE_CHECK_PERIOD_SEC=0.5
 RC_MAP_LOCALIZER_LOCALIZE_PERIOD_SEC=0.2
 RC_FASTLIO_FILTER_SIZE_SURF=0.15
 RC_FASTLIO_FILTER_SIZE_MAP=0.25
@@ -267,7 +269,7 @@ RC_READY_NOTIFY=1
 RC_READY_NOTIFY_POPUP=0
 ```
 
-也就是说，开机后会自动用当前已验证的小场地图 `maps/mid360_map_20260625_005422.pcd` 做重定位，启动 TF、Livox、FAST-LIO、地图匹配、位姿接口、continuous 高频融合位姿、CANFD 和健康日志等核心链路。旧 `/robot/pose_filtered` 与 `/robot/yaw_fusion/status` 默认不再启动，避免干扰后续滤波开发和 PlotJuggler 观察。CANFD 默认发送 `/robot/pose_continuous`，并用 `RC_CAN_POSE_TIMEOUT_SEC=0.5` 防止 continuous 中断后 100Hz 重发旧坐标。continuous 默认使用严格时间戳匹配：`/map_lidar/odom` 只能和 30ms 内的 `/Odometry` 历史帧配对，超限会拒绝本次地图修正并在 `POSE_CONTINUOUS.log` 写入 `TIMESTAMP MATCH ERROR`。默认不开 RViz；PlotJuggler 仍按 `RC_AUTOSTART_PLOTJUGGLER=1` 请求启动，如果无显示器、`DISPLAY` 为空或 X 无法连接，脚本会自动跳过 GUI，只保留核心 headless 后台定位和 CANFD。
+也就是说，开机后会自动用当前已验证的小场地图 `maps/mid360_map_20260625_005422.pcd` 做重定位，启动 TF、Livox、FAST-LIO、地图匹配、位姿接口、continuous 高频融合位姿、CANFD 和健康日志等核心链路。旧 `/robot/pose_filtered` 与 `/robot/yaw_fusion/status` 默认不再启动，避免干扰后续滤波开发和 PlotJuggler 观察。CANFD 默认发送 `/robot/pose_continuous`，并用 `RC_CAN_POSE_TIMEOUT_SEC=0.5` 防止 continuous 中断后 100Hz 重发旧坐标。CANFD 发送监控默认开启，有显示器时弹出 `CANFD_TX_MONITOR` 终端，没显示器时退回后台日志。continuous 默认使用严格时间戳匹配：`/map_lidar/odom` 只能和 30ms 内的 `/Odometry` 历史帧配对，超限会拒绝本次地图修正并在 `POSE_CONTINUOUS.log` 写入 `TIMESTAMP MATCH ERROR`。默认不开 RViz；PlotJuggler 仍按 `RC_AUTOSTART_PLOTJUGGLER=1` 请求启动，如果无显示器、`DISPLAY` 为空或 X 无法连接，脚本会自动跳过 GUI，只保留核心 headless 后台定位和 CANFD。
 
 检查开机自启是否触发：
 
@@ -586,7 +588,7 @@ FASTLIO_RVIZ=true RC_LIDAR_MODE=mapping ./autostart/start_all_terminals.sh
 FASTLIO_RVIZ=true RC_LIDAR_MODE=relocalization ./autostart/start_all_terminals.sh
 ```
 
-当前默认策略是：核心雷达/定位/CAN/健康日志节点都用 headless 后台方式启动，不再给每个节点单独弹终端窗口；手动启动且有图形界面时，会额外打开 `CAN_MONITOR` 终端，实时打印 CAN 节点实际准备发送的 `x/y/z/yaw`，并可按参数打开 PlotJuggler。这样“正常启动”和“低负载启动”的核心链路几乎完全一致，差别主要是是否打开观察工具。
+当前默认策略是：核心雷达/定位/CAN/健康日志节点都用 headless 后台方式启动，不再给每个节点单独弹终端窗口；CANFD 启用且有图形界面时，会打开 `CANFD_TX_MONITOR` 终端，实时打印实际写入 CANFD 的 `x/y/z/yaw` 和 payload，并可按参数打开 PlotJuggler。这样“正常启动”和“低负载启动”的核心链路几乎完全一致，差别主要是是否打开观察工具。
 
 如果想要最低负载，关闭 PlotJuggler：
 
@@ -602,7 +604,16 @@ RC_AUTOSTART_PLOTJUGGLER=1 RUN_REASON=boot ./autostart/start_all_terminals.sh
 RC_AUTOSTART_PLOTJUGGLER=1 RUN_REASON=can_restart ./autostart/start_all_terminals.sh
 ```
 
-`CAN_MONITOR` 默认在手动启动且有 `DISPLAY` 时打开一个终端；开机自启和 CAN 自动重启默认不弹窗口。它订阅 `/rc_serial_driver/can_pose_debug`，这个 topic 由 `rc_serial_driver` 在 CAN 打包后发布，字段含义是：
+`CANFD_TX_MONITOR` 默认随 CANFD 启动；有 `DISPLAY` 且 X 可达时打开一个终端，没显示器时自动退回后台日志。它读取当前 run 的 `canfd_pose_payload.csv`，打印 CANFD ID、坐标和 `<x,y,z,yaw>` float32 little-endian payload。开关：
+
+```bash
+RC_AUTOSTART_CANFD_TX_MONITOR=1 ./autostart/start_all_terminals.sh  # 默认，打开 CANFD 发送监控
+RC_AUTOSTART_CANFD_TX_MONITOR=0 ./autostart/start_all_terminals.sh  # 关闭 CANFD 发送监控
+```
+
+CANFD 发送节点会每 `RC_CANFD_SERIAL_PRESENCE_CHECK_PERIOD_SEC=0.5` 秒轻量检查一次 CANable2 串口路径。掉线时关闭旧 fd，重插后由同一个 `CANFD_POSE` 节点重新打开并发送激活命令；transport 正常存在时不会重复激活，也不会额外启动第二个发送进程。
+
+`CAN_MONITOR` 是 legacy Classic CAN 调试终端，只在显式开启 `rc_serial_driver` 旧链路时有意义。它订阅 `/rc_serial_driver/can_pose_debug`，字段含义是：
 
 ```text
 data[0] = x_can
@@ -615,8 +626,8 @@ data[4] = 本轮 0x12 的 x/y 是否发送
 开关和打印频率：
 
 ```bash
-RC_AUTOSTART_CAN_MONITOR=1 ./autostart/start_all_terminals.sh  # 强制打开
-RC_AUTOSTART_CAN_MONITOR=0 ./autostart/start_all_terminals.sh  # 强制关闭
+RC_AUTOSTART_CAN_MONITOR=1 ./autostart/start_all_terminals.sh  # 强制打开 legacy Classic CAN monitor
+RC_AUTOSTART_CAN_MONITOR=0 ./autostart/start_all_terminals.sh  # 强制关闭 legacy Classic CAN monitor
 RC_CAN_MONITOR_PRINT_HZ=10 ./autostart/start_all_terminals.sh  # 终端打印频率
 ```
 
@@ -1712,6 +1723,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
    - Rc 4.24 修复 CAN 自动重启只能成功第一次的问题：`restart_lidar_stack.sh` 在成功拿到 `/tmp/rc_lidar_restart.lock` 后才更新 `latest_restart`，并且在 `nohup start_all_terminals.sh` 前关闭 flock 文件描述符，避免新启动的 ROS 长进程继承重启锁。否则第一次 CAN 重启成功后，后续第二、第三次 CAN 重启会因为锁被旧栈持有而直接退出。
    - Rc 4.25 起，重定位模式下 FD CAN 默认发送 `/robot/pose_continuous`，并用 `pose_timeout_sec=0.5` 防止 continuous 中断后重发旧坐标；显式设置 `RC_CAN_POSE_TOPIC` 时仍以用户设置优先。
    - 当前 CANFD 模式默认由 `CANFD_POSE` 监听 FD CAN `0x30` 重启帧，同时继续发送 `/robot/pose_continuous`；`CAN_RESTART` 仅作为手动兜底监听器保留，避免默认情况下两个进程抢同一个 CANable2 串口。`restart_lidar_stack.sh` 增加文件级 cooldown 和锁忙日志，用来避免连续触发导致第二、第三次重启失效或反复杀半启动中的栈。
+   - CANFD 启用时，`CANFD_TX_MONITOR` 默认随一键脚本、开机自启和 FDCAN 重启启动；有图形界面时弹出终端实时打印发送 payload，无显示器时退回后台日志。`CANFD_POSE` 同一进程内检查 CANable2 串口掉线，重插后重新打开并激活，不额外启动第二个发送进程。
    - Rc 4.26 起，旧 `/robot/pose_filtered`、beta/stable filter 和 `/robot/yaw_fusion/status` 默认不再启动，也不再进入 PlotJuggler/健康日志默认订阅；`READY_NOTIFY` 默认改看 `/robot/pose_continuous`。需要对比旧滤波时显式设置 `RC_POSE_FILTER=1`，需要对比旧 yaw fusion 时显式设置 `RC_ROBOT_POSE_YAW_FUSION=1`。
    - Rc 4.20 新增并行连续位姿链路 `continuous_robot_pose`，默认只在 `RC_LIDAR_MODE=relocalization` 时启动，输出 `/robot/pose_continuous`、`/robot/odom_continuous` 和 `/robot/pose_continuous/status`。它不直接使用 `/map_lidar/odom` 的阶梯 pose 作为控制位姿，而是用 `/map_lidar/odom` 与同时间附近的 FAST-LIO `/Odometry` 反推并平滑更新 `map -> camera_init` 校正，再用最新 `/Odometry` 连续发布机器人业务位姿。
    - 当前版本把 continuous 默认时间戳策略收紧为 `RC_CONTINUOUS_POSE_STAMP_MATCH_MODE=stamp`、`RC_CONTINUOUS_POSE_MAX_STAMP_DELTA=0.03`。也就是 `/map_lidar/odom` 必须匹配到 30ms 内的 `/Odometry` 历史帧才会更新 `map -> camera_init`；匹配失败会拒绝本次 map correction，并在 `POSE_CONTINUOUS.log` 写入 `TIMESTAMP MATCH ERROR`，避免旧地图位姿和最新 odom 错配后污染 CANFD 输出。

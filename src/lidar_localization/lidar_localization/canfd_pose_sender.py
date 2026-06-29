@@ -341,6 +341,7 @@ class CanFdPoseSender(Node):
         self.declare_parameter("reconnect_on_error", True)
         self.declare_parameter("reconnect_period_sec", 0.5)
         self.declare_parameter("reconnect_log_period_sec", 2.0)
+        self.declare_parameter("serial_presence_check_period_sec", 0.5)
         self.declare_parameter("allow_serial_fallback", True)
         self.declare_parameter(
             "serial_fallback_globs",
@@ -395,6 +396,9 @@ class CanFdPoseSender(Node):
         self.reconnect_log_period_sec = float(
             self.get_parameter("reconnect_log_period_sec").value
         )
+        self.serial_presence_check_period_sec = float(
+            self.get_parameter("serial_presence_check_period_sec").value
+        )
         self.allow_serial_fallback = bool(
             self.get_parameter("allow_serial_fallback").value
         )
@@ -416,6 +420,7 @@ class CanFdPoseSender(Node):
         self.transport = None
         self.next_reconnect_monotonic = 0.0
         self.last_reconnect_log_monotonic = 0.0
+        self.last_serial_presence_check_monotonic = 0.0
         self.last_debug_log_monotonic = 0.0
         self.debug_csv_file = None
         self.debug_csv_writer = None
@@ -523,6 +528,31 @@ class CanFdPoseSender(Node):
             f"in {self.reconnect_period_sec:.1f}s"
         )
 
+    def check_transport_presence(self) -> None:
+        if getattr(self, "transport", None) is None:
+            return
+        if self.serial_presence_check_period_sec <= 0.0:
+            return
+        if not str(self.transport_name).startswith("slcan_fd:"):
+            return
+
+        now = time.monotonic()
+        if (
+            now - self.last_serial_presence_check_monotonic
+            < self.serial_presence_check_period_sec
+        ):
+            return
+        self.last_serial_presence_check_monotonic = now
+
+        device = getattr(self.transport, "device", self.serial_device)
+        if device and not os.path.exists(device):
+            self.get_logger().warn(
+                f"CAN FD serial device disappeared: {device}; "
+                "closing stale transport and waiting for replug"
+            )
+            self.close_transport()
+            self.next_reconnect_monotonic = now + self.reconnect_period_sec
+
     def open_transport(self):
         transport = str(self.configured_transport).lower()
         if transport == "auto":
@@ -599,6 +629,7 @@ class CanFdPoseSender(Node):
         self.latest_pose_monotonic = time.monotonic()
 
     def timer_callback(self) -> None:
+        self.check_transport_presence()
         self.poll_restart_command()
 
         if self.latest_pose is None:

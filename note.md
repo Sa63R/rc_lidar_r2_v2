@@ -13,14 +13,16 @@ chromium-browser --proxy-server="http://127.0.0.1:7897"
 # 当前可用版本：小场地直接建图，不裁剪，使用这张地图重定位
 # 地图：/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/mid360_map_20260625_005422.pcd
 # 启动前提：车放在建图原点附近，所以使用 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1
-# 重定位调试/开机启动：核心 headless，CANFD 发 /robot/pose_continuous；有显示器时打开 RViz/PlotJuggler，没显示器时自动跳过 GUI
+# 重定位调试/开机启动：核心 headless，CANFD 发 /robot/pose_continuous；有显示器时打开 PlotJuggler/CANFD_TX_MONITOR，RViz 默认关闭，没显示器时自动跳过 GUI
 cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 RC_LIDAR_MODE=relocalization \
 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
 RC_AUTOSTART_HEADLESS=1 \
 RC_AUTOSTART_PLOTJUGGLER=1 \
 RC_AUTOSTART_CANFD=1 \
+RC_AUTOSTART_CANFD_TX_MONITOR=1 \
 RC_CAN_DEBUG_CSV=1 \
+RC_CANFD_SERIAL_PRESENCE_CHECK_PERIOD_SEC=0.5 \
 RC_MAP_LOCALIZER_LOCALIZE_PERIOD_SEC=0.2 \
 RC_FASTLIO_FILTER_SIZE_SURF=0.15 \
 RC_FASTLIO_FILTER_SIZE_MAP=0.25 \
@@ -117,15 +119,22 @@ RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
 RC_AUTOSTART_HEADLESS=1 \
 RC_AUTOSTART_PLOTJUGGLER=1 \
 RC_AUTOSTART_CANFD=1 \
+RC_AUTOSTART_CANFD_TX_MONITOR=1 \
 RC_CAN_DEBUG_CSV=1 \
-FASTLIO_RVIZ=true \
+RC_CANFD_SERIAL_PRESENCE_CHECK_PERIOD_SEC=0.5 \
+RC_MAP_LOCALIZER_LOCALIZE_PERIOD_SEC=0.2 \
+RC_FASTLIO_FILTER_SIZE_SURF=0.15 \
+RC_FASTLIO_FILTER_SIZE_MAP=0.25 \
+RC_FASTLIO_RUNTIME_POS_LOG_ENABLE=0 \
+RC_FASTLIO_DET_RANGE=100 \
+FASTLIO_RVIZ=false \
 RC_LIDAR_MAP_PATH="/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/mid360_map_20260625_005422.pcd" \
 ./autostart/start_all_terminals.sh
 ```
 
 开机自启入口使用 user systemd：`./autostart/install_user_systemd_autostart.sh`。旧的 LiDAR 桌面 XDG 自启动项需要禁用，避免和 systemd 重复启动。
 
-FD CAN 重启功能仍在：监听 FD CAN ID `0x30`，payload 为 `A5 5A 01 FE 00 00 00 00`。当前默认由 `CANFD_POSE` 一边发送 `/robot/pose_continuous`，一边监听这条重启帧；`CAN_RESTART` 只是没有 CANFD 时的手动兜底，不默认启动。重启链路带 8s 节点 debounce 和 15s 脚本 cooldown，防止连续触发把半启动中的雷达栈反复杀掉。
+FD CAN 重启功能仍在：监听 FD CAN ID `0x30`，payload 为 `A5 5A 01 FE 00 00 00 00`。当前默认由 `CANFD_POSE` 一边发送 `/robot/pose_continuous`，一边监听这条重启帧；`CAN_RESTART` 只是没有 CANFD 时的手动兜底，不默认启动。`CANFD_TX_MONITOR` 会在有显示器时弹终端打印实际发出的 CANFD payload；没显示器时写后台日志。重启链路带 8s 节点 debounce 和 15s 脚本 cooldown，防止连续触发把半启动中的雷达栈反复杀掉。CANable2 掉线时 `CANFD_POSE` 同一进程会关闭旧 fd，重插后重新打开并激活，不额外启动第二个发送进程。
 
 ## 最常用变量
 
