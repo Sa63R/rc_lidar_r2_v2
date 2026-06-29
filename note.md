@@ -8,7 +8,7 @@ chromium-browser --proxy-server="http://127.0.0.1:7897"
 # 关残余雷达进程
 
    cd '/home/rc2/jwt_new_lidar/rc_lidar_r2_v2'
-./autostart/stop_all.sh
+./autostart/stop_all.sh 
 
 # 当前可用版本：小场地直接建图，不裁剪，使用这张地图重定位
 # 地图：/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/mid360_map_20260625_005422.pcd
@@ -29,7 +29,7 @@ RC_LIDAR_MAP_PATH="/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/mid360_map_202606
 
 FASTLIO_RVIZ=true \
 RC_LIDAR_MODE=mapping \
-RC_FASTLIO_MAP_SAVE_PATH=/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/map_default.pcd \
+RC_FASTLIO_MAP_SAVE_PATH=/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/map_default_full1.pcd \
 ./autostart/start_all_terminals.sh
 
 ## 建图（功耗更大，更实验性的参数）
@@ -41,6 +41,10 @@ RC_FASTLIO_DET_RANGE=30 \
 RC_FASTLIO_FILTER_SIZE_SURF=0.20 \
 RC_FASTLIO_FILTER_SIZE_MAP=0.30 \
 ./autostart/start_all_terminals.sh
+
+## 保存地图
+cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
+./autostart/save_fast_lio_map.sh
 
 
 <!-- 旋转自校正脚本 -->
@@ -340,3 +344,57 @@ finally:
 PY
 
 另外，我现在的启动逻辑，为什么雷达每次启动时候odom发布的雷达当前坐标相对于camera_init不是000,而是会偏几厘米，而且每次的偏差还不一样
+
+
+具体原因分两层：
+
+第一层，**程序之前允许自动 fallback 到任意 CANable2**。  
+配置里本来指定的是原先那只：
+
+```text
+206D35C24831
+```
+
+但代码参数是：
+
+```bash
+-p allow_serial_fallback:=true
+```
+
+这意味着：如果程序启动/重连时发现 `206D` 一瞬间不在，就会自动去找别的 `CANable2`。你插上第二个以后，它就可能跑到第二只 `206F35824831` 上。这样就会出现“我以为第二只是监听器，但发送程序其实占用了它”的混乱。
+
+我改的是这个：
+
+```bash
+-p allow_serial_fallback:=false
+```
+
+也就是：**发送端只能用原先那只 `206D`，找不到就报错，不允许偷偷换到第二只。**
+
+第二层，原先那只 CANable2 当时确实有异常迹象。  
+我看到日志里有：
+
+```text
+failed to send CAN FD frame: Input/output error
+serial device does not exist
+USB disconnect
+```
+
+并且手动测试时 `206D` 的错误寄存器是 `14`，而第二只 `206F` 是 `0`。所以它之前很可能经历过 CAN 错误/USB 重枚举/适配器状态异常。后来我停掉发送端、重新初始化 CANable2，再固定绑定 `206D` 后，第二只就能收到 `206D` 发出的 `0x012` 了。
+
+我没有改这些东西：
+
+```text
+CAN ID 还是 0x012
+payload 还是 x/y/z/yaw 四个 float32
+CAN FD 还是开启
+BRS 还是开启
+速率命令还是 S8 / Y2
+发送 topic 还是 /robot/pose_continuous
+```
+
+所以总结一句：
+
+**真正修改的是禁止自动切换 CANable2；正常起来主要是因为重新初始化后，发送端被固定回原先那只 `206D`，没有再跑到第二只或处在异常状态。**
+
+这也解释了为什么你之前下位机收不到：当时可能是原 CANable2 状态异常，或者在插第二只之后发送设备被 fallback 搞乱。现在固定设备后，再拔掉第二只，发送端应该只认原来的 `206D`。

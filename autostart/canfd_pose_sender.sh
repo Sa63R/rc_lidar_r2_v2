@@ -56,7 +56,7 @@ exec ros2 run lidar_localization canfd_pose_sender --ros-args \
   -p auto_retransmit:=true \
   -p reconnect_on_error:=true \
   -p reconnect_period_sec:=0.5 \
-  -p allow_serial_fallback:=true \
+  -p allow_serial_fallback:=false \
   -p restart_enabled:="$CANFD_RESTART_ENABLED_PARAM" \
   -p restart_can_id:="$CANFD_RESTART_CAN_ID_PARAM" \
   -p restart_payload_hex:="$CANFD_RESTART_PAYLOAD_HEX" \

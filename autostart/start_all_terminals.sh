@@ -43,9 +43,10 @@ RC_CONTINUOUS_POSE_STAMP_MATCH_MODE="${RC_CONTINUOUS_POSE_STAMP_MATCH_MODE:-stam
 RC_CONTINUOUS_POSE_MAX_STAMP_DELTA="${RC_CONTINUOUS_POSE_MAX_STAMP_DELTA:-0.03}"
 RC_AUTOSTART_DRY_RUN="${RC_AUTOSTART_DRY_RUN:-0}"
 RC_AUTOSTART_CANFD="${RC_AUTOSTART_CANFD:-0}"
+RC_AUTOSTART_CANFD_TX_MONITOR="${RC_AUTOSTART_CANFD_TX_MONITOR:-1}"
 RC_CAN_RESTART_LISTENER="${RC_CAN_RESTART_LISTENER:-auto}"
 RC_CANFD_RESTART_ENABLED="${RC_CANFD_RESTART_ENABLED:-1}"
-RC_CAN_DEBUG_CSV="${RC_CAN_DEBUG_CSV:-0}"
+RC_CAN_DEBUG_CSV="${RC_CAN_DEBUG_CSV:-1}"
 RC_CAN_DEBUG_CSV_PATH="${RC_CAN_DEBUG_CSV_PATH:-}"
 RC_CAN_DEBUG_LOG_PERIOD_SEC="${RC_CAN_DEBUG_LOG_PERIOD_SEC:-1.0}"
 RC_READY_TOPIC_SPIN_TIME="${RC_READY_TOPIC_SPIN_TIME:-2}"
@@ -201,6 +202,7 @@ export RC_CONTINUOUS_POSE_OUTPUT_TOPIC
 export RC_CONTINUOUS_POSE_STAMP_MATCH_MODE
 export RC_CONTINUOUS_POSE_MAX_STAMP_DELTA
 export RC_AUTOSTART_CANFD
+export RC_AUTOSTART_CANFD_TX_MONITOR
 export RC_CAN_RESTART_LISTENER
 export RC_CANFD_RESTART_ENABLED
 export RC_CAN_POSE_TOPIC
@@ -260,6 +262,7 @@ mkdir -p "$ROS_LOG_DIR"
   echo "stable_filtered_pose_topic: $RC_STABLE_FILTERED_POSE_TOPIC"
   echo "can_pose_topic: $RC_CAN_POSE_TOPIC"
   echo "canfd: $RC_AUTOSTART_CANFD"
+  echo "canfd_tx_monitor: $RC_AUTOSTART_CANFD_TX_MONITOR"
   echo "can_restart_listener: $RC_CAN_RESTART_LISTENER"
   echo "canfd_restart_enabled: $RC_CANFD_RESTART_ENABLED"
   echo "can_debug_csv: $RC_CAN_DEBUG_CSV"
@@ -688,6 +691,25 @@ canfd_enabled() {
       ;;
     *)
       return 1
+      ;;
+  esac
+}
+
+should_start_canfd_tx_monitor() {
+  if ! canfd_enabled; then
+    return 1
+  fi
+
+  case "${RC_AUTOSTART_CANFD_TX_MONITOR:-1}" in
+    1|true|TRUE|yes|YES|on|ON)
+      return 0
+      ;;
+    0|false|FALSE|no|NO|off|OFF)
+      return 1
+      ;;
+    *)
+      echo "[WARN] Unknown RC_AUTOSTART_CANFD_TX_MONITOR=${RC_AUTOSTART_CANFD_TX_MONITOR}; enabled." | tee -a "$LOG_DIR/start_summary.txt"
+      return 0
       ;;
   esac
 }
@@ -1184,6 +1206,11 @@ case "$RC_AUTOSTART_CANFD" in
     summary_event "skipped CANFD_POSE because RC_AUTOSTART_CANFD=0"
     ;;
 esac
+if should_start_canfd_tx_monitor; then
+  start_one "CANFD_TX_MONITOR" "canfd_tx_monitor.sh"
+else
+  summary_event "skipped CANFD_TX_MONITOR"
+fi
 if should_start_can_monitor; then
   start_one_gui_terminal "CAN_MONITOR" "can_pose_monitor.sh"
 else
