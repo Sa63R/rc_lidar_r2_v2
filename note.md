@@ -80,8 +80,20 @@ cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 地图默认保存到：
 maps/mid360_map.pcd
 
+# rosbag
+mkdir -p ~/bags
 
+ros2 bag record \
+  -o ~/bags/nav_quality_$(date +%Y%m%d_%H%M%S) \
+  /cloud_registered \
+  /Odometry \
+  /map_lidar/quality \
+  /map_lidar/pose \
+  /robot/pose_continuous \
+  /tf \
+  /tf_static
 
+Ctrl+C
 
 ## 旧滤波/旧 yaw fusion 调试参数
 当前默认不启动 `/robot/pose_filtered` 和 `/robot/yaw_fusion/status`，CANFD 直接发 `/robot/pose_continuous`。下面这些只在手动打开旧链路对比时使用。

@@ -1,0 +1,23 @@
+{
+  "padding": 0.05,
+  "value": 0,
+  "obstacles": [
+    {
+      "name": "example_low_board",
+      "type": "rectangle",
+      "center": [0.0, 0.0],
+      "size": [1.0, 0.15],
+      "yaw": 0.0
+    },
+    {
+      "name": "example_polygon",
+      "type": "polygon",
+      "points": [
+        [1.0, 1.0],
+        [2.0, 1.0],
+        [2.0, 1.5],
+        [1.0, 1.5]
+      ]
+    }
+  ]
+}
