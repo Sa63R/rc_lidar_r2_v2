@@ -6,6 +6,7 @@ find_package(ament_cmake REQUIRED)
 install(PROGRAMS
   scripts/fake_diff_drive.py
   scripts/pcd_to_occupancy.py
+  tools/create_manual_field_map.py
   tools/draw_manual_obstacles.py
   DESTINATION lib/${PROJECT_NAME}
 )

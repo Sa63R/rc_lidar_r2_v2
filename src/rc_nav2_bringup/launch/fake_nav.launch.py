@@ -57,6 +57,13 @@ def generate_launch_description():
                         "odom_frame": "odom",
                         "base_frame": "base_link",
                         "publish_rate": 50.0,
+                        "max_linear_speed": 2.5,
+                        "max_lateral_speed": 2.5,
+                        "max_angular_speed": 3.14,
+                        "body_marker_topic": "/fake_robot_body",
+                        "body_length": 0.70,
+                        "body_width": 0.80,
+                        "body_height": 0.08,
                     }
                 ],
             ),

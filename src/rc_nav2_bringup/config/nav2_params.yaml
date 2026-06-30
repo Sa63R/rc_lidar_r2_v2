@@ -24,7 +24,7 @@ global_costmap:
       publish_frequency: 1.0
       transform_tolerance: 0.3
       resolution: 0.10
-      robot_radius: 0.25
+      footprint: "[[-0.35, -0.40], [-0.35, 0.40], [0.35, 0.40], [0.35, -0.40]]"
       track_unknown_space: false
       always_send_full_costmap: true
       plugins: ["static_layer", "inflation_layer"]
