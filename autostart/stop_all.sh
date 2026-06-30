@@ -52,22 +52,19 @@ should_kill_cmd() {
     *"ros2 launch my_static_tf "*|*"ros2 launch fast_lio "*|*"ros2 launch livox_ros_driver2 "*|*"ros2 launch rc_serial_driver "*|*"ros2 launch lidar_map_localization "*|*"ros2 launch lidar_localization "*)
       return 0
       ;;
-    *"ros2 run robot_localization "*|*"ros2 run fastlio_world_init "*|*"ros2 run lidar_localization canfd_pose_sender"*|*"ros2 run lidar_localization pose_filter"*|*"ros2 run lidar_localization health_monitor"*)
+    *"ros2 run robot_localization "*|*"ros2 run lidar_localization canfd_pose_sender"*|*"ros2 run lidar_localization pose_filter"*|*"ros2 run lidar_localization health_monitor"*)
       return 0
       ;;
     *"fastlio_mapping"*|*"livox_ros_driver2_node"*|*"rc_serial_driver_node"*|*"ekf_node"*)
       return 0
       ;;
-    *"world_from_fastlio_init"*|*"robot_tf_offsets"*|*"lidar_tf_offset"*|*"lidar_xyzr.py"*|*"map_localizer"*|*"pose_from_odom"*|*"pose_from_tf"*|*"continuous_robot_pose"*|*"canfd_pose_sender"*|*"/lidar_localization/pose_filter"*|*"/lidar_localization/health_monitor"*)
+    *"lidar_xyzr.py"*|*"map_localizer"*|*"pose_from_odom"*|*"pose_from_tf"*|*"continuous_robot_pose"*|*"canfd_pose_sender"*|*"/lidar_localization/pose_filter"*|*"/lidar_localization/health_monitor"*)
       return 0
       ;;
     *"thermal_pose_monitor.sh"*|*"thermal_pose_monitor.py"*)
       return 0
       ;;
     *"relocalization_ready_notify.sh"*|*"relocalization_ready_notify.py"*)
-      return 0
-      ;;
-    *"rotation_extrinsic_calibrator"*)
       return 0
       ;;
     *"static_transform_publisher"*base_link*|*"static_transform_publisher"*robot_base*|*"static_transform_publisher"*body*|*"static_transform_publisher"*init*|*"static_transform_publisher"*robot_origin*|*"static_transform_publisher"*camera_init*)
@@ -246,9 +243,6 @@ close_terminal_windows_by_title() {
     "TF_STATIC3"
     "TF_MAP_CAMERA_INIT"
     "HIGHRATE_BODY"
-    "world_tf"
-    "TF_ROBOT_OFFSET"
-    "TF_LIDAR_OFFSET"
     "PLOTJUGGLER"
     "ROTATION_CALIB"
     "MAP_LOCALIZER"
@@ -294,9 +288,6 @@ patterns=(
   "$DIR/map_to_camera_init_tf.sh"
   "$DIR/lidar_to_base_highrate_tf.sh"
   "$DIR/highrate_body.sh"
-  "$DIR/world_tf.sh"
-  "$DIR/robot_tf_offsets.sh"
-  "$DIR/lidar_tf_offset.sh"
   "$DIR/plotjuggler_tf_compare.sh"
   "$DIR/map_localizer.sh"
   "$DIR/pose_interface_mapping.sh"
@@ -315,7 +306,6 @@ patterns=(
   "ros2 launch lidar_map_localization"
   "ros2 launch lidar_localization"
   "ros2 run robot_localization"
-  "ros2 run fastlio_world_init"
   "ros2 run lidar_localization canfd_pose_sender"
   "canfd_tx_monitor.sh"
   "ros2 run lidar_localization pose_filter"
@@ -329,10 +319,6 @@ patterns=(
   "/lidar_localization/health_monitor"
   "ekf_node"
   "static_transform_publisher"
-  "world_from_fastlio_init"
-  "robot_tf_offsets"
-  "lidar_tf_offset"
-  "rotation_extrinsic_calibrator"
   "lidar_xyzr.py"
   "map_localizer"
   "pose_from_odom"

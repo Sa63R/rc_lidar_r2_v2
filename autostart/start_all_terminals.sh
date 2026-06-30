@@ -64,7 +64,6 @@ RC_READY_FASTLIO_TIMEOUT_SEC="${RC_READY_FASTLIO_TIMEOUT_SEC:-75}"
 RC_READY_MAP_TIMEOUT_SEC="${RC_READY_MAP_TIMEOUT_SEC:-90}"
 RC_READY_POSE_TIMEOUT_SEC="${RC_READY_POSE_TIMEOUT_SEC:-45}"
 RC_READY_FILTER_TIMEOUT_SEC="${RC_READY_FILTER_TIMEOUT_SEC:-45}"
-RC_READY_TF_COMPARE_TIMEOUT_SEC="${RC_READY_TF_COMPARE_TIMEOUT_SEC:-30}"
 RC_READY_PLOTJUGGLER_TIMEOUT_SEC="${RC_READY_PLOTJUGGLER_TIMEOUT_SEC:-20}"
 RC_READY_LIVOX_LIDAR_TOPIC="${RC_READY_LIVOX_LIDAR_TOPIC:-/livox/lidar}"
 RC_READY_LIVOX_IMU_TOPIC="${RC_READY_LIVOX_IMU_TOPIC:-/livox/imu}"
@@ -232,7 +231,6 @@ export RC_READY_FASTLIO_TIMEOUT_SEC
 export RC_READY_MAP_TIMEOUT_SEC
 export RC_READY_POSE_TIMEOUT_SEC
 export RC_READY_FILTER_TIMEOUT_SEC
-export RC_READY_TF_COMPARE_TIMEOUT_SEC
 export RC_READY_PLOTJUGGLER_TIMEOUT_SEC
 export RC_READY_LIVOX_LIDAR_TOPIC
 export RC_READY_LIVOX_IMU_TOPIC
@@ -635,26 +633,6 @@ else
   START_PLOTJUGGLER=0
 fi
 
-should_start_tf_compare() {
-  case "${RC_AUTOSTART_TF_COMPARE:-auto}" in
-    1|true|TRUE|yes|YES|on|ON)
-      return 0
-      ;;
-    0|false|FALSE|no|NO|off|OFF)
-      return 1
-      ;;
-    auto)
-      [ "$START_PLOTJUGGLER" = "1" ]
-      return
-      ;;
-    *)
-      echo "[WARN] Unknown RC_AUTOSTART_TF_COMPARE=${RC_AUTOSTART_TF_COMPARE}; using auto." | tee -a "$LOG_DIR/start_summary.txt"
-      [ "$START_PLOTJUGGLER" = "1" ]
-      return
-      ;;
-  esac
-}
-
 should_start_lidar_xyzr() {
   case "${RC_AUTOSTART_LIDAR_XYZR:-auto}" in
     1|true|TRUE|yes|YES|on|ON)
@@ -1049,11 +1027,6 @@ wait_for_plotjuggler_ready_topics() {
     fi
   fi
 
-  if should_start_tf_compare; then
-    wait_for_ready_topic "PlotJuggler TF robot base" "/tf_compare/robot_origin_to_robot_base" "$RC_READY_PLOTJUGGLER_TIMEOUT_SEC" 1
-    wait_for_ready_topic "PlotJuggler TF high-rate robot base" "/tf_compare/robot_origin_to_robot_base_highrate" "$RC_READY_PLOTJUGGLER_TIMEOUT_SEC" 1
-    wait_for_ready_topic "PlotJuggler TF map to body" "/tf_compare/map_to_body" "$RC_READY_PLOTJUGGLER_TIMEOUT_SEC" 1
-  fi
 }
 
 should_start_thermal_pose_monitor() {
@@ -1147,7 +1120,6 @@ start_one "FASTLIO" "fastlio.sh"
 start_one "HIGHRATE_BODY" "highrate_body.sh"
 wait_for_ready_topic "FastLIO odometry" "$RC_READY_FASTLIO_ODOM_TOPIC" "$RC_READY_FASTLIO_TIMEOUT_SEC" 1
 wait_for_ready_topic "FastLIO registered cloud" "$RC_READY_FASTLIO_CLOUD_TOPIC" "$RC_READY_FASTLIO_TIMEOUT_SEC" 1
-summary_event "skipped world_tf; production TF uses map -> robot_origin"
 if [ "$RC_LIDAR_MODE" = "mapping" ]; then
   start_one "POSE_INTERFACE" "pose_interface_mapping.sh"
 elif [ "$RC_LIDAR_MODE" = "relocalization" ]; then
@@ -1200,15 +1172,6 @@ if should_start_thermal_pose_monitor; then
   start_one "HEALTH_MONITOR" "thermal_pose_monitor.sh"
 else
   summary_event "skipped HEALTH_MONITOR because RC_HEALTH_MONITOR is not enabled"
-fi
-if should_start_tf_compare; then
-  start_one "TF_ROBOT_OFFSET" "robot_tf_offsets.sh"
-  start_one "TF_LIDAR_OFFSET" "lidar_tf_offset.sh"
-  wait_for_ready_topic "TF compare robot base" "/tf_compare/robot_origin_to_robot_base" "$RC_READY_TF_COMPARE_TIMEOUT_SEC" 1
-  wait_for_ready_topic "TF compare high-rate robot base" "/tf_compare/robot_origin_to_robot_base_highrate" "$RC_READY_TF_COMPARE_TIMEOUT_SEC" 1
-  wait_for_ready_topic "TF compare map to body" "/tf_compare/map_to_body" "$RC_READY_TF_COMPARE_TIMEOUT_SEC" 1
-else
-  summary_event "skipped TF compare publishers"
 fi
 if legacy_can_serial_enabled; then
   start_one "CAN_SERIAL" "serial_driver.sh"

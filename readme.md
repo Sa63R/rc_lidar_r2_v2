@@ -19,15 +19,16 @@
 
 ## 包结构
 
-`src/` 下包含 7 个 ROS 2 包：
+`src/` 下包含 8 个 ROS 2 包：
 
 - `livox_ros_driver2`：Livox 雷达驱动，发布 `/livox/lidar` 和 `/livox/imu`
 - `fast_lio`：FAST-LIO 建图定位节点
 - `lidar_map_localization`：读取保存的 PCD 地图，用 NDT/ICP 把 FAST-LIO 当前点云重定位到地图
 - `lidar_localization`：把 `/Odometry` 或 `/map_lidar/odom` 转成稳定的机器人中心点位姿 `/robot/pose`，同时保留旧兼容名 `/lidar/pose`
 - `my_static_tf`：静态 TF launch
-- `fastlio_world_init`：根据 FAST-LIO 初始 TF 生成 world 初始化 TF，并发布 TF 对比曲线 topic 的 Python 节点
 - `rc_serial_driver`：读取 TF 并通过 SocketCAN 发送位姿，同时监听 CAN 重启命令
+- `rc_nav2_bringup`：Navigation2 测试启动、地图和离线地图转换工具
+- `rc_lidar_tools`：人工维护和标定工具，例如原地自转外参校准
 
 ## 新环境依赖安装
 
@@ -95,13 +96,13 @@ source install/setup.bash
 本次验证结果：
 
 ```text
-Summary: 7 packages finished
+Summary: 8 packages finished
 ```
 
 可执行文件检查：
 
 ```bash
-for p in fast_lio livox_ros_driver2 lidar_map_localization lidar_localization rc_serial_driver fastlio_world_init my_static_tf; do
+for p in fast_lio livox_ros_driver2 lidar_map_localization lidar_localization rc_serial_driver my_static_tf rc_nav2_bringup rc_lidar_tools; do
   echo "== $p =="
   ros2 pkg executables "$p"
 done
@@ -117,10 +118,7 @@ lidar_localization print_lidar_pose
 lidar_localization print_xy_yaw
 livox_ros_driver2 livox_ros_driver2_node
 rc_serial_driver rc_serial_driver_node
-fastlio_world_init lidar_tf_offset
-fastlio_world_init robot_tf_offsets
-fastlio_world_init rotation_extrinsic_calibrator
-fastlio_world_init world_from_fastlio_init
+rc_lidar_tools rotation_extrinsic_calibrator
 ```
 
 ## 运行前硬件配置
@@ -155,7 +153,7 @@ Failed to init livox lidar sdk.
 RC_AUTOSTART_SETUP_LIVOX_NET=0 ./autostart/start_all_terminals.sh
 ```
 
-常见错误：如果 RViz 里显示 `Frame [camera_init] does not exist`，画面全黑，并且 `world_tf.log` 一直停在 `Waiting for TF camera_init -> body`，优先不要改 TF。先检查 Livox 是否真的起来了。一次实际排查中，根因只是雷达网线没插好，`enp4s0` 虽然已经有 `192.168.1.5/24`，但链路状态是 `NO-CARRIER`，`ethtool` 显示 `Link detected: no`，所以 Livox 驱动没有启动，FAST-LIO 也就不会发布 `camera_init`。
+常见错误：如果 RViz 里显示 `Frame [camera_init] does not exist` 或画面全黑，优先不要改 TF。先检查 Livox 是否真的起来了。一次实际排查中，根因只是雷达网线没插好，`enp4s0` 虽然已经有 `192.168.1.5/24`，但链路状态是 `NO-CARRIER`，`ethtool` 显示 `Link detected: no`，所以 Livox 驱动没有启动，FAST-LIO 也就不会发布 `camera_init`。
 
 快速检查命令：
 
@@ -245,7 +243,6 @@ RC_FASTLIO_FILTER_SIZE_MAP=0.25
 RC_FASTLIO_RUNTIME_POS_LOG_ENABLE=0
 RC_FASTLIO_DET_RANGE=100
 FASTLIO_RVIZ=false
-RC_AUTOSTART_TF_COMPARE=auto
 RC_AUTOSTART_LIDAR_XYZR=auto
 RC_CONTINUOUS_POSE=auto
 RC_CONTINUOUS_POSE_OUTPUT_TOPIC=/robot/pose_continuous
@@ -470,20 +467,7 @@ ros2 launch fast_lio mapping.launch.py config_file:=mid360.yaml rviz:=false
 ros2 launch fast_lio mapping.launch.py config_file:=mid360.yaml rviz:=true
 ```
 
-4. 启动 world 初始化节点：
-
-```bash
-ros2 run fastlio_world_init world_from_fastlio_init --ros-args \
-  -p source_parent_frame:=camera_init \
-  -p source_child_frame:=body \
-  -p world_frame:=world \
-  -p capture_duration:=3.0 \
-  -p settle_time:=0.5 \
-  -p sample_period:=0.02 \
-  -p orientation_mode:=none
-```
-
-5. 启动 CAN 位姿发送：
+4. 启动 CAN 位姿发送：
 
 ```bash
 ros2 launch rc_serial_driver serial_driver.launch.py
@@ -545,13 +529,11 @@ TF_MAP_CAMERA_INIT
 LIVOX            Livox MID360 driver
 FASTLIO          FAST-LIO mapping, RViz 默认不启动
 HIGHRATE_BODY    robot_localization EKF；未安装时降级为 body -> body_highrate 静态 TF
-TF_ROBOT_OFFSET  发布 robot_origin -> robot_base / robot_base_highrate 的 XYZ 对比 topic
-TF_LIDAR_OFFSET  发布 map -> body 的 XYZ 对比 topic
 CAN_RESTART      手动兜底监听器；当前默认由 CANFD_POSE 监听 FD CAN 0x30
 CAN_SERIAL       legacy rc_serial_driver，显式开启时发送 Classic CAN pose 并监听 0x30
 CAN_MONITOR      打印 rc_serial_driver 实际准备发给 CAN 的 x/y/z/yaw
 LIDAR_XYZR       点云调试打印
-PLOTJUGGLER      打开 TF Compare 布局并订阅 /tf_compare topic
+PLOTJUGGLER      打开 PlotJuggler 并预选 pose/quality 调试 topic
 HEALTH_MONITOR   低频记录温度、CPU 负载、CPU 频率、地图质量和位姿稳定性
 ```
 
@@ -631,17 +613,16 @@ RC_AUTOSTART_CAN_MONITOR=0 ./autostart/start_all_terminals.sh  # 强制关闭 le
 RC_CAN_MONITOR_PRINT_HZ=10 ./autostart/start_all_terminals.sh  # 终端打印频率
 ```
 
-TF 对比发布节点默认只在 PlotJuggler 会启动时自动启动；`LIDAR_XYZR` 点云调试打印默认只在显式非 headless 模式启动。需要恢复旧的“每个节点一个终端窗口”的重调试模式时：
+`LIDAR_XYZR` 点云调试打印默认只在显式非 headless 模式启动。需要恢复旧的“每个节点一个终端窗口”的重调试模式时：
 
 ```bash
 RC_AUTOSTART_HEADLESS=0 ./autostart/start_all_terminals.sh
 ```
 
-需要单独打开调试节点时：
+需要单独打开点云调试节点时：
 
 ```bash
-RC_AUTOSTART_TF_COMPARE=1 RC_AUTOSTART_LIDAR_XYZR=1 \
-  RC_AUTOSTART_HEADLESS=1 RC_AUTOSTART_PLOTJUGGLER=0 \
+RC_AUTOSTART_LIDAR_XYZR=1 RC_AUTOSTART_HEADLESS=1 RC_AUTOSTART_PLOTJUGGLER=0 \
   ./autostart/start_all_terminals.sh
 ```
 
@@ -660,7 +641,7 @@ default_topics=...
 selected_topics=...
 ```
 
-这样 Topic Selector 里会默认选中 `/robot/pose`、`/robot/pose_continuous`、`/robot/pose_continuous/status`、`/robot/pose_odom_only`、`/map_lidar/quality` 和三个 `/tf_compare/...` topic。`/robot/pose_odom_only` 只在打开 PlotJuggler 调试时自动启动，用来对比“纯 FAST-LIO `/Odometry` + 机器人中心外参”和“经过 map localizer 的 `/robot/pose`”差异，不参与 CAN 和生产定位链路。旧 `/robot/pose_filtered`、filter status 和 `/robot/yaw_fusion/status` 只有在显式打开 `RC_POSE_FILTER=1` 或 `RC_ROBOT_POSE_YAW_FUSION=1` 时才会加入自动订阅。当前脚本会同时写 `default_topics` 和 `selected_topics`，并用 `ros2 topic list --no-daemon --spin-time 2` 等待 topic。
+这样 Topic Selector 里会默认选中 `/robot/pose`、`/robot/pose_continuous`、`/robot/pose_continuous/status`、`/robot/pose_odom_only` 和 `/map_lidar/quality`。`/robot/pose_odom_only` 只在打开 PlotJuggler 调试时自动启动，用来保留纯 FAST-LIO `/Odometry` + 机器人中心外参的独立观察 topic，不参与 CAN 和生产定位链路。旧 `/robot/pose_filtered`、filter status 和 `/robot/yaw_fusion/status` 只有在显式打开 `RC_POSE_FILTER=1` 或 `RC_ROBOT_POSE_YAW_FUSION=1` 时才会加入自动订阅。当前脚本会同时写 `default_topics` 和 `selected_topics`，并用 `ros2 topic list --no-daemon --spin-time 2` 等待 topic。
 
 PlotJuggler 启动前默认最多等待关键 topic `16s`，可用 `PLOTJUGGLER_WAIT_SECONDS` 覆盖；每次 discovery 默认等待 `2s`，可用 `PLOTJUGGLER_TOPIC_SPIN_TIME` 覆盖。日志里如果看到 `Waiting for topics:` 后面列出一整组 topic，不一定代表这些 topic 永久不存在；启动早期也可能是 ROS graph 查询暂时失败。当前脚本会把 `ros2 topic list failed` 单独写进日志，便于区分“topic 真的没发布”和“ROS graph 查询失败”。
 
@@ -670,12 +651,7 @@ PlotJuggler 启动前默认最多等待关键 topic `16s`，可用 `PLOTJUGGLER_
 RC_ROBOT_POSE_MAX_TF_AGE=1.0 ./autostart/start_all_terminals.sh
 ```
 
-默认不加载 XML 布局，因为当前 Orange Pi 上 PlotJuggler 3.15 在加载该轻量 XML 后出现过 Qt/PlotJuggler 内部崩溃。保留 XML 只是手动备用；如果确实想手动指定其它布局：
-
-```bash
-PLOTJUGGLER_TF_LAYOUT="$PWD/src/fastlio_world_init/config/tf_compare_plotjuggler.xml" \
-  ./autostart/start_all_terminals.sh
-```
+默认不加载 XML 布局，因为当前 Orange Pi 上 PlotJuggler 3.15 加载轻量 XML 后出现过 Qt/PlotJuggler 内部崩溃。如果确实想手动指定其它布局，请使用 `PLOTJUGGLER_LAYOUT=/path/to/layout.xml`。
 
 ### 健康日志：温度、负载与定位稳定性
 
@@ -849,7 +825,6 @@ RC_MAP_QUALITY_OVERLAP=0                  # 默认关闭地图/scan 重合率诊
 ```bash
 RC_AUTOSTART_HEADLESS=1 \
 RC_AUTOSTART_PLOTJUGGLER=0 \
-RC_AUTOSTART_TF_COMPARE=0 \
 RC_AUTOSTART_LIDAR_XYZR=0 \
 ./autostart/start_all_terminals.sh
 ```
@@ -1053,7 +1028,7 @@ FASTLIO_RVIZ=true RC_LIDAR_MODE=relocalization ./autostart/start_all_terminals.s
 
 ```text
 MAP_LOCALIZER   lidar_map_localization，发布 /map_lidar/odom
-POSE_INTERFACE lidar_localization，从 /map_lidar/odom 同步计算 robot_origin -> robot_base 并发布 /robot/pose，同时保留兼容名 /lidar/pose
+POSE_INTERFACE lidar_localization，从 /Odometry 计算 robot_origin -> robot_base 并发布 /robot/pose，同时保留兼容名 /lidar/pose
 POSE_CONTINUOUS lidar_localization，用 /map_lidar/odom 校正 /Odometry 并发布 /robot/pose_continuous
 READY_NOTIFY   等待 /robot/pose_continuous 与 /map_lidar/quality 稳定后写 ready 标记
 ```
@@ -1114,13 +1089,13 @@ RC_CAN_YAW_IGNORE_READY_GATE=1
 
 这条融合 yaw 链路仍保留为 raw odom yaw 的回退方案：`RC_CAN_USE_RAW_ODOM_YAW=0` 后，`0x13` 的 `yaw` 会重新来自 `/robot/pose`，也就是 Rc 4.8 的低延迟融合 yaw，绕开滤波器对航向角的延迟。`RC_CAN_YAW_POSE_TOPIC_STRICT=1` 表示融合 yaw 不新鲜时 CAN 暂停发送，不回退到慢 yaw。Rc 4.10 起，`RC_CAN_YAW_IGNORE_READY_GATE=1` 为默认值：当 `/map_lidar/quality` 短暂不 ready 时，CAN 会继续发送 `0x13` 的最新 yaw，并使用最近一次质量通过时的可信 z；`0x12` 的 x/y 仍被 quality gate 挡住，避免低质量位置污染电控。
 
-这条链路默认不再通过 TF buffer 拼接 `robot_origin -> robot_base_highrate`。`POSE_INTERFACE` 订阅 `/map_lidar/odom`，在同一帧定位结果上计算：
+这条链路默认不再通过 TF buffer 拼接 `robot_origin -> robot_base_highrate`。`POSE_INTERFACE` 订阅 FAST-LIO 原始 `/Odometry`，在同一帧 odom 上计算：
 
 ```text
-robot_origin -> robot_base = inverse(map -> robot_origin) * (map -> body) * (body -> robot_base)
+robot_origin -> robot_base = inverse(map -> robot_origin) * (camera_init -> body) * (body -> robot_base)
 ```
 
-这样保留当前无头车 TF 树和 `X右/Y前/Z上` 语义，同时避免低频 `map -> camera_init` 与高频 `body_highrate` 通过 TF 查询混合时放大抖动。当前电控默认收到的是 `/robot/pose_continuous` 的高频重定位后机器人中心坐标。如果 `/robot/pose_continuous` 没有刷新或 topic 不存在，CANFD 会暂停发送，不会自动退回 TF 或旧滤波输出。
+这样保留当前无头车 TF 树和 `X右/Y前/Z上` 语义，同时让 `/robot/pose` 成为 FAST-LIO 原始 odom 的机器人中心观察值。当前电控默认收到的是 `/robot/pose_continuous` 的高频重定位后机器人中心坐标。如果 `/robot/pose_continuous` 没有刷新或 topic 不存在，CANFD 会暂停发送，不会自动退回 TF 或旧滤波输出。
 
 需要临时对比旧 TF 拼接法时，可以手动设置：
 
@@ -1246,7 +1221,7 @@ PlotJuggler 里看机器人中心点滤波前后抖动，优先选这些曲线�
 
 滤波观察要区分几件事：
 
-- `/robot/pose` 是滤波前的地图重定位观察值，来源仍然是 `/map_lidar/odom -> pose_from_odom`。Rc 2.4 没有修改 `/robot/pose` 的生成算法、地图匹配参数或坐标转换逻辑。如果重启后看到 `/robot/pose` 比之前稳定，通常不是代码直接调稳了它，而是这次运行的状态更干净、地图匹配收敛更好、现场动态干扰更少，或者 PlotJuggler 里选到的曲线和之前不同。
+- `/robot/pose` 是滤波前的 FAST-LIO 原始 odom 观察值，来源是 `/Odometry -> pose_from_odom`。地图重定位修正后的连续控制位姿看 `/robot/pose_continuous`。
 - `/robot/pose_continuous` 是连续位姿链路。它用 `/map_lidar/odom` 低频校正 `map -> camera_init`，但每次 FAST-LIO `/Odometry` 来时都重新推算机器人中心，因此曲线应该比 `/map_lidar/odom` 的阶梯输出更连续。当前重定位模式下 CANFD 默认发送这条链路。
 - `/robot/pose_odom_only` 是纯 FAST-LIO `/Odometry` 加机器人中心外参后的对比位姿，不含 map localizer。它只在 PlotJuggler 调试时自动启动，帮助判断原始 odom 与地图重定位结果的差异。
 - `/robot/pose_filtered` 是显式开启旧滤波后的观察值，不再默认发布。它的目标是静止时压住小抖动，运动时尽量保留连续轨迹。
@@ -1464,88 +1439,9 @@ ros2 run lidar_map_localization pcd_quality_report \
 
 报告会输出点数、XYZ 范围、Z 高度分布、不同体素大小下的占用数量和点密度。这个工具不会自动修改地图，只用于比较多次建图结果。一般来说，地图点数过低、10cm XY 网格点密度过低、Z 方向结构太弱、或者出现很长的漂移尾巴，都会让重定位更容易抖动。
 
-## 自转外参校准
+## 外参维护
 
-如果机械给出的雷达相对底盘中心坐标存在微小偏差，机器人原地自转时，`robot_origin -> robot_base_highrate` 的 XY 会出现本不该有的小圆波动。可以用自转校准工具记录这段数据并自动计算建议修正值。
-
-先正常启动低负载定位栈，等待重定位 ready 或确认 `robot_origin -> robot_base_highrate` 可查询，然后运行：
-
-```bash
-cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
-source /opt/ros/humble/setup.bash
-source install/setup.bash
-
-ros2 run fastlio_world_init rotation_extrinsic_calibrator \
-  --duration 40 \
-  --rate 50
-```
-
-运行后让机器人尽量在原地慢速自转，建议至少转满一圈，最好转 1.5 到 2 圈。转速不需要恒定；脚本会按 yaw 角度分箱平均，避免某个角度停留太久导致拟合被过度加权。脚本到达 `--duration` 后会自动结束；也可以按 `Ctrl-C` 提前结束，脚本会写出已采集的部分数据。如果需要连同雷达定位栈一起停止，也可以运行：
-
-```bash
-./autostart/stop_all.sh
-```
-
-脚本默认记录：
-
-```text
-robot_origin -> body_highrate
-robot_origin -> robot_base_highrate
-body_highrate -> robot_base_highrate
-```
-
-输出目录默认是：
-
-```text
-logs/calibration/rotation_extrinsic_<时间>/
-```
-
-里面会生成：
-
-```text
-samples.csv
-summary.json
-report.md
-```
-
-其中 `summary.json` 和 `report.md` 会给出：
-
-```text
-sample_count
-fit_sample_count
-yaw_span_deg
-yaw_sources
-yaw_bin_deg
-xy_peak_to_peak
-fitted_error_xy
-current_static_xy
-suggested_static_xy
-residual_before_after
-```
-
-当前已经应用过一次自转校准结果：
-
-```text
-数据目录：logs/calibration/rotation_extrinsic_20260619_175422/
-记录时长：37.0 s
-yaw 覆盖：约 625 deg
-拟合前 RMS：0.035770 m
-拟合后 RMS：0.022923 m
-```
-
-根据该记录，外参从：
-
-```text
-x=-0.240, y=0.315, z=-0.760, yaw=pi
-```
-
-调整为：
-
-```text
-x=-0.240, y=0.287302, z=-0.760, yaw=pi/2
-```
-
-其中 `x` 的拟合修正量约 `0.01 mm`，低于实际安装和定位噪声，因此保持 `-0.240` 不变；`y` 按建议值从 `0.315` 修正为 `0.287302`。之后为了满足电控坐标约定，机器人业务帧 yaw 从 `pi` 调整为 `pi/2`，使 `X=右方`、`Y=前方`。Rc 3.4 起这组三处静态 TF 必须保持一致：
+雷达到机器人中心的外参按实车安装值维护，Rc 3.4 起这组三处静态 TF 必须保持一致：
 
 ```text
 map -> robot_origin
@@ -1553,7 +1449,21 @@ body -> robot_base
 body_highrate -> robot_base_highrate
 ```
 
-默认只输出建议值，不会自动修改 TF。确认报告可信后，把 `summary.json` 和 `samples.csv` 发出来，再同步修改三处静态 TF：
+如果原地旋转时机器人中心在 XY 上画小圆，可以运行工具包里的自转校准入口：
+
+```bash
+cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+
+ros2 run rc_lidar_tools rotation_extrinsic_calibrator \
+  --duration 40 \
+  --rate 50
+```
+
+运行前先启动低负载定位栈，等待重定位 ready 或确认 `robot_origin -> robot_base_highrate` 可查询。运行后让机器人尽量在原地慢速自转，至少一圈，推荐 1.5 到 2 圈。脚本结束后读取 `logs/calibration/rotation_extrinsic_<时间>/summary.json` 和 `report.md`。
+
+确认报告可信后，请同步修改三处静态 TF：
 
 ```text
 src/my_static_tf/launch/map_to_init.launch.py
@@ -1561,7 +1471,7 @@ src/my_static_tf/launch/lidar_to_base.launch.py
 src/my_static_tf/launch/lidar_to_base_highrate.launch.py
 ```
 
-本校准只修正 XY；`z`、`roll`、`pitch`、`yaw=pi/2` 保持不变。
+只按可信报告修改 XY 外参；`z`、`roll`、`pitch` 和业务 yaw 不通过这次平面自转校准修改。
 
 ## 运行验证
 
@@ -1580,9 +1490,6 @@ ros2 topic list
 ros2 topic hz /livox/lidar
 ros2 topic hz /livox/imu
 ros2 topic echo /Odometry --once
-ros2 topic echo /tf_compare/robot_origin_to_robot_base --once
-ros2 topic echo /tf_compare/robot_origin_to_robot_base_highrate --once
-ros2 topic echo /tf_compare/map_to_body --once
 ```
 
 检查 TF：
@@ -1600,67 +1507,44 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
 
 本次为了让当前环境能够稳定编译和运行，做了以下小修改，没有改变核心算法逻辑。
 
-1. `src/fastlio_world_init/fastlio_world_init/world_from_fastlio_init.py`
-   - 修复 Ctrl-C 或超时退出时重复调用 `rclpy.shutdown()` 导致的异常。
-   - 把日志里的静态 TF 发布方向改成实际方向：`source_parent_frame -> world_frame`。
-
-2. `src/rc_serial_driver/launch/serial_driver.launch.py`
+1. `src/rc_serial_driver/launch/serial_driver.launch.py`
    - 原 launch 文件加载 `config/serial_driver.yaml`，但实际配置文件名是 `rc_serial_driver.yaml`。
    - 已改为加载 `config/rc_serial_driver.yaml`，否则节点会启动但不会读取配置文件。
    - 增加 `RC_CAN_POSE_SOURCE` 和 `RC_CAN_POSE_TOPIC` 环境变量支持；历史重定位模式曾默认严格读 `/robot/pose_filtered`，当前 CANFD 默认改为 `/robot/pose_continuous`。
 
-3. `autostart/*.sh`
+2. `autostart/*.sh`
    - 统一通过 `autostart/common_env.sh` 加载当前工作区环境。
    - 去掉历史固定工作区路径，统一从脚本所在目录自动定位当前工作区。
    - `start_all_terminals.sh` 改为自动定位当前 `autostart/`，日志写入本工作区的 `logs/autostart/`。
    - `serial_driver.sh` 会先调用 `can_setup.sh`：有免密权限时自动配置并拉起 CAN；没有免密权限但 CAN 已经 `UP` 时继续启动；没有免密权限且 CAN 未 `UP` 时直接停止 `CAN_RESTART` 或显式启用的 `CAN_SERIAL`，避免一键启动卡在 sudo 密码。
    - `highrate_body.sh` 在缺少 `robot_localization` 时发布 `body -> body_highrate` 静态 TF 作为降级兜底。
 
-4. `src/my_static_tf/launch/lidar_to_base_highrate.launch.py`
+3. `src/my_static_tf/launch/lidar_to_base_highrate.launch.py`
    - 新增高频 base_link 静态 TF：`body_highrate -> base_link_highrate`，用于修复原脚本引用了不存在 launch 文件的问题。
 
-4a. Rc 3.4 无头车 TF 树重写
+4. Rc 3.4 无头车 TF 树重写
    - 生产 TF 从旧 `world -> init`、`body -> base_link`、`body_highrate -> base_link_highrate` 改为 `map -> robot_origin`、`body -> robot_base`、`body_highrate -> robot_base_highrate`。
    - `map` 表示 PCD 地图坐标，Y 正方向作为无头车世界正方向；重定位模式由 `map_localizer` 发布 `map -> camera_init`，mapping/tracking 模式发布 identity `map -> camera_init`。
-   - Rc 3.4 曾把 `/robot/pose` 改为从 TF 查询 `robot_origin -> robot_base_highrate`；后来实测发现低频地图修正和高频 `body_highrate` 经 TF buffer 组合后容易放大抖动，因此当前重定位生产链路已切回 `/map_lidar/odom -> pose_from_odom -> /robot/pose`，TF 查询方式保留为 `RC_ROBOT_POSE_SOURCE=tf` 调试回退。
+   - 当前重定位生产链路使用 FAST-LIO 原始 `/Odometry -> pose_from_odom -> /robot/pose`，地图匹配链路仍发布 `/map_lidar/odom` 并供连续位姿使用；TF 查询方式保留为 `RC_ROBOT_POSE_SOURCE=tf` 调试回退。
 
 5. `src/my_static_tf/launch/map_to_init.launch.py`
    - 历史版本曾把静态 TF 从 `lidar -> init` 调整为 `world -> init`；Rc 3.4 后生产树改为 `map -> robot_origin`。
 
 6. `src/my_static_tf/launch/*.launch.py`
    - 按雷达安装位置更新机器人中心相对雷达坐标系的静态外参。
-   - 根据 `logs/calibration/rotation_extrinsic_20260619_175422/` 的自转校准结果修正 Y 方向外参。
    - 将机器人业务帧改为 `X右/Y前/Z上`。
    - 当前统一参数为：`x=-0.240, y=0.287302, z=-0.760, roll=0, pitch=0, yaw=pi/2`。
    - Rc 3.4 后 `map -> robot_origin`、`body -> robot_base`、`body_highrate -> robot_base_highrate` 三套 TF 使用同一组外参。
 
-7. `autostart/world_tf.sh`
-   - 这是旧 tracking 链路的初始化工具；Rc 3.4 后生产启动默认跳过，改用 `map` 和 `robot_origin` 业务树。
+7. `autostart/plotjuggler_tf_compare.sh`
+   - PlotJuggler 启动脚本只预选 `/robot/pose`、连续位姿、odom-only 诊断和地图质量等当前可用 topic。
+   - 等待 topic 时使用 `ros2 topic list --no-daemon --spin-time 2`，避免 ROS daemon 缓存或 `rclpy.ok()` 错误导致误判 topic 不存在。
 
-8. `src/fastlio_world_init/fastlio_world_init/robot_tf_offsets.py`
-   - TF 对比 topic 更新为 `/tf_compare/robot_origin_to_robot_base` 和 `/tf_compare/robot_origin_to_robot_base_highrate`。
-   - 分别发布 `robot_origin -> robot_base` 与 `robot_origin -> robot_base_highrate` 的 XYZ 平移。
+8. `src/rc_lidar_tools`
+   - 删除旧 world 初始化调试包后，保留自转外参校准工具到新的工具包。
+   - 校准入口为 `ros2 run rc_lidar_tools rotation_extrinsic_calibrator`。
 
-9. `src/fastlio_world_init/fastlio_world_init/lidar_tf_offset.py`
-   - TF 对比 topic 更新为 `/tf_compare/map_to_body`。
-   - 发布 `map -> body` 的 XYZ 平移，保持雷达原始坐标轴。
-
-10. `src/fastlio_world_init/config/tf_compare_plotjuggler.xml`
-    - 保留 PlotJuggler ROS2 streamer 配置模板；该 XML 已改为当前默认观察 topic，不再订阅旧 `/robot/pose_filtered` 或 `/robot/yaw_fusion/status`。当前默认不加载 XML，只作为手动备用。
-    - 当前默认启动不加载这个 XML，只通过用户配置写入 `default_topics/selected_topics`。原因是当前 Orange Pi 上 PlotJuggler 3.15 加载该 XML 后出现过内部崩溃；XML 仅作为手动备用。
-
-11. `autostart/robot_tf_offsets.sh`、`autostart/lidar_tf_offset.sh`、`autostart/plotjuggler_tf_compare.sh`
-    - 一键启动时自动启动 TF 对比发布节点和 PlotJuggler。
-    - `plotjuggler_tf_compare.sh` 在重定位模式下会等待 `/robot/pose`、`/robot/pose_continuous`、`/robot/pose_odom_only`、质量 topic 和 `/tf_compare/...` topic 出现，写入 PlotJuggler 的 `DataStreamROS2/default_topics` 与 `selected_topics`，再打开 PlotJuggler。旧 filter/yaw fusion topic 只在显式开启对应链路时加入。
-    - 等待 topic 时使用 `ros2 topic list --no-daemon --spin-time 2`，避免 ROS daemon 缓存或 `rclpy.ok()` 错误导致误判 topic 不存在。
-
-12. `src/fastlio_world_init/fastlio_world_init/rotation_extrinsic_calibrator.py`
-    - 新增自转外参校准工具。
-    - 原地自转时记录 `robot_origin -> body_highrate`、`robot_origin -> robot_base_highrate`、`body_highrate -> robot_base_highrate`。
-    - 额外记录 `camera_init -> body`、`map -> body` 和 `/Odometry` 的 yaw 诊断，避免只看单一路径时误判旋转圈数。
-    - 自动拟合 XY 小圆偏心，输出 `samples.csv`、`summary.json`、`report.md`，只给出建议值，不自动改 TF 文件。
-
-13. `autostart/livox.sh`、`autostart/setup_livox_net.sh`
+9. `autostart/livox.sh`、`autostart/setup_livox_net.sh`
    - `livox.sh` 会在启动 Livox 驱动前自动调用 `setup_livox_net.sh`。
    - `setup_livox_net.sh` 用于把接雷达的网口配置为 `192.168.1.5/24` 并用 ARP 探测雷达。
    - 可用 `RC_AUTOSTART_SETUP_LIVOX_NET=0` 跳过自动配置。
@@ -1705,7 +1589,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
 20. `src/lidar_localization`
    - 新增 `pose_from_odom` 位姿接口。
    - 建图模式下可把 `/Odometry` 转成相对启动点的 `/robot/pose`，同时保留旧兼容名 `/lidar/pose`。
-   - 当前重定位模式默认使用 `/map_lidar/odom -> pose_from_odom -> /robot/pose`。`/map_lidar/odom` 表示 `map -> body` 的地图定位结果，`pose_from_odom` 在同一帧结果上加 `body -> robot_base` 外参，再相对 `map -> robot_origin` 输出 `robot_origin -> robot_base`，坐标语义为 `X右/Y前/Z上`。
+   - 当前重定位模式默认使用 `/Odometry -> pose_from_odom -> /robot/pose`。`/Odometry` 表示 `camera_init -> body` 的 FAST-LIO 原始 odom，`pose_from_odom` 在同一帧结果上加 `body -> robot_base` 外参，再相对 `map -> robot_origin` 输出 `robot_origin -> robot_base`，坐标语义为 `X右/Y前/Z上`。
    - `pose_from_tf` 仍保留，用 `RC_ROBOT_POSE_SOURCE=tf` 可临时恢复从 TF 查询 `robot_origin -> robot_base_highrate` 生成 `/robot/pose` 的方式，用于对比诊断。该方式会混合低频 `map -> camera_init` 和高频 `body_highrate`，在当前 Orange Pi 实测中更容易放大厘米级抖动。
    - 保留 `pose_stability_filter`，显式 `RC_POSE_FILTER=1` 时可将 `/robot/pose` 平滑为 `/robot/pose_filtered`，同时保留旧兼容名 `/lidar/pose_filtered`。当前默认不启动旧 filter 链路，CANFD 默认发送 `/robot/pose_continuous`。
    - Rc 2.9 参考 r2 的 `pose_filter.py` 增加 `filter_mode=normal|beta`。beta 输出 `/robot/pose_filtered_beta` 和 `/lidar/pose_filter_beta/status`，通过短时 hold/确认抑制静止尖峰。beta 默认不启动，需要 `RC_POSE_FILTER=1 RC_POSE_FILTER_BETA=1` 手动开启对比。
@@ -1713,7 +1597,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
    - Rc 3.9 增加 `filter_mode=stable` 候选滤波，输出 `/robot/pose_filtered_stable` 和 `/lidar/pose_filter_stable/status`。stable 使用稳态锚点和持续运动确认，避免静止状态下 1-4cm 地图重定位跳点被瞬时速度误判为真实运动。普通一键脚本、开机自启和 CAN 重启默认都不启动 stable；需要对比时手动设置 `RC_POSE_FILTER=1 RC_POSE_FILTER_STABLE=1`。
    - Rc 4.6 增加 yaw 独立低延迟滤波参数 `RC_POSE_FILTER_YAW_ALPHA`，默认 `0.85`。XY 仍使用静止强滤波和运动自适应 alpha；yaw 不再被静止 `static_alpha=0.12` 拖慢，用来降低无头车自转后航向角约 2 秒才跟上的问题。beta/stable 候选也支持各自覆盖 `RC_POSE_FILTER_BETA_YAW_ALPHA`、`RC_POSE_FILTER_STABLE_YAW_ALPHA`。
    - Rc 4.7 增加 `RC_POSE_FILTER_USE_RAW_YAW`，默认关闭。打开后 yaw 直接取 `/robot/pose` 原始 yaw，并且即使 XY 因 `quality_gate` 被 hold，yaw 也继续更新；用于无头车需要快速航向响应的场景。该开关只绕过 yaw，不绕过 XY 的质量门控。
-   - Rc 4.8 在 `pose_from_odom` 增加低延迟 yaw 融合：`/robot/pose` 的 XY 仍来自 `/map_lidar/odom` 地图重定位结果，yaw 可使用“最近一次地图 yaw 基准 + FAST-LIO `/Odometry` 高频 yaw 增量”。当前默认 `RC_ROBOT_POSE_YAW_FUSION=0`，不发布 `/robot/yaw_fusion/status`；需要对比旧融合时再显式打开。
+   - Rc 4.8 在 `pose_from_odom` 增加低延迟 yaw 融合：`/robot/pose` 当前默认直接来自 FAST-LIO `/Odometry`，旧的“地图 yaw 基准 + FAST-LIO 高频 yaw 增量”只在显式打开 `RC_ROBOT_POSE_YAW_FUSION=1` 时用于诊断对比。
    - Rc 4.9 曾让 CAN 的 yaw 单独读取 `/robot/pose`，而 x/y/z 读取当时的 `RC_CAN_POSE_TOPIC`。当前 CANFD 发送整包 `/robot/pose_continuous`，这套拆分 yaw 链路只作为 legacy 配置保留。
    - Rc 4.10 起，CAN yaw 默认不再被 `/map_lidar/quality` ready gate 冻住：`RC_CAN_YAW_IGNORE_READY_GATE=1`。quality 不 ready 时，`0x12` 的 x/y 不发，`0x13` 继续发最新 yaw，并沿用最近一次质量通过时的可信 z。这个改动用于降低无头车旋转时因为重定位质量短暂波动导致的航向冻结；如果要恢复旧行为，可设为 `0`。
    - Rc 4.12 起，曾实验让 CAN yaw 优先读取 FAST-LIO 原始 `/Odometry`。当前 CANFD 发送整包 `/robot/pose_continuous`，不再默认拆分旧 yaw fusion、raw odom yaw 或 pose filter 链路。
@@ -1733,7 +1617,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
    - `RC_LIDAR_MODE=mapping` 用于建图保存；`RC_LIDAR_MODE=relocalization` 用于基于地图的高精度重定位。
    - 未设置 `RC_FASTLIO_MAP_SAVE_PATH` 时，若默认 `maps/mid360_map.pcd` 已存在，会自动保存为带时间戳的新 PCD，避免覆盖旧地图。
    - 建图保存依赖 FAST-LIO 的 `/map_save` 服务。如果保存脚本一直等待，优先检查 `/laser_mapping` 节点、`/map_save` 服务和 `POSE_INTERFACE.log`。当前版本修复了 `pose_from_tf` 对 `publish_rate:=50` 这类整数参数不兼容导致节点退出的问题。
-   - `pose_interface_relocalization.sh` 默认 `RC_ROBOT_POSE_SOURCE=odom`，从 `/map_lidar/odom` 同步计算 `/robot/pose`；只有显式设置 `RC_ROBOT_POSE_SOURCE=tf` 时才走 TF 查询链路。
+   - `pose_interface_relocalization.sh` 默认 `RC_ROBOT_POSE_SOURCE=odom`，从 `/Odometry` 同步计算 `/robot/pose`；只有显式设置 `RC_ROBOT_POSE_SOURCE=tf` 时才走 TF 查询链路。
    - `pose_interface_relocalization.sh` 默认 `RC_ROBOT_POSE_YAW_FUSION=0`，不额外发布 `/robot/yaw_fusion/status`；需要旧低延迟 yaw 诊断时再显式打开。
    - 重定位模式默认不启动 normal/beta/stable 位姿滤波，避免旧 `/robot/pose_filtered` 干扰新滤波开发；`stop_all.sh` 和 CAN 重启脚本仍会清理这些节点，防止显式调试后残留。
    - Rc 4.18 起，默认关闭 CAN ready gate：`RC_CAN_REQUIRE_READY=0`。CAN 不再等待 `/map_lidar/quality` 连续稳定才发送，便于现场验证电控链路和消除 quality gate 对控制的影响；需要恢复旧保护时手动设置 `RC_CAN_REQUIRE_READY=1`。
@@ -1767,7 +1651,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
 ## 注意事项
 
 - `autostart/backup/` 是旧备份目录，未参与一键启动，里面仍可能保留旧路径。
-- 不建议只关闭终端窗口来停止雷达定位栈。需要确认停止时，用 `./autostart/stop_all.sh`；需要确认是否有残留进程时，用 `pgrep -af 'fastlio|livox|rc_serial|rviz2|plotjuggler|robot_tf_offsets|lidar_tf_offset|world_from_fastlio|ekf_node|ros2'`。
+- 不建议只关闭终端窗口来停止雷达定位栈。需要确认停止时，用 `./autostart/stop_all.sh`；需要确认是否有残留进程时，用 `pgrep -af 'fastlio|livox|rc_serial|rviz2|plotjuggler|ekf_node|ros2'`。
 - Livox 驱动的 `bind failed` 通常是本机 IP 没配到 JSON 里的 host IP，不是 ROS 编译失败。
 - `rc_serial_driver` 依赖系统里存在 SocketCAN 设备。如果没有任何 `can*` / `slcan*` 接口，优先检查 USB-CAN 的 `lsusb`、`dmesg` 和供电/线材/USB 口。
 - 如果系统未安装 `robot_localization`，一键启动会自动降级为静态 `body -> body_highrate`。安装 `ros-humble-robot-localization` 后会自动使用 EKF：

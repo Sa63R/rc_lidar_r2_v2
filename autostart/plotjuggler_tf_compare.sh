@@ -78,17 +78,6 @@ if [ "${RC_LIDAR_MODE:-tracking}" = "relocalization" ]; then
   esac
 fi
 
-TOPICS+=(
-  "/tf_compare/robot_origin_to_robot_base"
-  "/tf_compare/robot_origin_to_robot_base_highrate"
-  "/tf_compare/map_to_body"
-)
-SAMPLE_TOPICS+=(
-  "/tf_compare/robot_origin_to_robot_base"
-  "/tf_compare/robot_origin_to_robot_base_highrate"
-  "/tf_compare/map_to_body"
-)
-
 join_topics_for_qsettings() {
   local joined=""
   local topic

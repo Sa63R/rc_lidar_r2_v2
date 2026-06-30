@@ -8,7 +8,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from fastlio_world_init.rotation_extrinsic_calibrator import (  # noqa: E402
+from rc_lidar_tools.rotation_extrinsic_calibrator import (  # noqa: E402
     fit_rotation_error,
     summarize_yaw_values,
 )

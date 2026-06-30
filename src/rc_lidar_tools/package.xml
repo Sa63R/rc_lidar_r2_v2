@@ -1,11 +1,11 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>fastlio_world_init</name>
-  <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <name>rc_lidar_tools</name>
+  <version>0.1.0</version>
+  <description>Maintenance and calibration tools for the RC LiDAR workspace.</description>
   <maintainer email="linboxi123@163.com">rc</maintainer>
-  <license>TODO: License declaration</license>
+  <license>MIT</license>
 
   <depend>rclpy</depend>
   <depend>tf2_ros</depend>

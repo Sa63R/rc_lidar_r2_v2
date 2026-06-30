@@ -9,15 +9,16 @@ POSE_SOURCE="${RC_ROBOT_POSE_SOURCE:-odom}"
 case "$POSE_SOURCE" in
   odom)
     ZERO_FRAME="${RC_POSE_ZERO_FRAME_ID:-robot_origin}"
+    INPUT_ODOM_TOPIC="${RC_ROBOT_POSE_INPUT_ODOM_TOPIC:-/Odometry}"
     YAW_FUSION="${RC_ROBOT_POSE_YAW_FUSION:-0}"
     FAST_ODOM_TOPIC="${RC_ROBOT_POSE_FAST_ODOM_TOPIC:-/Odometry}"
     FAST_YAW_PUBLISH="${RC_ROBOT_POSE_YAW_FUSION_PUBLISH_ON_FAST_ODOM:-1}"
     FAST_YAW_MAX_AGE="${RC_ROBOT_POSE_YAW_FUSION_MAX_FAST_AGE:-0.50}"
     MAP_CORRECTION_ALPHA="${RC_ROBOT_POSE_YAW_FUSION_MAP_CORRECTION_ALPHA:-0.05}"
-    echo "[pose_interface] relocalization mode: input=/map_lidar/odom publishes /robot/pose in $ZERO_FRAME"
+    echo "[pose_interface] relocalization mode: input=$INPUT_ODOM_TOPIC publishes /robot/pose in $ZERO_FRAME"
     echo "[pose_interface] yaw_fusion=$YAW_FUSION fast_odom_topic=$FAST_ODOM_TOPIC fast_publish=$FAST_YAW_PUBLISH max_fast_age=$FAST_YAW_MAX_AGE map_correction_alpha=$MAP_CORRECTION_ALPHA"
     exec ros2 launch lidar_localization lidar_pose_from_odom.launch.py \
-      input_odom_topic:=/map_lidar/odom \
+      input_odom_topic:="$INPUT_ODOM_TOPIC" \
       zero_on_first_pose:=false \
       zero_frame_id:="$ZERO_FRAME" \
       reference_pose_enabled:=true \

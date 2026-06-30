@@ -115,7 +115,7 @@ source install/setup.bash
 验证 7 个核心包：
 
 ```bash
-for p in fast_lio livox_ros_driver2 lidar_map_localization lidar_localization rc_serial_driver fastlio_world_init my_static_tf; do
+for p in fast_lio livox_ros_driver2 lidar_map_localization lidar_localization rc_serial_driver my_static_tf rc_nav2_bringup rc_lidar_tools; do
   echo "== $p =="
   ros2 pkg executables "$p"
 done
@@ -745,7 +745,7 @@ ros2 run tf2_ros tf2_echo robot_origin robot_base_highrate
 cd "$R2_WS"
 source /opt/ros/humble/setup.bash
 source install/setup.bash
-ros2 run fastlio_world_init rotation_extrinsic_calibrator \
+ros2 run rc_lidar_tools rotation_extrinsic_calibrator \
   --duration 40 \
   --rate 50
 ```
@@ -802,17 +802,15 @@ selected_topics=...
 
 ```text
 /robot/pose
+/robot/pose_continuous
+/robot/pose_continuous/status
 /robot/pose_odom_only
-/robot/pose_filtered
 /map_lidar/quality
-/lidar/pose_filter/status
-/robot/yaw_fusion/status
-/tf_compare/robot_origin_to_robot_base
-/tf_compare/robot_origin_to_robot_base_highrate
-/tf_compare/map_to_body
 ```
 
 `/robot/pose_odom_only` 是诊断 topic，只在打开 PlotJuggler 调试时自动启动。它用 FAST-LIO `/Odometry` 加同一组雷达到机器人中心外参发布机器人中心点，不包含 map localizer 修正，也不参与 CAN。R2 迁移时建议保留 `RC_ODOM_ONLY_COMPARE=auto`：低负载开机不启动，手动开 PlotJuggler 时启动，用来判断抖动/延迟来自纯 odom 还是地图重定位修正。
+
+如果显式开启 `RC_POSE_FILTER=1`、`RC_POSE_FILTER_BETA=1`、`RC_POSE_FILTER_STABLE=1` 或 `RC_ROBOT_POSE_YAW_FUSION=1`，对应的滤波和 yaw fusion 诊断 topic 也会加入 PlotJuggler 预选列表。
 
 如果 Topic Selector 只选中了旧的 body/body_highrate，或者没有看到 `/robot/pose_filtered`，先只刷新 PlotJuggler 配置，不启动 GUI：
 
@@ -848,7 +846,7 @@ tail -n 120 logs/autostart/latest/POSE_INTERFACE.log
 tail -n 120 logs/autostart/latest/POSE_ODOM_ONLY.log
 ```
 
-当前 Orange Pi 的重定位生产链路默认使用 `RC_ROBOT_POSE_SOURCE=odom`：`POSE_INTERFACE` 订阅 `/map_lidar/odom`，在同一帧定位结果上加雷达到机器人中心外参，并发布 `/robot/pose`。这保留无头车 TF 树，但避免用 TF buffer 直接拼接 `robot_origin -> robot_base_highrate` 时混合低频 `map -> camera_init` 和高频 `body_highrate`。
+当前 Orange Pi 的重定位生产链路默认使用 `RC_ROBOT_POSE_SOURCE=odom`：`POSE_INTERFACE` 订阅 FAST-LIO 原始 `/Odometry`，在同一帧 odom 上加雷达到机器人中心外参，并发布 `/robot/pose`。地图修正后的控制位姿由 `/robot/pose_continuous` 提供。
 
 只有明确要诊断旧 TF 拼接路径时，才临时设置：
 
@@ -866,24 +864,7 @@ tail -n 120 logs/autostart/latest/PLOTJUGGLER.log
 
 如果 `xdotool` 不存在，PlotJuggler 仍会启动，但需要手动点击确认窗口。PlotJuggler ROS2 插件没有可靠的完全静默订阅参数，本工程采用“启动前写入 `default_topics/selected_topics` + 自动确认弹窗”的方案。当前 Orange Pi 上 PlotJuggler 3.15 加载轻量 XML 后出现过内部崩溃，所以默认不加载 XML；R2 也先沿用“不加载布局，只预选 topic”的策略。
 
-默认不强制加载右侧曲线分屏布局。原因是自动分屏布局在现场不一定符合调试需求，用户只需要 topic 自动选中即可。如果确实要恢复旧的自动分屏布局：
-
-```bash
-cd "$R2_WS"
-PLOTJUGGLER_TF_LAYOUT="$R2_WS/src/fastlio_world_init/config/tf_compare_plotjuggler.xml" \
-RC_LIDAR_MODE=relocalization \
-RC_AUTOSTART_PLOTJUGGLER=1 \
-./autostart/start_all_terminals.sh
-```
-
-TF 对比发布节点默认只在 PlotJuggler 会启动时自动启动。低负载实车调车时保持默认跳过；如果想在 headless 下只发布对比 topic、不打开 PlotJuggler：
-
-```bash
-RC_AUTOSTART_HEADLESS=1 \
-RC_AUTOSTART_PLOTJUGGLER=0 \
-RC_AUTOSTART_TF_COMPARE=1 \
-./autostart/start_all_terminals.sh
-```
+默认不强制加载右侧曲线分屏布局。原因是自动分屏布局在现场不一定符合调试需求，用户只需要 topic 自动选中即可。如果确实要加载自定义布局，请用 `PLOTJUGGLER_LAYOUT=/path/to/layout.xml` 指定外部文件。
 
 重点观察：
 
@@ -1046,7 +1027,6 @@ RC_LIDAR_MODE=relocalization \
 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
 RC_AUTOSTART_HEADLESS=1 \
 RC_AUTOSTART_PLOTJUGGLER=0 \
-RC_AUTOSTART_TF_COMPARE=0 \
 RC_AUTOSTART_LIDAR_XYZR=0 \
 ./autostart/start_all_terminals.sh
 ```
@@ -1211,10 +1191,10 @@ ls -lh logs/autostart/latest/health_monitor.*
 - Livox topic、FAST-LIO odometry、`camera_init -> body` TF 正常。
 - `MAP_LOCALIZER` 发布质量 topic，且没有持续 rejected。
 - `/robot/pose_filtered` 连续刷新。
-- `POSE_INTERFACE.log` 正常应显示从 `/map_lidar/odom` 发布 `/robot/pose`。如果看到 `TF robot_origin->robot_base_highrate`，说明当前启动用了 `RC_ROBOT_POSE_SOURCE=tf` 回退路径；该路径只用于对比诊断，不建议作为 R2 生产默认。
+- `POSE_INTERFACE.log` 正常应显示从 `/Odometry` 发布 `/robot/pose`。如果看到 `TF robot_origin->robot_base_highrate`，说明当前启动用了 `RC_ROBOT_POSE_SOURCE=tf` 回退路径；该路径只用于对比诊断，不建议作为 R2 生产默认。
 - `POSE_FILTER.log` 不应出现 `ValueError: Logger severity cannot be changed between calls`。如果出现，说明 r2 还没有同步 Rc 3.8 的滤波日志修复；该问题会让 `/robot/pose_filtered` 运行一段时间后停止发布。
 - 如果启用 beta，对比 `/robot/pose_filtered_beta`，确认静止尖峰更少且真实连续运动不会长期 hold。
 - 如果启用 stable，对比 `/robot/pose_filtered_stable`，确认静止 1-4cm 短时跳点不会被快速跟随，同时慢速连续移动和绕点转圈不会出现平台/锯齿。
-- CAN 使用 `/robot/pose_filtered`，有接收端时 TX 计数增长。
+- CANFD 使用 `/robot/pose_continuous`，有接收端时 TX 计数增长。
 - 健康日志存在，能记录温度、load、CPU 频率、地图质量和静止漂移。
 - `./autostart/stop_all.sh` 能清掉残留雷达、定位、滤波、CAN 和 GUI 调试进程。
