@@ -191,6 +191,10 @@ else(ROS_EDITION STREQUAL "ROS2")
   cmake_minimum_required(VERSION 3.14)
   project(livox_ros_driver2)
 
+  if(NOT HUMBLE_ROS AND "$ENV{ROS_DISTRO}" STREQUAL "humble")
+    set(HUMBLE_ROS "humble")
+  endif()
+
   # Default to C99
   if(NOT CMAKE_C_STANDARD)
     set(CMAKE_C_STANDARD 99)
@@ -285,7 +289,8 @@ else(ROS_EDITION STREQUAL "ROS2")
   if(HUMBLE_ROS STREQUAL "humble")
     rosidl_get_typesupport_target(cpp_typesupport_target
     ${LIVOX_INTERFACES} "rosidl_typesupport_cpp")
-    target_link_libraries(${PROJECT_NAME} "${cpp_typesupport_target}")
+    set(LIVOX_INTERFACE_TARGET "${cpp_typesupport_target}")
+    set(LIVOX_INTERFACES_INCLUDE_DIRECTORIES "")
   else()
     set(LIVOX_INTERFACE_TARGET "${LIVOX_INTERFACES}__rosidl_typesupport_cpp")
     add_dependencies(${PROJECT_NAME} ${LIVOX_INTERFACES})
