@@ -27,6 +27,8 @@ def generate_launch_description():
     )
     input_queue_depth = LaunchConfiguration("input_queue_depth")
     localize_period_sec = LaunchConfiguration("localize_period_sec")
+    map_leaf_size = LaunchConfiguration("map_leaf_size")
+    scan_leaf_size = LaunchConfiguration("scan_leaf_size")
 
     return LaunchDescription(
         [
@@ -71,6 +73,8 @@ def generate_launch_description():
             ),
             DeclareLaunchArgument("input_queue_depth", default_value="1"),
             DeclareLaunchArgument("localize_period_sec", default_value="0.1"),
+            DeclareLaunchArgument("map_leaf_size", default_value="0.10"),
+            DeclareLaunchArgument("scan_leaf_size", default_value="0.10"),
             Node(
                 package="lidar_map_localization",
                 executable="map_localizer",
@@ -127,6 +131,12 @@ def generate_launch_description():
                         ),
                         "localize_period_sec": ParameterValue(
                             localize_period_sec, value_type=float
+                        ),
+                        "map_leaf_size": ParameterValue(
+                            map_leaf_size, value_type=float
+                        ),
+                        "scan_leaf_size": ParameterValue(
+                            scan_leaf_size, value_type=float
                         ),
                     },
                 ],

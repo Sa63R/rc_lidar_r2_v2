@@ -30,6 +30,8 @@ TIMESTAMP_MISMATCH_WARN_SEC="${RC_MAP_TIMESTAMP_MISMATCH_WARN_SEC:-0.03}"
 TIMESTAMP_MISMATCH_LOG_PERIOD_SEC="${RC_MAP_TIMESTAMP_MISMATCH_LOG_PERIOD_SEC:-2.0}"
 INPUT_QUEUE_DEPTH="${RC_MAP_LOCALIZER_INPUT_QUEUE_DEPTH:-1}"
 LOCALIZE_PERIOD_SEC="${RC_MAP_LOCALIZER_LOCALIZE_PERIOD_SEC:-0.2}"
+MAP_LEAF_SIZE="${RC_MAP_LOCALIZER_MAP_LEAF_SIZE:-0.10}"
+SCAN_LEAF_SIZE="${RC_MAP_LOCALIZER_SCAN_LEAF_SIZE:-0.10}"
 
 if [ ! -s "$MAP_PATH" ]; then
   echo "[map_localizer] ERROR: map file is missing or empty: $MAP_PATH"
@@ -45,6 +47,8 @@ echo "[map_localizer] initial_guess_enabled=$INITIAL_GUESS"
 echo "[map_localizer] quality_overlap_enabled=$QUALITY_OVERLAP"
 echo "[map_localizer] input_queue_depth=$INPUT_QUEUE_DEPTH"
 echo "[map_localizer] localize_period_sec=$LOCALIZE_PERIOD_SEC"
+echo "[map_localizer] map_leaf_size=$MAP_LEAF_SIZE"
+echo "[map_localizer] scan_leaf_size=$SCAN_LEAF_SIZE"
 echo "[map_localizer] timestamp_mismatch_warn_sec=$TIMESTAMP_MISMATCH_WARN_SEC"
 if [ "$INITIAL_GUESS" = "true" ]; then
   echo "[map_localizer] initial map->camera_init guess xyz=($INITIAL_X, $INITIAL_Y, $INITIAL_Z) rpy=($INITIAL_ROLL, $INITIAL_PITCH, $INITIAL_YAW)"
@@ -67,4 +71,6 @@ exec ros2 launch lidar_map_localization map_localizer.launch.py \
   timestamp_mismatch_warn_sec:="$TIMESTAMP_MISMATCH_WARN_SEC" \
   timestamp_mismatch_log_period_sec:="$TIMESTAMP_MISMATCH_LOG_PERIOD_SEC" \
   input_queue_depth:="$INPUT_QUEUE_DEPTH" \
-  localize_period_sec:="$LOCALIZE_PERIOD_SEC"
+  localize_period_sec:="$LOCALIZE_PERIOD_SEC" \
+  map_leaf_size:="$MAP_LEAF_SIZE" \
+  scan_leaf_size:="$SCAN_LEAF_SIZE"
