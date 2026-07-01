@@ -32,6 +32,16 @@ def _optional_bool_override(context, launch_arg, parameter_name):
     raise RuntimeError(f"{launch_arg} must be a bool, got {value!r}")
 
 
+def _optional_int_override(context, launch_arg, parameter_name):
+    value = LaunchConfiguration(launch_arg).perform(context).strip()
+    if not value:
+        return None
+    try:
+        return parameter_name, int(value)
+    except ValueError as exc:
+        raise RuntimeError(f"{launch_arg} must be an int, got {value!r}") from exc
+
+
 def _launch_fast_lio_node(context, *args, **kwargs):
     use_sim_time = LaunchConfiguration('use_sim_time')
     config_path = LaunchConfiguration('config_path')
@@ -61,6 +71,15 @@ def _launch_fast_lio_node(context, *args, **kwargs):
         context,
         'runtime_pos_log_enable',
         'runtime_pos_log_enable',
+    )
+    if override is not None:
+        key, value = override
+        overrides[key] = value
+
+    override = _optional_int_override(
+        context,
+        'point_filter_num',
+        'point_filter_num',
     )
     if override is not None:
         key, value = override
@@ -130,6 +149,11 @@ def generate_launch_description():
         default_value='',
         description='Optional override for FAST-LIO filter_size_map'
     )
+    declare_point_filter_num_cmd = DeclareLaunchArgument(
+        'point_filter_num',
+        default_value='',
+        description='Optional override for FAST-LIO point_filter_num'
+    )
     declare_det_range_cmd = DeclareLaunchArgument(
         'det_range',
         default_value='',
@@ -156,6 +180,7 @@ def generate_launch_description():
     ld.add_action(declare_map_file_path_cmd)
     ld.add_action(declare_filter_size_surf_cmd)
     ld.add_action(declare_filter_size_map_cmd)
+    ld.add_action(declare_point_filter_num_cmd)
     ld.add_action(declare_det_range_cmd)
     ld.add_action(declare_runtime_pos_log_enable_cmd)
 

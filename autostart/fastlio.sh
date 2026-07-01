@@ -93,6 +93,9 @@ fi
 if [ -n "${RC_FASTLIO_FILTER_SIZE_MAP:-}" ]; then
   FASTLIO_LAUNCH_ARGS+=("filter_size_map:=$RC_FASTLIO_FILTER_SIZE_MAP")
 fi
+if [ -n "${RC_FASTLIO_POINT_FILTER_NUM:-}" ]; then
+  FASTLIO_LAUNCH_ARGS+=("point_filter_num:=$RC_FASTLIO_POINT_FILTER_NUM")
+fi
 if [ -n "${RC_FASTLIO_DET_RANGE:-}" ]; then
   FASTLIO_LAUNCH_ARGS+=("det_range:=$RC_FASTLIO_DET_RANGE")
 fi
@@ -100,5 +103,5 @@ if [ -n "${RC_FASTLIO_RUNTIME_POS_LOG_ENABLE:-}" ]; then
   FASTLIO_LAUNCH_ARGS+=("runtime_pos_log_enable:=$RC_FASTLIO_RUNTIME_POS_LOG_ENABLE")
 fi
 
-echo "[fastlio] filter_size_surf=${RC_FASTLIO_FILTER_SIZE_SURF:-yaml_default} filter_size_map=${RC_FASTLIO_FILTER_SIZE_MAP:-yaml_default} det_range=${RC_FASTLIO_DET_RANGE:-yaml_default} runtime_pos_log_enable=${RC_FASTLIO_RUNTIME_POS_LOG_ENABLE:-yaml_default}"
+echo "[fastlio] filter_size_surf=${RC_FASTLIO_FILTER_SIZE_SURF:-yaml_default} filter_size_map=${RC_FASTLIO_FILTER_SIZE_MAP:-yaml_default} point_filter_num=${RC_FASTLIO_POINT_FILTER_NUM:-yaml_default} det_range=${RC_FASTLIO_DET_RANGE:-yaml_default} runtime_pos_log_enable=${RC_FASTLIO_RUNTIME_POS_LOG_ENABLE:-yaml_default}"
 exec ros2 launch fast_lio mapping.launch.py "${FASTLIO_LAUNCH_ARGS[@]}"
