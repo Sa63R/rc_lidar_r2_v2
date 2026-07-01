@@ -1,0 +1,57 @@
+{
+  "action_name": "/navigate_to_pose",
+  "body_length": 0.7,
+  "body_width": 0.8,
+  "collision_sample_count": 0,
+  "goal_results": [
+    {
+      "index": 1,
+      "status": "ABORTED",
+      "x": -8.7,
+      "y": 0.15,
+      "yaw": 3.14159
+    },
+    {
+      "index": 2,
+      "status": "SUCCEEDED",
+      "x": -8.7,
+      "y": -4.45,
+      "yaw": -1.5708
+    },
+    {
+      "index": 3,
+      "status": "SUCCEEDED",
+      "x": -1.6,
+      "y": -4.45,
+      "yaw": 0.0
+    },
+    {
+      "index": 4,
+      "status": "SUCCEEDED",
+      "x": -1.6,
+      "y": 0.15,
+      "yaw": 1.5708
+    },
+    {
+      "index": 5,
+      "status": "SUCCEEDED",
+      "x": -0.6,
+      "y": 0.4,
+      "yaw": 3.14159
+    }
+  ],
+  "map": "src/rc_nav2_bringup/maps/red_manual_simple.yaml",
+  "min_clearance_m": 0.01464466094067262,
+  "min_clearance_sample": {
+    "clearance_m": 0.01464466094067262,
+    "collision": false,
+    "stamp": 1782920041.9731653,
+    "x": -3.1485262826303937,
+    "y": 0.3156633953921423,
+    "yaw": -2.910973328801379
+  },
+  "odom_topic": "/odom",
+  "p05_clearance_m": 0.01464466094067262,
+  "p50_clearance_m": 0.11464466094067263,
+  "sample_count": 3409
+}

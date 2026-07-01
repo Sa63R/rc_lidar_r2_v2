@@ -32,12 +32,12 @@ gimp /home/jwt/jwt/rc/rc_lidar_r2_v2/src/rc_nav2_bringup/maps/mid360_064655_nav2
 
 # 测试手绘地图
 ## 初始化
-cd /home/jwt/jwt/rc/rc_lidar_r2_v2
+cd /home/jwt/jwt/rc/rc_lidar_r2_v3_pointlio
 source /opt/ros/humble/setup.bash
 source install/setup.bash
 
 ros2 launch rc_nav2_bringup fake_nav.launch.py \
-  map:=/home/jwt/jwt/rc/rc_lidar_r2_v2/src/rc_nav2_bringup/maps/red_manual_simple.yaml \
+  map:=/home/jwt/jwt/rc/rc_lidar_r2_v3_pointlio/src/rc_nav2_bringup/maps/red_manual_simple.yaml \
   start_x:=-0.60 \
   start_y:=0.40 \
   start_yaw:=3.14159

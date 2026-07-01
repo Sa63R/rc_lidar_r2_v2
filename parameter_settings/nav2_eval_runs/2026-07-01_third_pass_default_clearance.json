@@ -1,0 +1,61 @@
+{
+  "action_name": "/navigate_to_pose",
+  "body_length": 0.7,
+  "body_width": 0.8,
+  "collision_sample_count": 0,
+  "evaluated_sample_count": 2078,
+  "goal_results": [
+    {
+      "index": 1,
+      "status": "SUCCEEDED",
+      "x": -8.7,
+      "y": 0.35,
+      "yaw": 3.141592653589793
+    },
+    {
+      "index": 2,
+      "status": "SUCCEEDED",
+      "x": -8.7,
+      "y": -4.45,
+      "yaw": -1.5707963267948966
+    },
+    {
+      "index": 3,
+      "status": "SUCCEEDED",
+      "x": -0.8,
+      "y": -4.45,
+      "yaw": 0.0
+    },
+    {
+      "index": 4,
+      "status": "SUCCEEDED",
+      "x": -0.8,
+      "y": 0.35,
+      "yaw": 1.5707963267948966
+    },
+    {
+      "index": 5,
+      "status": "SUCCEEDED",
+      "x": -0.6,
+      "y": 0.4,
+      "yaw": 3.141592653589793
+    }
+  ],
+  "ignored_initial_sec": 2.0,
+  "map": "src/rc_nav2_bringup/maps/red_manual_simple.yaml",
+  "min_clearance_m": -0.03535533905932738,
+  "min_clearance_sample": {
+    "clearance_m": -0.03535533905932738,
+    "collision": false,
+    "stamp": 1782920896.9421992,
+    "x": -2.982400780720171,
+    "y": 0.28221550833566167,
+    "yaw": 1.9951459662318356
+  },
+  "odom_topic": "/odom",
+  "p05_clearance_m": 0.06464466094067262,
+  "p50_clearance_m": 0.16464466094067262,
+  "raw_collision_sample_count": 0,
+  "raw_min_clearance_m": -0.03535533905932738,
+  "sample_count": 2178
+}
