@@ -26,6 +26,10 @@ def generate_launch_description():
         "timestamp_mismatch_log_period_sec"
     )
     input_queue_depth = LaunchConfiguration("input_queue_depth")
+    executor_threads = LaunchConfiguration("executor_threads")
+    odom_buffer_duration_sec = LaunchConfiguration("odom_buffer_duration_sec")
+    max_scan_odom_delta_sec = LaunchConfiguration("max_scan_odom_delta_sec")
+    max_scan_age_sec = LaunchConfiguration("max_scan_age_sec")
     localize_period_sec = LaunchConfiguration("localize_period_sec")
     map_leaf_size = LaunchConfiguration("map_leaf_size")
     scan_leaf_size = LaunchConfiguration("scan_leaf_size")
@@ -72,6 +76,10 @@ def generate_launch_description():
                 "timestamp_mismatch_log_period_sec", default_value="2.0"
             ),
             DeclareLaunchArgument("input_queue_depth", default_value="1"),
+            DeclareLaunchArgument("executor_threads", default_value="3"),
+            DeclareLaunchArgument("odom_buffer_duration_sec", default_value="2.0"),
+            DeclareLaunchArgument("max_scan_odom_delta_sec", default_value="0.05"),
+            DeclareLaunchArgument("max_scan_age_sec", default_value="0.5"),
             DeclareLaunchArgument("localize_period_sec", default_value="0.1"),
             DeclareLaunchArgument("map_leaf_size", default_value="0.10"),
             DeclareLaunchArgument("scan_leaf_size", default_value="0.10"),
@@ -128,6 +136,18 @@ def generate_launch_description():
                         ),
                         "input_queue_depth": ParameterValue(
                             input_queue_depth, value_type=int
+                        ),
+                        "executor_threads": ParameterValue(
+                            executor_threads, value_type=int
+                        ),
+                        "odom_buffer_duration_sec": ParameterValue(
+                            odom_buffer_duration_sec, value_type=float
+                        ),
+                        "max_scan_odom_delta_sec": ParameterValue(
+                            max_scan_odom_delta_sec, value_type=float
+                        ),
+                        "max_scan_age_sec": ParameterValue(
+                            max_scan_age_sec, value_type=float
                         ),
                         "localize_period_sec": ParameterValue(
                             localize_period_sec, value_type=float

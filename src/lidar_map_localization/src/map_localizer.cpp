@@ -1,10 +1,14 @@
-#include <chrono>
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cmath>
+#include <cstdint>
+#include <deque>
 #include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include <Eigen/Dense>
 #include <Eigen/Geometry>
@@ -79,6 +83,14 @@ class MapLocalizer : public rclcpp::Node {
         declare_parameter<double>("timestamp_mismatch_log_period_sec", 2.0);
     input_queue_depth_ = std::max(
         1, static_cast<int>(declare_parameter<int>("input_queue_depth", 1)));
+    executor_threads_ = std::max(
+        1, static_cast<int>(declare_parameter<int>("executor_threads", 3)));
+    odom_buffer_duration_sec_ = std::max(
+        0.1, declare_parameter<double>("odom_buffer_duration_sec", 2.0));
+    max_scan_odom_delta_sec_ = std::max(
+        0.0, declare_parameter<double>("max_scan_odom_delta_sec", 0.05));
+    max_scan_age_sec_ = std::max(
+        0.0, declare_parameter<double>("max_scan_age_sec", 0.5));
 
     map_T_odom_.setIdentity();
     if (initial_guess_enabled_) {
@@ -86,6 +98,7 @@ class MapLocalizer : public rclcpp::Node {
           initial_guess_x_, initial_guess_y_, initial_guess_z_,
           initial_guess_roll_, initial_guess_pitch_, initial_guess_yaw_);
       has_map_to_odom_ = true;
+      map_T_odom_version_ = 1;
       RCLCPP_INFO(
           get_logger(),
           "using initial map->%s guess: xyz=(%.3f, %.3f, %.3f) rpy=(%.3f, %.3f, %.3f)",
@@ -93,6 +106,7 @@ class MapLocalizer : public rclcpp::Node {
           initial_guess_roll_, initial_guess_pitch_, initial_guess_yaw_);
     } else {
       has_map_to_odom_ = auto_initialize_identity_;
+      map_T_odom_version_ = has_map_to_odom_ ? 1 : 0;
       if (auto_initialize_identity_) {
         RCLCPP_WARN(
             get_logger(),
@@ -120,27 +134,40 @@ class MapLocalizer : public rclcpp::Node {
     auto input_qos = rclcpp::QoS(rclcpp::KeepLast(input_queue_depth_))
                          .best_effort()
                          .durability_volatile();
+    input_callback_group_ = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+    timer_callback_group_ = create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+    rclcpp::SubscriptionOptions input_options;
+    input_options.callback_group = input_callback_group_;
     scan_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>(
         scan_topic_, input_qos,
-        std::bind(&MapLocalizer::scanCallback, this, std::placeholders::_1));
+        std::bind(&MapLocalizer::scanCallback, this, std::placeholders::_1),
+        input_options);
     odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
         odom_topic_, input_qos,
-        std::bind(&MapLocalizer::odomCallback, this, std::placeholders::_1));
+        std::bind(&MapLocalizer::odomCallback, this, std::placeholders::_1),
+        input_options);
     initialpose_sub_ = create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
         initialpose_topic_, 10,
-        std::bind(&MapLocalizer::initialPoseCallback, this, std::placeholders::_1));
+        std::bind(&MapLocalizer::initialPoseCallback, this, std::placeholders::_1),
+        input_options);
 
     timer_ = create_wall_timer(
         std::chrono::duration_cast<std::chrono::nanoseconds>(
             std::chrono::duration<double>(localize_period_sec_)),
-        std::bind(&MapLocalizer::localizeTimerCallback, this));
+        std::bind(&MapLocalizer::localizeTimerCallback, this),
+        timer_callback_group_);
 
     publishMap();
     RCLCPP_INFO(
         get_logger(),
-        "map localizer ready: map=%s scan=%s odom=%s output=%s input_queue_depth=%d",
+        "map localizer ready: map=%s scan=%s odom=%s output=%s input_queue_depth=%d executor_threads=%d odom_buffer=%.2fs scan_odom_delta=%.3fs scan_age=%.3fs",
         map_path_.c_str(), scan_topic_.c_str(), odom_topic_.c_str(),
-        output_odom_topic_.c_str(), input_queue_depth_);
+        output_odom_topic_.c_str(), input_queue_depth_, executor_threads_,
+        odom_buffer_duration_sec_, max_scan_odom_delta_sec_, max_scan_age_sec_);
+  }
+
+  int executorThreads() const {
+    return executor_threads_;
   }
 
  private:
@@ -149,6 +176,22 @@ class MapLocalizer : public rclcpp::Node {
     kTooFewPoints = 1,
     kNotConverged = 2,
     kBadFitness = 3,
+    kNoMatchingOdom = 4,
+    kScanOdomMismatch = 5,
+    kScanTooOld = 6,
+    kDuplicateScan = 7,
+    kLocalizeBusy = 8,
+    kStaleResult = 9,
+    kNoInitialPose = 10,
+  };
+
+  struct QualityExtra {
+    double scan_odom_delta_sec{std::numeric_limits<double>::quiet_NaN()};
+    double scan_reused{0.0};
+    double odom_buffer_size{0.0};
+    double localize_busy{0.0};
+    double preprocess_ms{0.0};
+    double total_ms{0.0};
   };
 
   void loadMap() {
@@ -215,86 +258,233 @@ class MapLocalizer : public rclcpp::Node {
   }
 
   void scanCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg) {
-    CloudT::Ptr cloud(new CloudT);
-    pcl::fromROSMsg(*msg, *cloud);
-    removeInvalidPoints(cloud);
-
     std::lock_guard<std::mutex> lock(mutex_);
-    latest_scan_ = cloud;
+    latest_scan_msg_ = msg;
     latest_scan_stamp_ = msg->header.stamp;
   }
 
   void odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg) {
     std::lock_guard<std::mutex> lock(mutex_);
-    latest_odom_ = msg;
+    const auto stamp_ns = rclcpp::Time(msg->header.stamp).nanoseconds();
+    if (!odom_buffer_.empty() &&
+        stamp_ns < rclcpp::Time(odom_buffer_.back()->header.stamp).nanoseconds()) {
+      auto it = std::upper_bound(
+          odom_buffer_.begin(), odom_buffer_.end(), stamp_ns,
+          [](std::int64_t stamp, const nav_msgs::msg::Odometry::SharedPtr& odom) {
+            return stamp < rclcpp::Time(odom->header.stamp).nanoseconds();
+          });
+      odom_buffer_.insert(it, msg);
+    } else {
+      odom_buffer_.push_back(msg);
+    }
+    trimOdomBufferLocked(rclcpp::Time(msg->header.stamp));
   }
 
   void initialPoseCallback(const geometry_msgs::msg::PoseWithCovarianceStamped::SharedPtr msg) {
     std::lock_guard<std::mutex> lock(mutex_);
     Eigen::Matrix4f map_T_body = poseToMatrix(msg->pose.pose);
     Eigen::Matrix4f odom_T_body = Eigen::Matrix4f::Identity();
-    if (latest_odom_) {
-      odom_T_body = poseToMatrix(latest_odom_->pose.pose);
+    double odom_delta_sec = std::numeric_limits<double>::quiet_NaN();
+    auto odom = findClosestOdomLocked(rclcpp::Time(msg->header.stamp), &odom_delta_sec);
+    if (odom) {
+      odom_T_body = poseToMatrix(odom->pose.pose);
     }
     map_T_odom_ = map_T_body * odom_T_body.inverse();
     has_map_to_odom_ = true;
-    RCLCPP_INFO(get_logger(), "initial pose received; map->%s guess updated", odom_frame_.c_str());
+    ++map_T_odom_version_;
+    RCLCPP_INFO(
+        get_logger(),
+        "initial pose received; map->%s guess updated odom_delta=%.3fs version=%lu",
+        odom_frame_.c_str(), odom_delta_sec,
+        static_cast<unsigned long>(map_T_odom_version_));
   }
 
   void localizeTimerCallback() {
+    if (localize_running_.exchange(true)) {
+      publishBusyQuality();
+      return;
+    }
+
+    struct RunningGuard {
+      std::atomic_bool& flag;
+      ~RunningGuard() { flag.store(false); }
+    } guard{localize_running_};
+
+    const auto total_start = std::chrono::steady_clock::now();
+    sensor_msgs::msg::PointCloud2::SharedPtr scan_msg;
     CloudT::Ptr scan;
     nav_msgs::msg::Odometry::SharedPtr odom;
     rclcpp::Time stamp;
     Eigen::Matrix4f guess;
+    std::uint64_t map_version_snapshot = 0;
+    double scan_age_sec = std::numeric_limits<double>::quiet_NaN();
+    double odom_age_sec = std::numeric_limits<double>::quiet_NaN();
+    double scan_odom_delta_sec = std::numeric_limits<double>::quiet_NaN();
+    double odom_buffer_size = 0.0;
 
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      if (!map_loaded_ || !latest_scan_ || !latest_odom_) {
+      if (!map_loaded_ || !latest_scan_msg_) {
         return;
       }
+
+      scan_msg = latest_scan_msg_;
+      stamp = rclcpp::Time(latest_scan_stamp_);
+      scan_age_sec = ageSec(now(), stamp);
+      odom_buffer_size = static_cast<double>(odom_buffer_.size());
+
       if (!has_map_to_odom_) {
         RCLCPP_WARN_THROTTLE(
             get_logger(), *get_clock(), 3000,
             "waiting for an initial pose because auto_initialize_identity is false");
+        ++consecutive_rejects_;
+        consecutive_accepts_ = 0;
+        publishQuality(
+            stamp, false, false, -1.0, 0, 0.0,
+            QualityReason::kNoInitialPose, 0.0, 0, scan_age_sec,
+            std::numeric_limits<double>::quiet_NaN(), 0.0, 0.0, 0.0, -1.0,
+            QualityExtra{
+                std::numeric_limits<double>::quiet_NaN(), 0.0,
+                odom_buffer_size, 0.0, 0.0, elapsedMs(total_start)});
         return;
       }
-      scan = latest_scan_;
-      odom = latest_odom_;
-      stamp = rclcpp::Time(latest_scan_stamp_);
+
+      if (last_consumed_scan_stamp_valid_ &&
+          stamp.nanoseconds() == last_consumed_scan_stamp_ns_) {
+        RCLCPP_WARN_THROTTLE(
+            get_logger(), *get_clock(), 2000,
+            "map_localizer skipped duplicate scan stamp=%.6f odom_buffer=%zu",
+            stamp.seconds(), odom_buffer_.size());
+        ++consecutive_rejects_;
+        consecutive_accepts_ = 0;
+        publishQuality(
+            stamp, false, false, -1.0, 0, 0.0,
+            QualityReason::kDuplicateScan, 0.0, 0, scan_age_sec,
+            std::numeric_limits<double>::quiet_NaN(), 0.0, 0.0, 0.0, -1.0,
+            QualityExtra{
+                std::numeric_limits<double>::quiet_NaN(), 1.0,
+                odom_buffer_size, 0.0, 0.0, elapsedMs(total_start)});
+        return;
+      }
+
+      if (max_scan_age_sec_ > 0.0 && std::isfinite(scan_age_sec) &&
+          scan_age_sec > max_scan_age_sec_) {
+        markScanConsumedLocked(stamp);
+        RCLCPP_ERROR_THROTTLE(
+            get_logger(), *get_clock(), 2000,
+            "map_localizer skipped stale scan: scan_age_sec=%.3f > %.3f odom_buffer=%zu",
+            scan_age_sec, max_scan_age_sec_, odom_buffer_.size());
+        ++consecutive_rejects_;
+        consecutive_accepts_ = 0;
+        publishQuality(
+            stamp, false, false, -1.0, 0, 0.0,
+            QualityReason::kScanTooOld, 0.0, 0, scan_age_sec,
+            std::numeric_limits<double>::quiet_NaN(), 0.0, 0.0, 0.0, -1.0,
+            QualityExtra{
+                std::numeric_limits<double>::quiet_NaN(), 0.0,
+                odom_buffer_size, 0.0, 0.0, elapsedMs(total_start)});
+        return;
+      }
+
+      odom = findClosestOdomLocked(stamp, &scan_odom_delta_sec);
+      if (!odom) {
+        markScanConsumedLocked(stamp);
+        RCLCPP_ERROR_THROTTLE(
+            get_logger(), *get_clock(), 2000,
+            "TIMESTAMP MATCH ERROR: map_localizer has no /Odometry for scan stamp %.6f odom_buffer=%zu",
+            stamp.seconds(), odom_buffer_.size());
+        ++consecutive_rejects_;
+        consecutive_accepts_ = 0;
+        publishQuality(
+            stamp, false, false, -1.0, 0, 0.0,
+            QualityReason::kNoMatchingOdom, 0.0, 0, scan_age_sec,
+            std::numeric_limits<double>::quiet_NaN(), 0.0, 0.0, 0.0, -1.0,
+            QualityExtra{
+                std::numeric_limits<double>::quiet_NaN(), 0.0,
+                odom_buffer_size, 0.0, 0.0, elapsedMs(total_start)});
+        return;
+      }
+
+      odom_age_sec = ageSec(now(), rclcpp::Time(odom->header.stamp));
+      if (timestamp_mismatch_warn_sec_ > 0.0 &&
+          std::isfinite(scan_odom_delta_sec) &&
+          scan_odom_delta_sec > timestamp_mismatch_warn_sec_ &&
+          scan_odom_delta_sec <= max_scan_odom_delta_sec_) {
+        RCLCPP_ERROR_THROTTLE(
+            get_logger(), *get_clock(),
+            static_cast<int>(std::max(0.1, timestamp_mismatch_log_period_sec_) * 1000.0),
+            "TIMESTAMP MATCH ERROR: map_localizer scan/odom delta %.1fms > warn %.1fms "
+            "but <= reject %.1fms; scan_stamp=%.6f odom_stamp=%.6f scan_age_sec=%.3f odom_age_sec=%.3f odom_buffer=%zu",
+            scan_odom_delta_sec * 1000.0,
+            timestamp_mismatch_warn_sec_ * 1000.0,
+            max_scan_odom_delta_sec_ * 1000.0,
+            stamp.seconds(),
+            rclcpp::Time(odom->header.stamp).seconds(),
+            scan_age_sec,
+            odom_age_sec,
+            odom_buffer_.size());
+      }
+      if (std::isfinite(scan_odom_delta_sec) &&
+          scan_odom_delta_sec > max_scan_odom_delta_sec_) {
+        markScanConsumedLocked(stamp);
+        RCLCPP_ERROR_THROTTLE(
+            get_logger(), *get_clock(),
+            static_cast<int>(std::max(0.1, timestamp_mismatch_log_period_sec_) * 1000.0),
+            "TIMESTAMP MATCH ERROR: map_localizer scan/odom mismatch %.1fms > %.1fms; "
+            "scan_stamp=%.6f odom_stamp=%.6f scan_age_sec=%.3f odom_age_sec=%.3f odom_buffer=%zu",
+            scan_odom_delta_sec * 1000.0,
+            max_scan_odom_delta_sec_ * 1000.0,
+            stamp.seconds(),
+            rclcpp::Time(odom->header.stamp).seconds(),
+            scan_age_sec,
+            odom_age_sec,
+            odom_buffer_.size());
+        ++consecutive_rejects_;
+        consecutive_accepts_ = 0;
+        publishQuality(
+            stamp, false, false, -1.0, 0, 0.0,
+            QualityReason::kScanOdomMismatch, 0.0, 0, scan_age_sec,
+            odom_age_sec, 0.0, 0.0, 0.0, -1.0,
+            QualityExtra{
+                scan_odom_delta_sec, 0.0, odom_buffer_size, 0.0, 0.0,
+                elapsedMs(total_start)});
+        return;
+      }
+
+      markScanConsumedLocked(stamp);
       guess = map_T_odom_;
+      map_version_snapshot = map_T_odom_version_;
     }
 
+    const auto preprocess_start = std::chrono::steady_clock::now();
+    scan.reset(new CloudT);
+    pcl::fromROSMsg(*scan_msg, *scan);
+    removeInvalidPoints(scan);
     CloudT::Ptr filtered_scan = downsample(scan, scan_leaf_size_);
-    const double scan_age_sec = ageSec(now(), stamp);
-    const double odom_age_sec = ageSec(now(), rclcpp::Time(odom->header.stamp));
-    const double scan_odom_stamp_delta_sec = std::abs(
-        (stamp - rclcpp::Time(odom->header.stamp)).seconds());
-    if (
-        timestamp_mismatch_warn_sec_ > 0.0 &&
-        std::isfinite(scan_odom_stamp_delta_sec) &&
-        scan_odom_stamp_delta_sec > timestamp_mismatch_warn_sec_) {
-      RCLCPP_ERROR_THROTTLE(
-          get_logger(), *get_clock(),
-          static_cast<int>(std::max(0.1, timestamp_mismatch_log_period_sec_) * 1000.0),
-          "TIMESTAMP MATCH ERROR: map_localizer latest scan stamp and latest /Odometry "
-          "stamp differ by %.1fms > %.1fms; scan_stamp=%.6f odom_stamp=%.6f. "
-          "Map matching will continue, but this can inject a wrong map correction.",
-          scan_odom_stamp_delta_sec * 1000.0,
-          timestamp_mismatch_warn_sec_ * 1000.0,
-          stamp.seconds(),
-          rclcpp::Time(odom->header.stamp).seconds());
-    }
+    const double preprocess_ms = elapsedMs(preprocess_start);
     const std::size_t raw_scan_points = scan->size();
+    QualityExtra quality_extra{
+        scan_odom_delta_sec,
+        0.0,
+        odom_buffer_size,
+        0.0,
+        preprocess_ms,
+        elapsedMs(total_start)};
+
     if (static_cast<int>(filtered_scan->size()) < min_scan_points_) {
       RCLCPP_WARN_THROTTLE(
           get_logger(), *get_clock(), 2000,
-          "scan has too few points after filtering: %zu", filtered_scan->size());
+          "scan has too few points after filtering: %zu raw=%zu preprocess_ms=%.2f scan_age_sec=%.3f scan_odom_delta_sec=%.3f",
+          filtered_scan->size(), raw_scan_points, preprocess_ms, scan_age_sec,
+          scan_odom_delta_sec);
       ++consecutive_rejects_;
       consecutive_accepts_ = 0;
+      quality_extra.total_ms = elapsedMs(total_start);
       publishQuality(
           stamp, false, false, -1.0, filtered_scan->size(), 0.0,
           QualityReason::kTooFewPoints, 0.0, raw_scan_points,
-          scan_age_sec, odom_age_sec, 0.0, 0.0, 0.0, -1.0);
+          scan_age_sec, odom_age_sec, 0.0, 0.0, 0.0, -1.0,
+          quality_extra);
       return;
     }
 
@@ -311,31 +501,150 @@ class MapLocalizer : public rclcpp::Node {
     const double map_to_odom_delta_yaw_deg = std::abs(
         radiansToDegrees(shortestAngle(yawFromMatrix(result) - yawFromMatrix(guess))));
     const double overlap_ratio = computeOverlapRatio(filtered_scan, result);
+    quality_extra.total_ms = elapsedMs(total_start);
 
     if (!converged || !std::isfinite(fitness) || fitness > fitness_threshold_) {
       ++consecutive_rejects_;
       consecutive_accepts_ = 0;
       RCLCPP_WARN_THROTTLE(
           get_logger(), *get_clock(), 2000,
-          "map registration rejected: converged=%d fitness=%.3f threshold=%.3f",
-          converged ? 1 : 0, fitness, fitness_threshold_);
+          "map registration rejected: converged=%d fitness=%.3f threshold=%.3f "
+          "preprocess_ms=%.2f align_ms=%.2f total_ms=%.2f scan_age_sec=%.3f odom_age_sec=%.3f scan_odom_delta_sec=%.3f",
+          converged ? 1 : 0, fitness, fitness_threshold_, preprocess_ms,
+          align_ms, quality_extra.total_ms, scan_age_sec, odom_age_sec,
+          scan_odom_delta_sec);
       publishQuality(
           stamp, converged, false, fitness, filtered_scan->size(), 0.0,
           converged ? QualityReason::kBadFitness : QualityReason::kNotConverged,
           align_ms, raw_scan_points, scan_age_sec, odom_age_sec, 0.0,
-          map_to_odom_delta_xy, map_to_odom_delta_yaw_deg, overlap_ratio);
+          map_to_odom_delta_xy, map_to_odom_delta_yaw_deg, overlap_ratio,
+          quality_extra);
       return;
     }
 
     {
       std::lock_guard<std::mutex> lock(mutex_);
+      if (map_T_odom_version_ != map_version_snapshot) {
+        ++consecutive_rejects_;
+        consecutive_accepts_ = 0;
+        quality_extra.total_ms = elapsedMs(total_start);
+        RCLCPP_ERROR_THROTTLE(
+            get_logger(), *get_clock(), 2000,
+            "map_localizer discarded stale result: snapshot_version=%lu current_version=%lu total_ms=%.2f",
+            static_cast<unsigned long>(map_version_snapshot),
+            static_cast<unsigned long>(map_T_odom_version_),
+            quality_extra.total_ms);
+        publishQuality(
+            stamp, converged, false, fitness, filtered_scan->size(), 0.0,
+            QualityReason::kStaleResult, align_ms, raw_scan_points,
+            scan_age_sec, odom_age_sec, 0.0, map_to_odom_delta_xy,
+            map_to_odom_delta_yaw_deg, overlap_ratio, quality_extra);
+        return;
+      }
       map_T_odom_ = result;
+      ++map_T_odom_version_;
     }
 
+    quality_extra.total_ms = elapsedMs(total_start);
+    struct BusyQualitySuppressGuard {
+      std::atomic_bool& flag;
+      explicit BusyQualitySuppressGuard(std::atomic_bool& flag_ref) : flag(flag_ref) {
+        flag.store(true);
+      }
+      ~BusyQualitySuppressGuard() { flag.store(false); }
+    } suppress_guard{suppress_busy_quality_};
     publishLocalization(
         stamp, odom, result, fitness, filtered_scan->size(), align_ms,
         raw_scan_points, scan_age_sec, odom_age_sec, map_to_odom_delta_xy,
-        map_to_odom_delta_yaw_deg, overlap_ratio);
+        map_to_odom_delta_yaw_deg, overlap_ratio, quality_extra);
+  }
+
+  void publishBusyQuality() {
+    if (suppress_busy_quality_.load()) {
+      return;
+    }
+    sensor_msgs::msg::PointCloud2::SharedPtr scan_msg;
+    rclcpp::Time stamp(0, 0, get_clock()->get_clock_type());
+    double scan_age_sec = std::numeric_limits<double>::quiet_NaN();
+    double odom_buffer_size = 0.0;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (!latest_scan_msg_) {
+        return;
+      }
+      scan_msg = latest_scan_msg_;
+      stamp = rclcpp::Time(latest_scan_stamp_);
+      scan_age_sec = ageSec(now(), stamp);
+      odom_buffer_size = static_cast<double>(odom_buffer_.size());
+    }
+    (void)scan_msg;
+    RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 2000,
+        "map_localizer skipped timer tick because NDT/ICP is still running: scan_stamp=%.6f scan_age_sec=%.3f odom_buffer=%.0f",
+        stamp.seconds(), scan_age_sec, odom_buffer_size);
+    ++consecutive_rejects_;
+    consecutive_accepts_ = 0;
+    publishQuality(
+        stamp, false, false, -1.0, 0, 0.0,
+        QualityReason::kLocalizeBusy, 0.0, 0, scan_age_sec,
+        std::numeric_limits<double>::quiet_NaN(), 0.0, 0.0, 0.0, -1.0,
+        QualityExtra{
+            std::numeric_limits<double>::quiet_NaN(), 0.0, odom_buffer_size,
+            1.0, 0.0, 0.0});
+  }
+
+  void trimOdomBufferLocked(const rclcpp::Time& latest_stamp) {
+    if (odom_buffer_.empty()) {
+      return;
+    }
+    const double duration = std::max(0.1, odom_buffer_duration_sec_);
+    while (odom_buffer_.size() > 1) {
+      const auto front_stamp = rclcpp::Time(odom_buffer_.front()->header.stamp);
+      const double age_sec = (latest_stamp - front_stamp).seconds();
+      if (!std::isfinite(age_sec) || age_sec <= duration) {
+        break;
+      }
+      odom_buffer_.pop_front();
+    }
+    constexpr std::size_t kMaxOdomBufferMessages = 2000;
+    while (odom_buffer_.size() > kMaxOdomBufferMessages) {
+      odom_buffer_.pop_front();
+    }
+  }
+
+  nav_msgs::msg::Odometry::SharedPtr findClosestOdomLocked(
+      const rclcpp::Time& target_stamp,
+      double* delta_sec) const {
+    if (delta_sec) {
+      *delta_sec = std::numeric_limits<double>::quiet_NaN();
+    }
+    if (odom_buffer_.empty() || target_stamp.nanoseconds() <= 0) {
+      return nullptr;
+    }
+
+    nav_msgs::msg::Odometry::SharedPtr best;
+    double best_delta = std::numeric_limits<double>::infinity();
+    for (const auto& odom : odom_buffer_) {
+      const double delta = std::abs((rclcpp::Time(odom->header.stamp) - target_stamp).seconds());
+      if (delta < best_delta) {
+        best_delta = delta;
+        best = odom;
+      }
+    }
+    if (delta_sec && std::isfinite(best_delta)) {
+      *delta_sec = best_delta;
+    }
+    return best;
+  }
+
+  void markScanConsumedLocked(const rclcpp::Time& stamp) {
+    last_consumed_scan_stamp_ns_ = stamp.nanoseconds();
+    last_consumed_scan_stamp_valid_ = true;
+  }
+
+  static double elapsedMs(const std::chrono::steady_clock::time_point& start) {
+    return std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - start).count();
   }
 
   bool align(
@@ -383,7 +692,8 @@ class MapLocalizer : public rclcpp::Node {
       double odom_age_sec,
       double map_to_odom_delta_xy,
       double map_to_odom_delta_yaw_deg,
-      double overlap_ratio) {
+      double overlap_ratio,
+      const QualityExtra& quality_extra) {
     Eigen::Matrix4f odom_T_body = poseToMatrix(odom->pose.pose);
     Eigen::Matrix4f map_T_body = map_T_odom * odom_T_body;
 
@@ -394,12 +704,10 @@ class MapLocalizer : public rclcpp::Node {
     output.pose.pose = matrixToPose(map_T_body);
     output.pose.covariance = odom->pose.covariance;
     output.twist = odom->twist;
-    odom_pub_->publish(output);
 
     geometry_msgs::msg::PoseStamped pose;
     pose.header = output.header;
     pose.pose = output.pose.pose;
-    pose_pub_->publish(pose);
 
     const double x = output.pose.pose.position.x;
     const double y = output.pose.pose.position.y;
@@ -417,11 +725,17 @@ class MapLocalizer : public rclcpp::Node {
     last_output_pose_available_ = true;
     consecutive_rejects_ = 0;
     ++consecutive_accepts_;
+
+    // Publish the accepted quality first so downstream correction gates do not
+    // see the previous rejected diagnostic when this odom arrives.
     publishQuality(
         stamp, true, true, fitness, scan_points, jump_xy,
         QualityReason::kAccepted, align_ms, raw_scan_points,
         scan_age_sec, odom_age_sec, jump_yaw_deg, map_to_odom_delta_xy,
-        map_to_odom_delta_yaw_deg, overlap_ratio);
+        map_to_odom_delta_yaw_deg, overlap_ratio, quality_extra);
+
+    odom_pub_->publish(output);
+    pose_pub_->publish(pose);
 
     if (tf_broadcaster_) {
       tf_broadcaster_->sendTransform(matrixToTransform(stamp, map_frame_, odom_frame_, map_T_odom));
@@ -494,7 +808,8 @@ class MapLocalizer : public rclcpp::Node {
       double output_jump_yaw_deg,
       double map_to_odom_delta_xy,
       double map_to_odom_delta_yaw_deg,
-      double overlap_ratio) {
+      double overlap_ratio,
+      const QualityExtra& extra) {
     (void)stamp;
     std_msgs::msg::Float32MultiArray msg;
     msg.data = {
@@ -502,12 +817,12 @@ class MapLocalizer : public rclcpp::Node {
         converged ? 1.0f : 0.0f,
         static_cast<float>(fitness),
         static_cast<float>(fitness_threshold_),
-        static_cast<float>(consecutive_rejects_),
+        static_cast<float>(consecutive_rejects_.load()),
         static_cast<float>(scan_points),
         static_cast<float>(map_filtered_ ? map_filtered_->size() : 0),
         static_cast<float>(jump_xy),
         has_map_to_odom_ ? 1.0f : 0.0f,
-        static_cast<float>(consecutive_accepts_),
+        static_cast<float>(consecutive_accepts_.load()),
         static_cast<float>(static_cast<int>(reason)),
         static_cast<float>(align_ms),
         static_cast<float>(raw_scan_points),
@@ -517,6 +832,12 @@ class MapLocalizer : public rclcpp::Node {
         static_cast<float>(map_to_odom_delta_xy),
         static_cast<float>(map_to_odom_delta_yaw_deg),
         static_cast<float>(overlap_ratio),
+        static_cast<float>(extra.scan_odom_delta_sec),
+        static_cast<float>(extra.scan_reused),
+        static_cast<float>(extra.odom_buffer_size),
+        static_cast<float>(extra.localize_busy),
+        static_cast<float>(extra.preprocess_ms),
+        static_cast<float>(extra.total_ms),
     };
     quality_pub_->publish(msg);
   }
@@ -660,10 +981,14 @@ class MapLocalizer : public rclcpp::Node {
   double timestamp_mismatch_warn_sec_{0.03};
   double timestamp_mismatch_log_period_sec_{2.0};
   int input_queue_depth_{1};
+  int executor_threads_{3};
+  double odom_buffer_duration_sec_{2.0};
+  double max_scan_odom_delta_sec_{0.05};
+  double max_scan_age_sec_{0.5};
   double last_overlap_time_sec_{-1.0};
   double last_overlap_ratio_{-1.0};
-  int consecutive_rejects_{0};
-  int consecutive_accepts_{0};
+  std::atomic<int> consecutive_rejects_{0};
+  std::atomic<int> consecutive_accepts_{0};
   bool last_output_pose_available_{false};
   double last_output_x_{0.0};
   double last_output_y_{0.0};
@@ -672,11 +997,18 @@ class MapLocalizer : public rclcpp::Node {
   CloudT::Ptr map_raw_;
   CloudT::Ptr map_filtered_;
   pcl::KdTreeFLANN<PointT>::Ptr map_kdtree_;
-  CloudT::Ptr latest_scan_;
+  sensor_msgs::msg::PointCloud2::SharedPtr latest_scan_msg_;
   builtin_interfaces::msg::Time latest_scan_stamp_;
-  nav_msgs::msg::Odometry::SharedPtr latest_odom_;
+  std::deque<nav_msgs::msg::Odometry::SharedPtr> odom_buffer_;
   Eigen::Matrix4f map_T_odom_;
+  std::uint64_t map_T_odom_version_{0};
+  bool last_consumed_scan_stamp_valid_{false};
+  std::int64_t last_consumed_scan_stamp_ns_{0};
+  std::atomic_bool localize_running_{false};
+  std::atomic_bool suppress_busy_quality_{false};
 
+  rclcpp::CallbackGroup::SharedPtr input_callback_group_;
+  rclcpp::CallbackGroup::SharedPtr timer_callback_group_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr scan_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr initialpose_sub_;
@@ -692,7 +1024,12 @@ class MapLocalizer : public rclcpp::Node {
 
 int main(int argc, char** argv) {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<lidar_map_localization::MapLocalizer>());
+  auto node = std::make_shared<lidar_map_localization::MapLocalizer>();
+  rclcpp::executors::MultiThreadedExecutor executor(
+      rclcpp::ExecutorOptions(),
+      static_cast<std::size_t>(node->executorThreads()));
+  executor.add_node(node);
+  executor.spin();
   rclcpp::shutdown();
   return 0;
 }

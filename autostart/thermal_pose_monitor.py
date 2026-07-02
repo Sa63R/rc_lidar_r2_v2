@@ -118,6 +118,12 @@ CSV_FIELDS = [
     "map_quality_map_to_odom_delta_xy_m",
     "map_quality_map_to_odom_delta_yaw_deg",
     "map_quality_overlap_ratio",
+    "map_quality_scan_odom_delta_sec",
+    "map_quality_scan_reused",
+    "map_quality_odom_buffer_size",
+    "map_quality_localize_busy",
+    "map_quality_preprocess_ms",
+    "map_quality_total_ms",
     "filter_status_accepted",
     "filter_status_raw_step_xy_m",
     "filter_status_speed_xy_mps",
@@ -828,6 +834,13 @@ class ThermalPoseMonitor(Node):
             "map_quality_align_ms": series_stats(numeric_rows, "map_quality_align_ms"),
             "map_quality_scan_age_sec": series_stats(numeric_rows, "map_quality_scan_age_sec"),
             "map_quality_odom_age_sec": series_stats(numeric_rows, "map_quality_odom_age_sec"),
+            "map_quality_scan_odom_delta_sec": series_stats(
+                numeric_rows, "map_quality_scan_odom_delta_sec"
+            ),
+            "map_quality_preprocess_ms": series_stats(
+                numeric_rows, "map_quality_preprocess_ms"
+            ),
+            "map_quality_total_ms": series_stats(numeric_rows, "map_quality_total_ms"),
             "filter_status_alpha": series_stats(numeric_rows, "filter_status_alpha"),
             "filter_status_motion_factor": series_stats(
                 numeric_rows, "filter_status_motion_factor"
@@ -989,6 +1002,8 @@ class ThermalPoseMonitor(Node):
         reason_code = align_ms = raw_scan_points = quality_scan_age = math.nan
         quality_odom_age = output_jump_yaw = map_to_odom_delta_xy = math.nan
         map_to_odom_delta_yaw = overlap_ratio = math.nan
+        scan_odom_delta = scan_reused = odom_buffer_size = math.nan
+        localize_busy = preprocess_ms = quality_total_ms = math.nan
         quality_age = math.nan
         if self.quality:
             stamp, values = self.quality
@@ -1008,6 +1023,12 @@ class ThermalPoseMonitor(Node):
             map_to_odom_delta_xy = values[16] if len(values) > 16 else math.nan
             map_to_odom_delta_yaw = values[17] if len(values) > 17 else math.nan
             overlap_ratio = values[18] if len(values) > 18 else math.nan
+            scan_odom_delta = values[19] if len(values) > 19 else math.nan
+            scan_reused = values[20] if len(values) > 20 else math.nan
+            odom_buffer_size = values[21] if len(values) > 21 else math.nan
+            localize_busy = values[22] if len(values) > 22 else math.nan
+            preprocess_ms = values[23] if len(values) > 23 else math.nan
+            quality_total_ms = values[24] if len(values) > 24 else math.nan
 
         (
             filter_accepted,
@@ -1381,6 +1402,12 @@ class ThermalPoseMonitor(Node):
             "map_quality_map_to_odom_delta_xy_m": map_to_odom_delta_xy,
             "map_quality_map_to_odom_delta_yaw_deg": map_to_odom_delta_yaw,
             "map_quality_overlap_ratio": overlap_ratio,
+            "map_quality_scan_odom_delta_sec": scan_odom_delta,
+            "map_quality_scan_reused": scan_reused,
+            "map_quality_odom_buffer_size": odom_buffer_size,
+            "map_quality_localize_busy": localize_busy,
+            "map_quality_preprocess_ms": preprocess_ms,
+            "map_quality_total_ms": quality_total_ms,
             "filter_status_accepted": filter_accepted,
             "filter_status_raw_step_xy_m": filter_raw_step,
             "filter_status_speed_xy_mps": filter_speed,
@@ -1580,6 +1607,18 @@ class ThermalPoseMonitor(Node):
                 "map_quality_overlap_ratio": series_stats(
                     numeric_rows,
                     "map_quality_overlap_ratio",
+                ),
+                "map_quality_scan_odom_delta_sec": series_stats(
+                    numeric_rows,
+                    "map_quality_scan_odom_delta_sec",
+                ),
+                "map_quality_preprocess_ms": series_stats(
+                    numeric_rows,
+                    "map_quality_preprocess_ms",
+                ),
+                "map_quality_total_ms": series_stats(
+                    numeric_rows,
+                    "map_quality_total_ms",
                 ),
                 "filter_status_alpha": series_stats(numeric_rows, "filter_status_alpha"),
                 "filter_status_motion_factor": series_stats(
