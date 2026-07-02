@@ -75,9 +75,12 @@ ros2 run fastlio_world_init rotation_extrinsic_calibrator \
 建图模块
 
 # 建图
+cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 FASTLIO_RVIZ=true \
 RC_LIDAR_MODE=mapping \
-RC_FASTLIO_MAP_SAVE_PATH=/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/map_default.pcd \
+RC_FASTLIO_FILTER_SIZE_SURF=0.5 \
+RC_FASTLIO_FILTER_SIZE_MAP=0.5 \
+RC_FASTLIO_MAP_SAVE_PATH=/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/map_3qu2_05_vertical.pcd \
 ./autostart/start_all_terminals.sh
 
 # 保存地图
@@ -87,6 +90,27 @@ cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 地图默认保存到：
 maps/mid360_map.pcd
 
+## 测试地图
+cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
+RC_LIDAR_MODE=relocalization \
+RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
+FASTLIO_RVIZ=true \
+RC_AUTOSTART_HEADLESS=1 \
+RC_AUTOSTART_PLOTJUGGLER=1 \
+RC_AUTOSTART_CANFD=1 \
+RC_AUTOSTART_CANFD_TX_MONITOR=1 \
+RC_CAN_DEBUG_CSV=1 \
+RC_CANFD_SERIAL_PRESENCE_CHECK_PERIOD_SEC=0.5 \
+RC_MAP_LOCALIZER_LOCALIZE_PERIOD_SEC=0.2 \
+RC_FASTLIO_FILTER_SIZE_SURF=0.15 \
+RC_FASTLIO_FILTER_SIZE_MAP=0.25 \
+RC_MAP_LOCALIZER_MAP_LEAF_SIZE=0.10 \
+RC_MAP_LOCALIZER_SCAN_LEAF_SIZE=0.10 \
+RC_FASTLIO_POINT_FILTER_NUM=3 \
+RC_FASTLIO_RUNTIME_POS_LOG_ENABLE=0 \
+RC_FASTLIO_DET_RANGE=100 \
+RC_LIDAR_MAP_PATH="/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/map_3qu2_05_vertical.pcd" \
+./autostart/start_all_terminals.sh
 
 
 
