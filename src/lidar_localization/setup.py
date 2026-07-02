@@ -21,6 +21,7 @@ setup(
     license="MIT",
     entry_points={
         "console_scripts": [
+            "fdcan_gateway = lidar_localization.fdcan_gateway:main",
             "canfd_pose_sender = lidar_localization.canfd_pose_sender:main",
             "pose_from_odom = lidar_localization.pose_from_odom:main",
             "continuous_robot_pose = lidar_localization.continuous_robot_pose:main",

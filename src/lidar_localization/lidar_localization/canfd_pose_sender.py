@@ -30,6 +30,7 @@ DEFAULT_AUTO_RETRANSMIT = True
 DEFAULT_POSE_TOPIC = "/robot/pose_filtered"
 DEFAULT_POSE_TIMEOUT_SEC = 0.5
 DEFAULT_CAN_FRAME_MODE = "normal"
+DEFAULT_GATEWAY_SOCKET = "/tmp/rc_fdcan_gateway.sock"
 DEFAULT_RESTART_CAN_ID = 0x30
 DEFAULT_RESTART_PAYLOAD = bytes.fromhex("A55A01FE00000000")
 CAN_FRAME_MODES = (
@@ -270,6 +271,71 @@ class SlcanFdTransport:
             os.close(self.fd)
 
 
+class GatewayCanFdTransport:
+    def __init__(self, socket_path: str, client_name: str) -> None:
+        self.socket_path = socket_path
+        safe_name = "".join(
+            ch if ch.isalnum() or ch in ("_", "-") else "_"
+            for ch in str(client_name or "canfd_pose_sender")
+        )
+        self.client_path = (
+            f"/tmp/rc_fdcan_client_{safe_name}_{os.getpid()}_"
+            f"{int(time.time() * 1000)}.sock"
+        )
+        self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        try:
+            os.unlink(self.client_path)
+        except FileNotFoundError:
+            pass
+        self.socket.bind(self.client_path)
+        self.socket.setblocking(False)
+        self.send_control(f"HELLO {safe_name}")
+
+    def send_control(self, line: str) -> None:
+        self.socket.sendto((line + "\n").encode("ascii"), self.socket_path)
+
+    def send(self, can_id: int, payload: bytes, enable_brs: bool) -> None:
+        self.send_control(
+            f"TXFD 0x{int(can_id):X} {1 if enable_brs else 0} "
+            f"{payload.hex().upper()}"
+        )
+
+    def read_frames(self):
+        frames = []
+        while True:
+            try:
+                data = self.socket.recv(4096)
+            except BlockingIOError:
+                break
+            except OSError as exc:
+                if exc.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
+                    break
+                raise
+
+            for raw_line in data.decode("ascii", errors="ignore").splitlines():
+                parts = raw_line.strip().split()
+                if len(parts) != 3 or parts[0] != "RX":
+                    continue
+                try:
+                    can_id = int(parts[1], 0)
+                    payload = bytes.fromhex(parts[2])
+                except ValueError:
+                    continue
+                frames.append((can_id & 0x1FFFFFFF, payload))
+        return frames
+
+    def close(self) -> None:
+        try:
+            self.send_control("BYE")
+        except OSError:
+            pass
+        self.socket.close()
+        try:
+            os.unlink(self.client_path)
+        except FileNotFoundError:
+            pass
+
+
 def parse_slcan_frame(line: str):
     text = str(line).strip()
     if not text:
@@ -327,6 +393,8 @@ class CanFdPoseSender(Node):
         self.declare_parameter("transport", "auto")
         self.declare_parameter("can_interface", "can0")
         self.declare_parameter("serial_device", "auto")
+        self.declare_parameter("gateway_socket", DEFAULT_GATEWAY_SOCKET)
+        self.declare_parameter("gateway_client_name", "canfd_pose_sender")
         self.declare_parameter("can_id", 0x12)
         self.declare_parameter("send_rate_hz", DEFAULT_SEND_RATE_HZ)
         self.declare_parameter("pose_timeout_sec", DEFAULT_POSE_TIMEOUT_SEC)
@@ -366,6 +434,10 @@ class CanFdPoseSender(Node):
         self.can_interface = self.get_parameter("can_interface").value
         self.configured_serial_device = self.get_parameter("serial_device").value
         self.serial_device = self.configured_serial_device
+        self.gateway_socket = str(self.get_parameter("gateway_socket").value)
+        self.gateway_client_name = str(
+            self.get_parameter("gateway_client_name").value
+        )
         self.can_id = parse_int_value(self.get_parameter("can_id").value)
         self.send_rate_hz = float(self.get_parameter("send_rate_hz").value)
         self.pose_timeout_sec = float(self.get_parameter("pose_timeout_sec").value)
@@ -556,7 +628,9 @@ class CanFdPoseSender(Node):
     def open_transport(self):
         transport = str(self.configured_transport).lower()
         if transport == "auto":
-            if os.path.exists(f"/sys/class/net/{self.can_interface}"):
+            if os.path.exists(self.gateway_socket):
+                transport = "gateway"
+            elif os.path.exists(f"/sys/class/net/{self.can_interface}"):
                 transport = "socketcan"
             elif self.find_serial_device():
                 transport = "slcan_fd"
@@ -569,6 +643,12 @@ class CanFdPoseSender(Node):
         if transport == "socketcan":
             self.transport_name = f"socketcan:{self.can_interface}"
             return SocketCanFdTransport(self.can_interface)
+        if transport in ("gateway", "fdcan_gateway"):
+            self.transport_name = f"fdcan_gateway:{self.gateway_socket}"
+            return GatewayCanFdTransport(
+                self.gateway_socket,
+                self.gateway_client_name,
+            )
         if transport in ("slcan_fd", "serial", "canable2"):
             self.serial_device = self.find_serial_device(required=True)
             self.transport_name = f"slcan_fd:{self.serial_device}"
@@ -580,7 +660,8 @@ class CanFdPoseSender(Node):
             )
 
         raise ValueError(
-            "transport must be one of: auto, socketcan, slcan_fd, serial, canable2"
+            "transport must be one of: auto, gateway, fdcan_gateway, socketcan, "
+            "slcan_fd, serial, canable2"
         )
 
     def find_serial_device(self, required: bool = False) -> str:

@@ -6,6 +6,10 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common_env.sh"
 
 CAN_DEVICE_DEFAULT="/dev/serial/by-id/usb-Openlight_Labs_CANable2_b158aa7_github.com_normaldotcom_canable2.git_206D35C24831-if00"
 CAN_DEVICE="${CAN_DEVICE:-$CAN_DEVICE_DEFAULT}"
+CANFD_TRANSPORT="${CANFD_TRANSPORT:-${RC_CANFD_TRANSPORT:-gateway}}"
+CANFD_GATEWAY_SOCKET="${CANFD_GATEWAY_SOCKET:-${RC_FDCAN_GATEWAY_SOCKET:-/tmp/rc_fdcan_gateway.sock}}"
+CANFD_GATEWAY_CLIENT_NAME="${CANFD_GATEWAY_CLIENT_NAME:-canfd_pose_sender}"
+CANFD_INTERFACE="${CANFD_INTERFACE:-${RC_CANFD_INTERFACE:-can0}}"
 CAN_SEND_RATE="${CAN_SEND_RATE:-100.0}"
 CAN_POSE_TOPIC="${CAN_POSE_TOPIC:-${RC_CAN_POSE_TOPIC:-/robot/pose_filtered}}"
 CAN_POSE_TIMEOUT_SEC="${CAN_POSE_TIMEOUT_SEC:-${RC_CAN_POSE_TIMEOUT_SEC:-0.5}}"
@@ -41,6 +45,8 @@ fi
 
 echo "CAN FD pose topic: $CAN_POSE_TOPIC"
 echo "CAN FD pose timeout: ${CAN_POSE_TIMEOUT_SEC}s"
+echo "CAN FD transport: $CANFD_TRANSPORT"
+echo "CAN FD gateway socket: $CANFD_GATEWAY_SOCKET"
 echo "CAN FD debug CSV: ${CAN_DEBUG_CSV_PATH:-off}"
 echo "CAN FD serial presence check: ${CANFD_SERIAL_PRESENCE_CHECK_PERIOD_SEC}s"
 echo "CAN FD restart listener: $CANFD_RESTART_ENABLED id=$CANFD_RESTART_CAN_ID payload=$CANFD_RESTART_PAYLOAD_HEX"
@@ -50,7 +56,10 @@ exec ros2 run lidar_localization canfd_pose_sender --ros-args \
   -p pose_timeout_sec:="$CAN_POSE_TIMEOUT_SEC" \
   -p debug_csv_path:="$CAN_DEBUG_CSV_PATH" \
   -p debug_log_period_sec:="$CAN_DEBUG_LOG_PERIOD_SEC" \
-  -p transport:=slcan_fd \
+  -p transport:="$CANFD_TRANSPORT" \
+  -p gateway_socket:="$CANFD_GATEWAY_SOCKET" \
+  -p gateway_client_name:="$CANFD_GATEWAY_CLIENT_NAME" \
+  -p can_interface:="$CANFD_INTERFACE" \
   -p serial_device:="$CAN_DEVICE" \
   -p can_id:=18 \
   -p send_rate_hz:="$CAN_SEND_RATE" \

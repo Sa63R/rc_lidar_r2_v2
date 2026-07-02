@@ -54,6 +54,9 @@ RC_CONTINUOUS_POSE_MAX_STAMP_DELTA="${RC_CONTINUOUS_POSE_MAX_STAMP_DELTA:-0.03}"
 RC_AUTOSTART_DRY_RUN="${RC_AUTOSTART_DRY_RUN:-0}"
 RC_AUTOSTART_CANFD="${RC_AUTOSTART_CANFD:-0}"
 RC_AUTOSTART_CANFD_TX_MONITOR="${RC_AUTOSTART_CANFD_TX_MONITOR:-1}"
+RC_AUTOSTART_FDCAN_GATEWAY="${RC_AUTOSTART_FDCAN_GATEWAY:-auto}"
+RC_CANFD_TRANSPORT="${RC_CANFD_TRANSPORT:-gateway}"
+RC_FDCAN_GATEWAY_SOCKET="${RC_FDCAN_GATEWAY_SOCKET:-/tmp/rc_fdcan_gateway.sock}"
 RC_CAN_RESTART_LISTENER="${RC_CAN_RESTART_LISTENER:-auto}"
 RC_CANFD_RESTART_ENABLED="${RC_CANFD_RESTART_ENABLED:-1}"
 RC_CANFD_SERIAL_PRESENCE_CHECK_PERIOD_SEC="${RC_CANFD_SERIAL_PRESENCE_CHECK_PERIOD_SEC:-0.5}"
@@ -223,6 +226,9 @@ export RC_CONTINUOUS_POSE_STAMP_MATCH_MODE
 export RC_CONTINUOUS_POSE_MAX_STAMP_DELTA
 export RC_AUTOSTART_CANFD
 export RC_AUTOSTART_CANFD_TX_MONITOR
+export RC_AUTOSTART_FDCAN_GATEWAY
+export RC_CANFD_TRANSPORT
+export RC_FDCAN_GATEWAY_SOCKET
 export RC_CAN_RESTART_LISTENER
 export RC_CANFD_RESTART_ENABLED
 export RC_CANFD_SERIAL_PRESENCE_CHECK_PERIOD_SEC
@@ -293,6 +299,9 @@ mkdir -p "$ROS_LOG_DIR"
   echo "can_pose_topic: $RC_CAN_POSE_TOPIC"
   echo "canfd: $RC_AUTOSTART_CANFD"
   echo "canfd_tx_monitor: $RC_AUTOSTART_CANFD_TX_MONITOR"
+  echo "fdcan_gateway: $RC_AUTOSTART_FDCAN_GATEWAY"
+  echo "canfd_transport: $RC_CANFD_TRANSPORT"
+  echo "fdcan_gateway_socket: $RC_FDCAN_GATEWAY_SOCKET"
   echo "can_restart_listener: $RC_CAN_RESTART_LISTENER"
   echo "canfd_restart_enabled: $RC_CANFD_RESTART_ENABLED"
   echo "canfd_serial_presence_check_period_sec: $RC_CANFD_SERIAL_PRESENCE_CHECK_PERIOD_SEC"
@@ -726,6 +735,37 @@ canfd_enabled() {
   esac
 }
 
+fdcan_gateway_transport_enabled() {
+  case "${RC_CANFD_TRANSPORT:-gateway}" in
+    gateway|fdcan_gateway|auto)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+should_start_fdcan_gateway() {
+  case "${RC_AUTOSTART_FDCAN_GATEWAY:-auto}" in
+    1|true|TRUE|yes|YES|on|ON)
+      return 0
+      ;;
+    0|false|FALSE|no|NO|off|OFF)
+      return 1
+      ;;
+    auto)
+      canfd_enabled && fdcan_gateway_transport_enabled
+      return
+      ;;
+    *)
+      echo "[WARN] Unknown RC_AUTOSTART_FDCAN_GATEWAY=${RC_AUTOSTART_FDCAN_GATEWAY}; using auto." | tee -a "$LOG_DIR/start_summary.txt"
+      canfd_enabled && fdcan_gateway_transport_enabled
+      return
+      ;;
+  esac
+}
+
 should_start_canfd_tx_monitor() {
   if ! canfd_enabled; then
     return 1
@@ -1141,6 +1181,11 @@ should_start_continuous_pose() {
   esac
 }
 
+if should_start_fdcan_gateway; then
+  start_one "FDCAN_GATEWAY" "fdcan_gateway.sh"
+else
+  summary_event "skipped FDCAN_GATEWAY"
+fi
 start_one "TF_STATIC1" "lidar_to_base_tf.sh"
 start_one "TF_STATIC2" "map_to_init_tf.sh"
 start_one "TF_STATIC3" "lidar_to_base_highrate_tf.sh"

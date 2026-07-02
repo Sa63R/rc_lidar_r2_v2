@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 import errno
 import importlib.util
+import os
+import socket
 import struct
 import sys
+import tempfile
 import types
 import unittest
 from pathlib import Path
@@ -208,6 +211,40 @@ class CanFdPoseSenderTest(unittest.TestCase):
         frame = canfd_pose_sender.parse_slcan_frame("t0308A55A01FE00000000")
 
         self.assertEqual(frame, (0x30, bytes.fromhex("A55A01FE00000000")))
+
+    def test_gateway_transport_sends_fd_request_and_reads_rx_broadcast(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            server_path = os.path.join(tmpdir, "gateway.sock")
+            server = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+            server.bind(server_path)
+            server.settimeout(1.0)
+
+            transport = canfd_pose_sender.GatewayCanFdTransport(
+                server_path, "unit-test"
+            )
+            try:
+                hello, _addr = server.recvfrom(4096)
+                self.assertTrue(hello.startswith(b"HELLO unit-test"))
+
+                payload = struct.pack("<ffff", 1.0, 2.0, -3.0, 0.25)
+                transport.send(0x12, payload, True)
+                tx, _addr = server.recvfrom(4096)
+                self.assertEqual(
+                    tx.strip(),
+                    b"TXFD 0x12 1 0000803F00000040000040C00000803E",
+                )
+
+                server.sendto(
+                    b"RX 0x30 A55A01FE00000000\nSTATUS READY\n",
+                    transport.client_path,
+                )
+                self.assertEqual(
+                    transport.read_frames(),
+                    [(0x30, bytes.fromhex("A55A01FE00000000"))],
+                )
+            finally:
+                transport.close()
+                server.close()
 
     def make_sender(self, transports):
         sender = CanFdPoseSender.__new__(CanFdPoseSender)
