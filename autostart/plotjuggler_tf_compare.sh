@@ -37,6 +37,16 @@ if [ "${RC_LIDAR_MODE:-tracking}" = "relocalization" ]; then
     "/map_lidar/quality"
   )
 
+  case "${RC_MATCH_ORIGIN_ENABLE:-0}" in
+    1|true|TRUE|yes|YES|on|ON)
+      TOPICS+=(
+        "${RC_MATCH_ORIGIN_OUTPUT_TOPIC:-/robot/pose_match}"
+        "${RC_MATCH_ORIGIN_STATUS_TOPIC:-/robot/match_origin/status}"
+      )
+      SAMPLE_TOPICS+=("${RC_MATCH_ORIGIN_OUTPUT_TOPIC:-/robot/pose_match}")
+      ;;
+  esac
+
   case "${RC_POSE_FILTER:-0}" in
     1|true|TRUE|yes|YES|on|ON)
       TOPICS+=(

@@ -65,11 +65,22 @@ def install_ros_test_fakes():
     geometry_msgs_msg.PoseStamped = PoseStamped
     geometry_msgs_msg.Quaternion = Quaternion
 
+    std_msgs = types.ModuleType("std_msgs")
+    std_msgs_msg = types.ModuleType("std_msgs.msg")
+
+    class Float32MultiArray:
+        def __init__(self):
+            self.data = []
+
+    std_msgs_msg.Float32MultiArray = Float32MultiArray
+
     sys.modules["rclpy"] = rclpy
     sys.modules["rclpy.executors"] = executors
     sys.modules["rclpy.node"] = node_module
     sys.modules["geometry_msgs"] = geometry_msgs
     sys.modules["geometry_msgs.msg"] = geometry_msgs_msg
+    sys.modules["std_msgs"] = std_msgs
+    sys.modules["std_msgs.msg"] = std_msgs_msg
 
 
 install_ros_test_fakes()
@@ -317,6 +328,10 @@ class CanFdPoseSenderTest(unittest.TestCase):
     def make_timer_sender(self, pose_age_sec, pose_timeout_sec):
         sender = CanFdPoseSender.__new__(CanFdPoseSender)
         sender.pose_topic = "/robot/pose_continuous"
+        sender.lock_status_topic = ""
+        sender.lock_status_timeout_sec = 0.5
+        sender.latest_lock_status_locked = False
+        sender.latest_lock_status_monotonic = None
         sender.pose_timeout_sec = pose_timeout_sec
         sender.can_frame_mode = "normal"
         sender.yaw_offset_rad = 0.0
@@ -339,6 +354,17 @@ class CanFdPoseSenderTest(unittest.TestCase):
             lambda payload: sender.sent_payloads.append(payload) or True
         )
         return sender
+
+    def test_timer_skips_send_when_match_origin_is_not_locked(self):
+        sender = self.make_timer_sender(pose_age_sec=0.0, pose_timeout_sec=0.5)
+        sender.lock_status_topic = "/robot/match_origin/status"
+        sender.latest_lock_status_locked = False
+        sender.latest_lock_status_monotonic = canfd_pose_sender.time.monotonic()
+
+        sender.timer_callback()
+
+        self.assertEqual(sender.sent_payloads, [])
+        self.assertTrue(any("waiting for locked match origin" in w for w in sender.logger.warnings))
 
     def test_timer_skips_send_when_pose_is_stale(self):
         sender = self.make_timer_sender(pose_age_sec=1.0, pose_timeout_sec=0.5)

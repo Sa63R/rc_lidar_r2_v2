@@ -47,6 +47,13 @@ Environment=RC_CONTINUOUS_POSE=auto
 Environment=RC_CONTINUOUS_POSE_OUTPUT_TOPIC=/robot/pose_continuous
 Environment=RC_CONTINUOUS_POSE_STAMP_MATCH_MODE=stamp
 Environment=RC_CONTINUOUS_POSE_MAX_STAMP_DELTA=0.03
+Environment=RC_MATCH_ORIGIN_ENABLE=0
+Environment=RC_MATCH_ORIGIN_OUTPUT_TOPIC=/robot/pose_match
+Environment=RC_MATCH_ORIGIN_STATUS_TOPIC=/robot/match_origin/status
+Environment=RC_MATCH_ORIGIN_MIN_LOCK_SEC=2.5
+Environment=RC_MATCH_ORIGIN_MIN_SAMPLES=20
+Environment=RC_MATCH_ORIGIN_MAX_XY_STD=0.08
+Environment=RC_MATCH_ORIGIN_MAX_YAW_STD_DEG=5.0
 Environment=RC_CAN_POSE_TOPIC=/robot/pose_continuous
 Environment=RC_CAN_POSE_TIMEOUT_SEC=0.5
 Environment=RC_CAN_RAW_ODOM_POSE_TOPIC=/Odometry

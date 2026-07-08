@@ -13,6 +13,13 @@ CANFD_INTERFACE="${CANFD_INTERFACE:-${RC_CANFD_INTERFACE:-can0}}"
 CAN_SEND_RATE="${CAN_SEND_RATE:-100.0}"
 CAN_POSE_TOPIC="${CAN_POSE_TOPIC:-${RC_CAN_POSE_TOPIC:-/robot/pose_filtered}}"
 CAN_POSE_TIMEOUT_SEC="${CAN_POSE_TIMEOUT_SEC:-${RC_CAN_POSE_TIMEOUT_SEC:-0.5}}"
+CAN_LOCK_STATUS_TOPIC="${CAN_LOCK_STATUS_TOPIC:-${RC_CAN_LOCK_STATUS_TOPIC:-}}"
+case "${RC_MATCH_ORIGIN_ENABLE:-0}" in
+  1|true|TRUE|yes|YES|on|ON)
+    CAN_LOCK_STATUS_TOPIC="${CAN_LOCK_STATUS_TOPIC:-${RC_MATCH_ORIGIN_STATUS_TOPIC:-/robot/match_origin/status}}"
+    ;;
+esac
+CAN_LOCK_STATUS_TIMEOUT_SEC="${CAN_LOCK_STATUS_TIMEOUT_SEC:-${RC_CAN_LOCK_STATUS_TIMEOUT_SEC:-0.5}}"
 CAN_DEBUG_CSV="${CAN_DEBUG_CSV:-${RC_CAN_DEBUG_CSV:-0}}"
 CAN_DEBUG_CSV_PATH="${CAN_DEBUG_CSV_PATH:-${RC_CAN_DEBUG_CSV_PATH:-}}"
 CAN_DEBUG_LOG_PERIOD_SEC="${CAN_DEBUG_LOG_PERIOD_SEC:-${RC_CAN_DEBUG_LOG_PERIOD_SEC:-1.0}}"
@@ -45,6 +52,7 @@ fi
 
 echo "CAN FD pose topic: $CAN_POSE_TOPIC"
 echo "CAN FD pose timeout: ${CAN_POSE_TIMEOUT_SEC}s"
+echo "CAN FD lock status topic: ${CAN_LOCK_STATUS_TOPIC:-off}"
 echo "CAN FD transport: $CANFD_TRANSPORT"
 echo "CAN FD gateway socket: $CANFD_GATEWAY_SOCKET"
 echo "CAN FD debug CSV: ${CAN_DEBUG_CSV_PATH:-off}"
@@ -54,6 +62,8 @@ echo "CAN FD restart listener: $CANFD_RESTART_ENABLED id=$CANFD_RESTART_CAN_ID p
 exec ros2 run lidar_localization canfd_pose_sender --ros-args \
   -p pose_topic:="$CAN_POSE_TOPIC" \
   -p pose_timeout_sec:="$CAN_POSE_TIMEOUT_SEC" \
+  -p lock_status_topic:="$CAN_LOCK_STATUS_TOPIC" \
+  -p lock_status_timeout_sec:="$CAN_LOCK_STATUS_TIMEOUT_SEC" \
   -p debug_csv_path:="$CAN_DEBUG_CSV_PATH" \
   -p debug_log_period_sec:="$CAN_DEBUG_LOG_PERIOD_SEC" \
   -p transport:="$CANFD_TRANSPORT" \

@@ -4,6 +4,8 @@
 ## 性能测试
 chromium-browser --proxy-server="http://127.0.0.1:7897"
 
+## 单独启动fdcan
+
 ## 启动重定位位置检测
 
 cd /home/rc2/jwt_new_lidar/rc_lidar_r2_v2
@@ -17,10 +19,11 @@ cd /home/rc2/jwt_new_lidar/rc_lidar_r2_v2
 # 当前可用版本：小场地直接建图，不裁剪，使用这张地图重定位
 # 地图：/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/mid360_map_20260625_005422.pcd
 # 启动前提：车放在建图原点附近，所以使用 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1
-# 重定位调试/开机启动：核心 headless，CANFD 发 /robot/pose_continuous；有显示器时打开 PlotJuggler/CANFD_TX_MONITOR，RViz 默认关闭，没显示器时自动跳过 GUI
+# 重定位调试/开机启动：核心 headless；开启 match origin 后 CANFD 发 /robot/pose_match；有显示器时打开 PlotJuggler/CANFD_TX_MONITOR，RViz 默认关闭，没显示器时自动跳过 GUI
 cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 RC_LIDAR_MODE=relocalization \
 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
+RC_MATCH_ORIGIN_ENABLE=1 \
 RC_AUTOSTART_HEADLESS=1 \
 RC_AUTOSTART_PLOTJUGGLER=1 \
 RC_AUTOSTART_CANFD=1 \
@@ -36,9 +39,8 @@ RC_FASTLIO_POINT_FILTER_NUM=3 \
 RC_FASTLIO_RUNTIME_POS_LOG_ENABLE=0 \
 RC_FASTLIO_DET_RANGE=100 \
 FASTLIO_RVIZ=false \
-RC_LIDAR_MAP_PATH="/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/map_3qu2_05_vertical.pcd" \
+RC_LIDAR_MAP_PATH="/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/lan1.pcd" \
 ./autostart/start_all_terminals.sh
-
 
 ## 在预选赛点启动的参数
 cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
@@ -99,13 +101,13 @@ FASTLIO_RVIZ=false \
 RC_LIDAR_MAP_PATH="/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/map_3qu2_05_vertical.pcd" \
 ./autostart/start_all_terminals.sh
 ## 建图（原始参数，对照组）
-
+cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 FASTLIO_RVIZ=true \
 RC_LIDAR_MODE=mapping \
 RC_FASTLIO_FILTER_SIZE_SURF=0.3 \
 RC_FASTLIO_FILTER_SIZE_MAP=0.3 \
 RC_FASTLIO_POINT_FILTER_NUM=3 \
-RC_FASTLIO_MAP_SAVE_PATH=/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/map_default_full1.pcd \
+RC_FASTLIO_MAP_SAVE_PATH=/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/lan1.pcd \
 ./autostart/start_all_terminals.sh
 
 ## 建图（功耗更大，更实验性的参数）

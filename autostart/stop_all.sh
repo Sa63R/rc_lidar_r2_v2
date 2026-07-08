@@ -52,13 +52,13 @@ should_kill_cmd() {
     *"ros2 launch my_static_tf "*|*"ros2 launch fast_lio "*|*"ros2 launch livox_ros_driver2 "*|*"ros2 launch rc_serial_driver "*|*"ros2 launch lidar_map_localization "*|*"ros2 launch lidar_localization "*)
       return 0
       ;;
-    *"ros2 run robot_localization "*|*"ros2 run fastlio_world_init "*|*"ros2 run lidar_localization canfd_pose_sender"*|*"ros2 run lidar_localization pose_filter"*|*"ros2 run lidar_localization health_monitor"*)
+    *"ros2 run robot_localization "*|*"ros2 run fastlio_world_init "*|*"ros2 run lidar_localization canfd_pose_sender"*|*"ros2 run lidar_localization match_origin_pose"*|*"ros2 run lidar_localization pose_filter"*|*"ros2 run lidar_localization health_monitor"*)
       return 0
       ;;
     *"fastlio_mapping"*|*"livox_ros_driver2_node"*|*"rc_serial_driver_node"*|*"ekf_node"*)
       return 0
       ;;
-    *"world_from_fastlio_init"*|*"robot_tf_offsets"*|*"lidar_tf_offset"*|*"lidar_xyzr.py"*|*"map_localizer"*|*"pose_from_odom"*|*"pose_from_tf"*|*"continuous_robot_pose"*|*"canfd_pose_sender"*|*"/lidar_localization/pose_filter"*|*"/lidar_localization/health_monitor"*)
+    *"world_from_fastlio_init"*|*"robot_tf_offsets"*|*"lidar_tf_offset"*|*"lidar_xyzr.py"*|*"map_localizer"*|*"pose_from_odom"*|*"pose_from_tf"*|*"continuous_robot_pose"*|*"match_origin_pose"*|*"canfd_pose_sender"*|*"/lidar_localization/pose_filter"*|*"/lidar_localization/health_monitor"*)
       return 0
       ;;
     *"thermal_pose_monitor.sh"*|*"thermal_pose_monitor.py"*)
@@ -256,6 +256,7 @@ close_terminal_windows_by_title() {
     "POSE_INTERFACE"
     "POSE_ODOM_ONLY"
     "POSE_CONTINUOUS"
+    "MATCH_ORIGIN"
     "POSE_FILTER"
     "POSE_FILTER_BETA"
     "POSE_FILTER_STABLE"
@@ -305,6 +306,7 @@ patterns=(
   "$DIR/pose_interface_relocalization.sh"
   "$DIR/pose_odom_only_debug.sh"
   "$DIR/continuous_robot_pose.sh"
+  "$DIR/match_origin_pose.sh"
   "$DIR/pose_stability_filter.sh"
   "$DIR/pose_stability_filter_beta.sh"
   "$DIR/thermal_pose_monitor.sh"
@@ -319,6 +321,7 @@ patterns=(
   "ros2 run robot_localization"
   "ros2 run fastlio_world_init"
   "ros2 run lidar_localization canfd_pose_sender"
+  "ros2 run lidar_localization match_origin_pose"
   "ros2 run lidar_localization fdcan_gateway"
   "canfd_tx_monitor.sh"
   "fdcan_gateway"
@@ -342,6 +345,7 @@ patterns=(
   "pose_from_odom"
   "pose_from_tf"
   "continuous_robot_pose"
+  "match_origin_pose"
   "pose_stability_filter"
   "thermal_pose_monitor.py"
   "relocalization_ready_notify.py"

@@ -55,6 +55,30 @@ RC_CONTINUOUS_POSE="${RC_CONTINUOUS_POSE:-auto}"
 RC_CONTINUOUS_POSE_OUTPUT_TOPIC="${RC_CONTINUOUS_POSE_OUTPUT_TOPIC:-/robot/pose_continuous}"
 RC_CONTINUOUS_POSE_STAMP_MATCH_MODE="${RC_CONTINUOUS_POSE_STAMP_MATCH_MODE:-stamp}"
 RC_CONTINUOUS_POSE_MAX_STAMP_DELTA="${RC_CONTINUOUS_POSE_MAX_STAMP_DELTA:-0.03}"
+RC_MATCH_ORIGIN_ENABLE="${RC_MATCH_ORIGIN_ENABLE:-0}"
+RC_MATCH_ORIGIN_INPUT_TOPIC="${RC_MATCH_ORIGIN_INPUT_TOPIC:-$RC_CONTINUOUS_POSE_OUTPUT_TOPIC}"
+RC_MATCH_ORIGIN_INPUT_STATUS_TOPIC="${RC_MATCH_ORIGIN_INPUT_STATUS_TOPIC:-${RC_CONTINUOUS_POSE_STATUS_TOPIC:-/robot/pose_continuous/status}}"
+RC_MATCH_ORIGIN_OUTPUT_TOPIC="${RC_MATCH_ORIGIN_OUTPUT_TOPIC:-/robot/pose_match}"
+RC_MATCH_ORIGIN_OUTPUT_ODOM_TOPIC="${RC_MATCH_ORIGIN_OUTPUT_ODOM_TOPIC:-/robot/odom_match}"
+RC_MATCH_ORIGIN_STATUS_TOPIC="${RC_MATCH_ORIGIN_STATUS_TOPIC:-/robot/match_origin/status}"
+RC_MATCH_ORIGIN_MIN_LOCK_SEC="${RC_MATCH_ORIGIN_MIN_LOCK_SEC:-2.5}"
+RC_MATCH_ORIGIN_MIN_SAMPLES="${RC_MATCH_ORIGIN_MIN_SAMPLES:-20}"
+RC_MATCH_ORIGIN_MAX_XY_STD="${RC_MATCH_ORIGIN_MAX_XY_STD:-0.08}"
+RC_MATCH_ORIGIN_MAX_YAW_STD_DEG="${RC_MATCH_ORIGIN_MAX_YAW_STD_DEG:-5.0}"
+RC_MATCH_ORIGIN_USE_QUALITY_GATE="${RC_MATCH_ORIGIN_USE_QUALITY_GATE:-0}"
+RC_MATCH_ORIGIN_FITNESS_WARN="${RC_MATCH_ORIGIN_FITNESS_WARN:-0.30}"
+case "$RC_MATCH_ORIGIN_ENABLE" in
+  1|true|TRUE|yes|YES|on|ON)
+    RC_MATCH_ORIGIN_ENABLED=1
+    ;;
+  0|false|FALSE|no|NO|off|OFF|"")
+    RC_MATCH_ORIGIN_ENABLED=0
+    ;;
+  *)
+    echo "[ERROR] Unknown RC_MATCH_ORIGIN_ENABLE=$RC_MATCH_ORIGIN_ENABLE. Use 0 or 1." >&2
+    exit 2
+    ;;
+esac
 RC_AUTOSTART_DRY_RUN="${RC_AUTOSTART_DRY_RUN:-0}"
 RC_AUTOSTART_CANFD="${RC_AUTOSTART_CANFD:-0}"
 RC_AUTOSTART_CANFD_TX_MONITOR="${RC_AUTOSTART_CANFD_TX_MONITOR:-1}"
@@ -82,6 +106,7 @@ RC_READY_FASTLIO_ODOM_TOPIC="${RC_READY_FASTLIO_ODOM_TOPIC:-/Odometry}"
 RC_READY_FASTLIO_CLOUD_TOPIC="${RC_READY_FASTLIO_CLOUD_TOPIC:-/cloud_registered}"
 RC_READY_MAP_ODOM_TOPIC="${RC_READY_MAP_ODOM_TOPIC:-/map_lidar/odom}"
 RC_READY_MAP_QUALITY_TOPIC="${RC_READY_MAP_QUALITY_TOPIC:-/map_lidar/quality}"
+RC_READY_MATCH_ORIGIN_TIMEOUT_SEC="${RC_READY_MATCH_ORIGIN_TIMEOUT_SEC:-25}"
 case "$RC_POSE_FILTER" in
   1|true|TRUE|yes|YES|on|ON)
     RC_POSE_FILTER_ENABLED=1
@@ -140,6 +165,10 @@ if [ "$RC_POSE_FILTER_ENABLED" = "1" ]; then
 fi
 if [ "${RC_CAN_POSE_TOPIC+x}" != "x" ] || [ -z "${RC_CAN_POSE_TOPIC:-}" ]; then
   if [ "$RC_LIDAR_MODE" = "relocalization" ] && {
+    [ "$RC_MATCH_ORIGIN_ENABLED" = "1" ]
+  }; then
+    RC_CAN_POSE_TOPIC="$RC_MATCH_ORIGIN_OUTPUT_TOPIC"
+  elif [ "$RC_LIDAR_MODE" = "relocalization" ] && {
     [ "$RC_CONTINUOUS_POSE" = "auto" ] ||
       [ "$RC_CONTINUOUS_POSE" = "1" ] ||
       [ "$RC_CONTINUOUS_POSE" = "true" ] ||
@@ -162,6 +191,9 @@ if [ "${RC_CAN_POSE_TOPIC+x}" != "x" ] || [ -z "${RC_CAN_POSE_TOPIC:-}" ]; then
 fi
 RC_READY_RAW_POSE_TOPIC="${RC_READY_RAW_POSE_TOPIC:-$RC_RAW_POSE_TOPIC}"
 RC_READY_FILTERED_POSE_TOPIC="${RC_READY_FILTERED_POSE_TOPIC:-$RC_CAN_POSE_TOPIC}"
+if [ "$RC_MATCH_ORIGIN_ENABLED" = "1" ] && [ -z "${RC_READY_NOTIFY_POSE_TOPIC:-}" ]; then
+  RC_READY_NOTIFY_POSE_TOPIC="$RC_MATCH_ORIGIN_OUTPUT_TOPIC"
+fi
 BOOT_ID="$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo unknown)"
 BOOT_ID_SHORT="$(printf '%s' "$BOOT_ID" | cut -c1-8)"
 
@@ -232,6 +264,18 @@ export RC_CONTINUOUS_POSE
 export RC_CONTINUOUS_POSE_OUTPUT_TOPIC
 export RC_CONTINUOUS_POSE_STAMP_MATCH_MODE
 export RC_CONTINUOUS_POSE_MAX_STAMP_DELTA
+export RC_MATCH_ORIGIN_ENABLE
+export RC_MATCH_ORIGIN_INPUT_TOPIC
+export RC_MATCH_ORIGIN_INPUT_STATUS_TOPIC
+export RC_MATCH_ORIGIN_OUTPUT_TOPIC
+export RC_MATCH_ORIGIN_OUTPUT_ODOM_TOPIC
+export RC_MATCH_ORIGIN_STATUS_TOPIC
+export RC_MATCH_ORIGIN_MIN_LOCK_SEC
+export RC_MATCH_ORIGIN_MIN_SAMPLES
+export RC_MATCH_ORIGIN_MAX_XY_STD
+export RC_MATCH_ORIGIN_MAX_YAW_STD_DEG
+export RC_MATCH_ORIGIN_USE_QUALITY_GATE
+export RC_MATCH_ORIGIN_FITNESS_WARN
 export RC_AUTOSTART_CANFD
 export RC_AUTOSTART_CANFD_TX_MONITOR
 export RC_AUTOSTART_FDCAN_GATEWAY
@@ -260,8 +304,10 @@ export RC_READY_FASTLIO_ODOM_TOPIC
 export RC_READY_FASTLIO_CLOUD_TOPIC
 export RC_READY_MAP_ODOM_TOPIC
 export RC_READY_MAP_QUALITY_TOPIC
+export RC_READY_MATCH_ORIGIN_TIMEOUT_SEC
 export RC_READY_RAW_POSE_TOPIC
 export RC_READY_FILTERED_POSE_TOPIC
+export RC_READY_NOTIFY_POSE_TOPIC
 export RC_LIDAR_BOOT_ID="${RC_LIDAR_BOOT_ID:-$BOOT_ID}"
 
 # ROS2 自己的日志目录
@@ -322,6 +368,14 @@ mkdir -p "$ROS_LOG_DIR"
   echo "continuous_pose: $RC_CONTINUOUS_POSE"
   echo "continuous_stamp_match_mode: $RC_CONTINUOUS_POSE_STAMP_MATCH_MODE"
   echo "continuous_max_stamp_delta_sec: $RC_CONTINUOUS_POSE_MAX_STAMP_DELTA"
+  echo "match_origin_enable: $RC_MATCH_ORIGIN_ENABLE"
+  echo "match_origin_input_topic: $RC_MATCH_ORIGIN_INPUT_TOPIC"
+  echo "match_origin_output_topic: $RC_MATCH_ORIGIN_OUTPUT_TOPIC"
+  echo "match_origin_status_topic: $RC_MATCH_ORIGIN_STATUS_TOPIC"
+  echo "match_origin_min_lock_sec: $RC_MATCH_ORIGIN_MIN_LOCK_SEC"
+  echo "match_origin_min_samples: $RC_MATCH_ORIGIN_MIN_SAMPLES"
+  echo "match_origin_max_xy_std: $RC_MATCH_ORIGIN_MAX_XY_STD"
+  echo "match_origin_max_yaw_std_deg: $RC_MATCH_ORIGIN_MAX_YAW_STD_DEG"
   echo "ready_gates: $RC_AUTOSTART_READY_GATES"
   echo "ready_gates_note: default off; set RC_AUTOSTART_READY_GATES=1 for deep staged startup diagnostics"
   echo "ready_topic_spin_time: $RC_READY_TOPIC_SPIN_TIME"
@@ -1028,6 +1082,41 @@ ros_topic_has_sample() {
   timeout "${sample_timeout}s" ros2 topic echo --once --no-daemon --spin-time "$RC_READY_TOPIC_SPIN_TIME" "$topic" >/dev/null 2>&1
 }
 
+ros_match_origin_is_locked() {
+  local topic="$1"
+  local sample_timeout
+  local output
+
+  sample_timeout="${RC_READY_SAMPLE_TIMEOUT_SEC:-4}"
+  case "$sample_timeout" in
+    ''|*[!0-9.]*)
+      sample_timeout=4
+      ;;
+  esac
+
+  output="$(timeout "${sample_timeout}s" ros2 topic echo --once --no-daemon --spin-time "$RC_READY_TOPIC_SPIN_TIME" "$topic" 2>/dev/null || true)"
+  if [ -z "$output" ]; then
+    return 1
+  fi
+
+  MATCH_ORIGIN_STATUS_ECHO="$output" python3 - <<'PY'
+import os
+import re
+import sys
+
+text = os.environ.get("MATCH_ORIGIN_STATUS_ECHO", "")
+if "data:" in text:
+    text = text.split("data:", 1)[1]
+values = []
+for token in re.findall(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?", text):
+    try:
+        values.append(float(token))
+    except ValueError:
+        pass
+sys.exit(0 if len(values) > 1 and values[1] >= 0.5 else 1)
+PY
+}
+
 wait_for_ready_topic() {
   local label="$1"
   local topic="$2"
@@ -1089,6 +1178,59 @@ wait_for_ready_topic() {
   return 0
 }
 
+wait_for_match_origin_locked() {
+  local label="$1"
+  local topic="$2"
+  local timeout_sec
+  local deadline
+  local reason="not checked"
+  local last_reason=""
+
+  timeout_sec="$(ready_gate_timeout_or_default "${3:-25}" 25)"
+
+  if [ "$RC_AUTOSTART_DRY_RUN" = "1" ]; then
+    summary_event "ready_gate: dry-run skip $label locked ($topic)"
+    return 0
+  fi
+
+  if ! ready_gate_enabled; then
+    return 0
+  fi
+
+  if ! prepare_ready_gate_ros_env; then
+    ready_gate_log "skip $label locked ($topic): ROS environment unavailable"
+    return 0
+  fi
+
+  summary_event "ready_gate: waiting for $label locked ($topic, timeout=${timeout_sec}s)"
+  ready_gate_log "waiting for $label locked topic=$topic timeout=${timeout_sec}s"
+  deadline=$((SECONDS + timeout_sec))
+
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    if ros_topic_has_publisher "$topic"; then
+      if ros_match_origin_is_locked "$topic"; then
+        summary_event "ready_gate: $label locked ($topic)"
+        ready_gate_log "ready $label topic=$topic locked=1"
+        return 0
+      fi
+      reason="publisher present, not locked yet"
+    else
+      reason="no publisher"
+    fi
+
+    if [ "$reason" != "$last_reason" ]; then
+      ready_gate_log "waiting $label locked topic=$topic reason=$reason"
+      last_reason="$reason"
+    fi
+
+    sleep 1
+  done
+
+  summary_event "ready_gate: WARN timeout waiting for $label locked ($topic, last=$reason); CANFD may wait for pose"
+  ready_gate_log "timeout $label locked topic=$topic last=$reason"
+  return 0
+}
+
 wait_for_plotjuggler_ready_topics() {
   if [ "$RC_LIDAR_MODE" = "relocalization" ]; then
     wait_for_ready_topic "PlotJuggler raw pose" "$RC_READY_RAW_POSE_TOPIC" "$RC_READY_PLOTJUGGLER_TIMEOUT_SEC" 1
@@ -1096,6 +1238,11 @@ wait_for_plotjuggler_ready_topics() {
 
     if should_start_continuous_pose; then
       wait_for_ready_topic "PlotJuggler continuous pose" "${RC_CONTINUOUS_POSE_OUTPUT_TOPIC:-/robot/pose_continuous}" "$RC_READY_PLOTJUGGLER_TIMEOUT_SEC" 1
+    fi
+
+    if should_start_match_origin; then
+      wait_for_ready_topic "PlotJuggler match origin status" "${RC_MATCH_ORIGIN_STATUS_TOPIC:-/robot/match_origin/status}" "$RC_READY_PLOTJUGGLER_TIMEOUT_SEC" 1
+      wait_for_ready_topic "PlotJuggler match pose" "${RC_MATCH_ORIGIN_OUTPUT_TOPIC:-/robot/pose_match}" "$RC_READY_PLOTJUGGLER_TIMEOUT_SEC" 1
     fi
 
     if should_start_odom_only_compare; then
@@ -1193,6 +1340,10 @@ should_start_continuous_pose() {
   esac
 }
 
+should_start_match_origin() {
+  [ "$RC_LIDAR_MODE" = "relocalization" ] && [ "$RC_MATCH_ORIGIN_ENABLED" = "1" ]
+}
+
 if should_start_fdcan_gateway; then
   start_one "FDCAN_GATEWAY" "fdcan_gateway.sh"
 else
@@ -1226,6 +1377,14 @@ elif [ "$RC_LIDAR_MODE" = "relocalization" ]; then
     wait_for_ready_topic "robot continuous pose" "$RC_CONTINUOUS_POSE_OUTPUT_TOPIC" "$RC_READY_FILTER_TIMEOUT_SEC" 1
   else
     summary_event "skipped POSE_CONTINUOUS"
+  fi
+  if should_start_match_origin; then
+    start_one "MATCH_ORIGIN" "match_origin_pose.sh"
+    wait_for_ready_topic "match origin status" "$RC_MATCH_ORIGIN_STATUS_TOPIC" "$RC_READY_MATCH_ORIGIN_TIMEOUT_SEC" 1
+    wait_for_match_origin_locked "match origin" "$RC_MATCH_ORIGIN_STATUS_TOPIC" "$RC_READY_MATCH_ORIGIN_TIMEOUT_SEC"
+    wait_for_ready_topic "match origin pose" "$RC_MATCH_ORIGIN_OUTPUT_TOPIC" "$RC_READY_MATCH_ORIGIN_TIMEOUT_SEC" 1
+  else
+    summary_event "skipped MATCH_ORIGIN because RC_MATCH_ORIGIN_ENABLE=0"
   fi
   if should_start_odom_only_compare; then
     start_one "POSE_ODOM_ONLY" "pose_odom_only_debug.sh"

@@ -15,6 +15,7 @@ import rclpy
 from geometry_msgs.msg import PoseStamped
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from std_msgs.msg import Float32MultiArray
 
 from .pose_math import rpy_from_quat
 
@@ -390,6 +391,8 @@ class CanFdPoseSender(Node):
         super().__init__("canfd_pose_sender")
 
         self.declare_parameter("pose_topic", DEFAULT_POSE_TOPIC)
+        self.declare_parameter("lock_status_topic", "")
+        self.declare_parameter("lock_status_timeout_sec", 0.5)
         self.declare_parameter("transport", "auto")
         self.declare_parameter("can_interface", "can0")
         self.declare_parameter("serial_device", "auto")
@@ -429,6 +432,10 @@ class CanFdPoseSender(Node):
         self.declare_parameter("restart_debounce_sec", 8.0)
 
         self.pose_topic = self.get_parameter("pose_topic").value
+        self.lock_status_topic = str(self.get_parameter("lock_status_topic").value or "")
+        self.lock_status_timeout_sec = float(
+            self.get_parameter("lock_status_timeout_sec").value
+        )
         self.configured_transport = self.get_parameter("transport").value
         self.transport_name = self.configured_transport
         self.can_interface = self.get_parameter("can_interface").value
@@ -489,6 +496,8 @@ class CanFdPoseSender(Node):
         self.last_restart_monotonic = 0.0
         self.latest_pose: Optional[PoseStamped] = None
         self.latest_pose_monotonic: Optional[float] = None
+        self.latest_lock_status_locked = False
+        self.latest_lock_status_monotonic: Optional[float] = None
         self.transport = None
         self.next_reconnect_monotonic = 0.0
         self.last_reconnect_log_monotonic = 0.0
@@ -503,6 +512,14 @@ class CanFdPoseSender(Node):
         self.subscription = self.create_subscription(
             PoseStamped, self.pose_topic, self.pose_callback, 10
         )
+        self.lock_status_subscription = None
+        if self.lock_status_topic:
+            self.lock_status_subscription = self.create_subscription(
+                Float32MultiArray,
+                self.lock_status_topic,
+                self.lock_status_callback,
+                10,
+            )
         self.timer = self.create_timer(1.0 / self.send_rate_hz, self.timer_callback)
 
         self.get_logger().info(
@@ -512,6 +529,7 @@ class CanFdPoseSender(Node):
             f"brs={'on' if self.enable_brs else 'off'} "
             f"auto_retransmit={'on' if self.auto_retransmit else 'off'} "
             f"can_frame_mode={self.can_frame_mode} "
+            f"lock_status={self.lock_status_topic or 'off'} "
             f"yaw_offset_deg={math.degrees(self.yaw_offset_rad):.3f} "
             f"debug_csv={self.debug_csv_path or 'off'} "
             f"restart={'on' if self.restart_enabled else 'off'} "
@@ -709,9 +727,44 @@ class CanFdPoseSender(Node):
         self.latest_pose = msg
         self.latest_pose_monotonic = time.monotonic()
 
+    def lock_status_callback(self, msg: Float32MultiArray) -> None:
+        data = list(msg.data)
+        self.latest_lock_status_locked = len(data) > 1 and data[1] >= 0.5
+        self.latest_lock_status_monotonic = time.monotonic()
+
+    def lock_status_allows_send(self) -> bool:
+        topic = getattr(self, "lock_status_topic", "")
+        if not topic:
+            return True
+
+        now = time.monotonic()
+        locked = bool(getattr(self, "latest_lock_status_locked", False))
+        status_time = getattr(self, "latest_lock_status_monotonic", None)
+        timeout_sec = float(getattr(self, "lock_status_timeout_sec", 0.5))
+        status_age = now - status_time if status_time is not None else math.inf
+
+        if not locked:
+            self.get_logger().warn(
+                f"waiting for locked match origin from {topic}; skipping CAN FD send",
+                throttle_duration_sec=2.0,
+            )
+            return False
+        if timeout_sec > 0.0 and status_age > timeout_sec:
+            self.get_logger().warn(
+                f"stale lock status from {topic}: "
+                f"age={status_age:.3f}s > timeout={timeout_sec:.3f}s; "
+                "skipping CAN FD send",
+                throttle_duration_sec=2.0,
+            )
+            return False
+        return True
+
     def timer_callback(self) -> None:
         self.check_transport_presence()
         self.poll_restart_command()
+
+        if not self.lock_status_allows_send():
+            return
 
         if self.latest_pose is None:
             self.get_logger().warn(
