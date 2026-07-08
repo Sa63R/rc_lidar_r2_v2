@@ -59,28 +59,38 @@ echo "CAN FD debug CSV: ${CAN_DEBUG_CSV_PATH:-off}"
 echo "CAN FD serial presence check: ${CANFD_SERIAL_PRESENCE_CHECK_PERIOD_SEC}s"
 echo "CAN FD restart listener: $CANFD_RESTART_ENABLED id=$CANFD_RESTART_CAN_ID payload=$CANFD_RESTART_PAYLOAD_HEX"
 
-exec ros2 run lidar_localization canfd_pose_sender --ros-args \
-  -p pose_topic:="$CAN_POSE_TOPIC" \
-  -p pose_timeout_sec:="$CAN_POSE_TIMEOUT_SEC" \
-  -p lock_status_topic:="$CAN_LOCK_STATUS_TOPIC" \
-  -p lock_status_timeout_sec:="$CAN_LOCK_STATUS_TIMEOUT_SEC" \
-  -p debug_csv_path:="$CAN_DEBUG_CSV_PATH" \
-  -p debug_log_period_sec:="$CAN_DEBUG_LOG_PERIOD_SEC" \
-  -p transport:="$CANFD_TRANSPORT" \
-  -p gateway_socket:="$CANFD_GATEWAY_SOCKET" \
-  -p gateway_client_name:="$CANFD_GATEWAY_CLIENT_NAME" \
-  -p can_interface:="$CANFD_INTERFACE" \
-  -p serial_device:="$CAN_DEVICE" \
-  -p can_id:=18 \
-  -p send_rate_hz:="$CAN_SEND_RATE" \
-  -p enable_brs:=true \
-  -p auto_retransmit:=true \
-  -p reconnect_on_error:=true \
-  -p reconnect_period_sec:=0.5 \
-  -p serial_presence_check_period_sec:="$CANFD_SERIAL_PRESENCE_CHECK_PERIOD_SEC" \
-  -p allow_serial_fallback:=false \
-  -p restart_enabled:="$CANFD_RESTART_ENABLED_PARAM" \
-  -p restart_can_id:="$CANFD_RESTART_CAN_ID_PARAM" \
-  -p restart_payload_hex:="$CANFD_RESTART_PAYLOAD_HEX" \
-  -p restart_script:="$CANFD_RESTART_SCRIPT" \
-  -p restart_debounce_sec:="$CANFD_RESTART_DEBOUNCE_SEC"
+ARGS=(
+  ros2 run lidar_localization canfd_pose_sender --ros-args
+  -p "pose_topic:=$CAN_POSE_TOPIC"
+  -p "pose_timeout_sec:=$CAN_POSE_TIMEOUT_SEC"
+  -p "lock_status_timeout_sec:=$CAN_LOCK_STATUS_TIMEOUT_SEC"
+  -p "debug_log_period_sec:=$CAN_DEBUG_LOG_PERIOD_SEC"
+  -p "transport:=$CANFD_TRANSPORT"
+  -p "gateway_socket:=$CANFD_GATEWAY_SOCKET"
+  -p "gateway_client_name:=$CANFD_GATEWAY_CLIENT_NAME"
+  -p "can_interface:=$CANFD_INTERFACE"
+  -p "serial_device:=$CAN_DEVICE"
+  -p "can_id:=18"
+  -p "send_rate_hz:=$CAN_SEND_RATE"
+  -p "enable_brs:=true"
+  -p "auto_retransmit:=true"
+  -p "reconnect_on_error:=true"
+  -p "reconnect_period_sec:=0.5"
+  -p "serial_presence_check_period_sec:=$CANFD_SERIAL_PRESENCE_CHECK_PERIOD_SEC"
+  -p "allow_serial_fallback:=false"
+  -p "restart_enabled:=$CANFD_RESTART_ENABLED_PARAM"
+  -p "restart_can_id:=$CANFD_RESTART_CAN_ID_PARAM"
+  -p "restart_payload_hex:=$CANFD_RESTART_PAYLOAD_HEX"
+  -p "restart_script:=$CANFD_RESTART_SCRIPT"
+  -p "restart_debounce_sec:=$CANFD_RESTART_DEBOUNCE_SEC"
+)
+
+if [ -n "$CAN_LOCK_STATUS_TOPIC" ]; then
+  ARGS+=(-p "lock_status_topic:=$CAN_LOCK_STATUS_TOPIC")
+fi
+
+if [ -n "$CAN_DEBUG_CSV_PATH" ]; then
+  ARGS+=(-p "debug_csv_path:=$CAN_DEBUG_CSV_PATH")
+fi
+
+exec "${ARGS[@]}"
