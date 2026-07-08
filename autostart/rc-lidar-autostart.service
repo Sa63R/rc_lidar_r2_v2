@@ -11,8 +11,8 @@ WorkingDirectory=@RC_LIDAR_WORKSPACE@
 Environment=RUN_REASON=boot
 Environment=RC_LIDAR_WORKSPACE=@RC_LIDAR_WORKSPACE@
 Environment=RC_LIDAR_MODE=relocalization
-Environment=RC_LIDAR_MAP_PATH=@RC_LIDAR_WORKSPACE@/maps/map_3qu2_05_vertical.pcd
-Environment=RC_LOCALIZATION_MAP_PATH=@RC_LIDAR_WORKSPACE@/maps/map_3qu2_05_vertical.pcd
+Environment=RC_LIDAR_MAP_PATH=@RC_LIDAR_WORKSPACE@/maps/lan1.pcd
+Environment=RC_LOCALIZATION_MAP_PATH=@RC_LIDAR_WORKSPACE@/maps/lan1.pcd
 Environment=RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1
 Environment=RC_AUTOSTART_START_DELAY=15
 Environment=RC_AUTOSTART_HEADLESS=1
