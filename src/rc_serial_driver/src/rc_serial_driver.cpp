@@ -34,9 +34,7 @@ namespace rc_serial_driver
 
 namespace
 {
-constexpr uint8_t RESTART_PAYLOAD[8] = {0xA5, 0x5A, 0x01, 0xFE, 0x00, 0x00, 0x00, 0x00};
-
-int g_can_id_restart = 0x30;
+int g_can_id_restart = 0x777;
 std::string g_restart_script = "autostart/restart_lidar_stack.sh";
 bool g_restart_enabled = true;
 double g_restart_debounce_sec = 8.0;
@@ -52,15 +50,6 @@ void applyRestartCanFilter(int can_socket, int can_id_restart, const rclcpp::Log
   if (setsockopt(can_socket, SOL_CAN_RAW, CAN_RAW_FILTER, &rfilter, sizeof(rfilter)) < 0) {
     RCLCPP_WARN(logger, "Failed to set CAN RX filter: %s", strerror(errno));
   }
-}
-
-bool isRestartFrame(const struct can_frame & frame)
-{
-  const canid_t rx_id = frame.can_id & CAN_SFF_MASK;
-
-  return rx_id == static_cast<canid_t>(g_can_id_restart) &&
-    frame.can_dlc == 8 &&
-    std::memcmp(frame.data, RESTART_PAYLOAD, sizeof(RESTART_PAYLOAD)) == 0;
 }
 
 bool isCanTxQueueFullError(int error_number)
@@ -236,14 +225,7 @@ RCSerialDriver::RCSerialDriver(const rclcpp::NodeOptions & options)
           continue;
         }
 
-        if (isRestartFrame(frame)) {
-          requestRadarRestart(get_logger());
-        } else {
-          RCLCPP_WARN(
-            get_logger(),
-            "Received restart CAN ID 0x%X but payload mismatch",
-            g_can_id_restart);
-        }
+        requestRadarRestart(get_logger());
       }
     });
 }
@@ -318,7 +300,7 @@ void RCSerialDriver::getParams()
     pose_source_ = "tf";
   }
   
-  g_can_id_restart = declare_parameter<int>("can_id_restart", 0x30);
+  g_can_id_restart = declare_parameter<int>("can_id_restart", 0x777);
   g_restart_script = declare_parameter<std::string>(
     "restart_script",
     "autostart/restart_lidar_stack.sh");

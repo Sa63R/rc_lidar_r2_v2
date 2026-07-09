@@ -71,6 +71,13 @@ def generate_launch_description():
         ),
     )
     restart_debounce_sec = float(os.environ.get('RC_CAN_RESTART_DEBOUNCE_SEC', '8.0'))
+    restart_can_id = int(
+        os.environ.get(
+            'RC_CAN_RESTART_CAN_ID',
+            os.environ.get('RC_CANFD_RESTART_CAN_ID', '0x777'),
+        ),
+        0,
+    )
 
     rc_serial_driver_node = Node(
         package='rc_serial_driver',
@@ -116,6 +123,7 @@ def generate_launch_description():
                 'quality_require_converged': quality_require_converged,
                 'restart_script': restart_script,
                 'restart_debounce_sec': restart_debounce_sec,
+                'can_id_restart': restart_can_id,
             },
         ],
     )

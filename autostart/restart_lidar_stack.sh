@@ -171,6 +171,19 @@ close_terminal_windows_by_title() {
 
   if [ "$DRY_RUN" = "1" ]; then
     echo "[dry-run] restart_lidar_stack.sh skipped stop/start phases."
+    cd "$WORKSPACE_DIR"
+    DEFAULT_RELOCALIZATION_MAP="$WORKSPACE_DIR/maps/mid360_map_20260625_005422.pcd"
+    if [ -f "$DIR/lidar_ui_config.sh" ]; then
+      # shellcheck disable=SC1091
+      source "$DIR/lidar_ui_config.sh"
+      load_lidar_ui_config
+    fi
+    if [ -n "${RC_UI_BOOT_MAP:-}" ]; then
+      DRY_RUN_MAP_PATH="$RC_UI_BOOT_MAP"
+    else
+      DRY_RUN_MAP_PATH="${RC_LOCALIZATION_MAP_PATH:-${RC_LIDAR_MAP_PATH:-$DEFAULT_RELOCALIZATION_MAP}}"
+    fi
+    echo "[dry-run] would_use_map: $DRY_RUN_MAP_PATH"
     echo "========== dry-run done at $(date '+%F %T') =========="
     exit 0
   fi
@@ -303,7 +316,8 @@ close_terminal_windows_by_title() {
     RC_AUTOSTART_CANFD_TX_MONITOR="${RC_AUTOSTART_CANFD_TX_MONITOR:-1}" \
     RC_CAN_RESTART_LISTENER="${RC_CAN_RESTART_LISTENER:-auto}" \
     RC_CANFD_RESTART_ENABLED="${RC_CANFD_RESTART_ENABLED:-1}" \
-    RC_CANFD_RESTART_CAN_ID="${RC_CANFD_RESTART_CAN_ID:-0x30}" \
+    RC_CANFD_RESTART_CAN_ID="${RC_CANFD_RESTART_CAN_ID:-0x777}" \
+    RC_CAN_RESTART_CAN_ID="${RC_CAN_RESTART_CAN_ID:-${RC_CANFD_RESTART_CAN_ID:-0x777}}" \
     RC_CANFD_RESTART_PAYLOAD_HEX="${RC_CANFD_RESTART_PAYLOAD_HEX:-A55A01FE00000000}" \
     RC_CANFD_SERIAL_PRESENCE_CHECK_PERIOD_SEC="${RC_CANFD_SERIAL_PRESENCE_CHECK_PERIOD_SEC:-0.5}" \
     RC_CAN_RESTART_DEBOUNCE_SEC="${RC_CAN_RESTART_DEBOUNCE_SEC:-8.0}" \

@@ -137,7 +137,7 @@ class CanFdPoseSenderTest(unittest.TestCase):
         self.assertEqual(canfd_pose_sender.DEFAULT_POSE_TIMEOUT_SEC, 0.5)
 
     def test_parse_int_value_accepts_hex_restart_id(self):
-        self.assertEqual(canfd_pose_sender.parse_int_value("0x30"), 48)
+        self.assertEqual(canfd_pose_sender.parse_int_value("0x777"), 1911)
         self.assertEqual(canfd_pose_sender.parse_int_value("48"), 48)
 
     def test_pose_payload_is_little_endian_float_xyz_yaw(self):
@@ -214,14 +214,14 @@ class CanFdPoseSenderTest(unittest.TestCase):
         self.assertEqual(writes, [b"b012A0000803F00000040000040C00000803E\r"])
 
     def test_slcan_parser_accepts_fd_restart_frame(self):
-        frame = canfd_pose_sender.parse_slcan_frame("b0308A55A01FE00000000")
+        frame = canfd_pose_sender.parse_slcan_frame("b7778A55A01FE00000000")
 
-        self.assertEqual(frame, (0x30, bytes.fromhex("A55A01FE00000000")))
+        self.assertEqual(frame, (0x777, bytes.fromhex("A55A01FE00000000")))
 
     def test_slcan_parser_accepts_classic_restart_frame_too(self):
-        frame = canfd_pose_sender.parse_slcan_frame("t0308A55A01FE00000000")
+        frame = canfd_pose_sender.parse_slcan_frame("t7778A55A01FE00000000")
 
-        self.assertEqual(frame, (0x30, bytes.fromhex("A55A01FE00000000")))
+        self.assertEqual(frame, (0x777, bytes.fromhex("A55A01FE00000000")))
 
     def test_gateway_transport_sends_fd_request_and_reads_rx_broadcast(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -246,12 +246,12 @@ class CanFdPoseSenderTest(unittest.TestCase):
                 )
 
                 server.sendto(
-                    b"RX 0x30 A55A01FE00000000\nSTATUS READY\n",
+                    b"RX 0x777 A55A01FE00000000\nSTATUS READY\n",
                     transport.client_path,
                 )
                 self.assertEqual(
                     transport.read_frames(),
-                    [(0x30, bytes.fromhex("A55A01FE00000000"))],
+                    [(0x777, bytes.fromhex("A55A01FE00000000"))],
                 )
             finally:
                 transport.close()
@@ -276,7 +276,7 @@ class CanFdPoseSenderTest(unittest.TestCase):
     def make_restart_sender(self):
         sender = CanFdPoseSender.__new__(CanFdPoseSender)
         sender.restart_enabled = True
-        sender.restart_can_id = 0x30
+        sender.restart_can_id = 0x777
         sender.restart_payload = bytes.fromhex("A55A01FE00000000")
         sender.restart_script = "/tmp/restart_lidar_stack.sh"
         sender.restart_debounce_sec = 8.0
@@ -315,7 +315,7 @@ class CanFdPoseSenderTest(unittest.TestCase):
         sender.transport = type(
             "RestartTransport",
             (),
-            {"read_frames": lambda self: [(0x30, bytes.fromhex("A55A01FE00000000"))]},
+            {"read_frames": lambda self: [(0x777, b"\x01\x02")]},
         )()
         sender.ensure_transport_open = lambda: True
         called = []
@@ -324,6 +324,21 @@ class CanFdPoseSenderTest(unittest.TestCase):
         sender.poll_restart_command()
 
         self.assertEqual(called, [True])
+
+    def test_poll_restart_command_ignores_non_restart_can_id(self):
+        sender = self.make_restart_sender()
+        sender.transport = type(
+            "RestartTransport",
+            (),
+            {"read_frames": lambda self: [(0x30, bytes.fromhex("A55A01FE00000000"))]},
+        )()
+        sender.ensure_transport_open = lambda: True
+        called = []
+        sender.request_restart = lambda: called.append(True)
+
+        sender.poll_restart_command()
+
+        self.assertEqual(called, [])
 
     def make_timer_sender(self, pose_age_sec, pose_timeout_sec):
         sender = CanFdPoseSender.__new__(CanFdPoseSender)

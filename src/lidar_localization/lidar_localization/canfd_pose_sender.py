@@ -32,7 +32,7 @@ DEFAULT_POSE_TOPIC = "/robot/pose_filtered"
 DEFAULT_POSE_TIMEOUT_SEC = 0.5
 DEFAULT_CAN_FRAME_MODE = "normal"
 DEFAULT_GATEWAY_SOCKET = "/tmp/rc_fdcan_gateway.sock"
-DEFAULT_RESTART_CAN_ID = 0x30
+DEFAULT_RESTART_CAN_ID = 0x777
 DEFAULT_RESTART_PAYLOAD = bytes.fromhex("A55A01FE00000000")
 CAN_FRAME_MODES = (
     "normal",
@@ -534,6 +534,7 @@ class CanFdPoseSender(Node):
             f"debug_csv={self.debug_csv_path or 'off'} "
             f"restart={'on' if self.restart_enabled else 'off'} "
             f"restart_can_id=0x{self.restart_can_id:03X} "
+            "restart_payload=any "
             f"restart_debounce_sec={self.restart_debounce_sec:.3f} "
             "payload=<x,y,z,yaw float32 little-endian>"
         )
@@ -905,15 +906,9 @@ class CanFdPoseSender(Node):
             self.handle_transport_error(exc)
             return
 
-        for can_id, payload in frames:
-            if can_id == self.restart_can_id and payload == self.restart_payload:
+        for can_id, _payload in frames:
+            if can_id == self.restart_can_id:
                 self.request_restart()
-            elif can_id == self.restart_can_id:
-                self.get_logger().warn(
-                    f"restart CAN id 0x{self.restart_can_id:03X} payload mismatch: "
-                    f"{payload.hex().upper()}",
-                    throttle_duration_sec=2.0,
-                )
 
     def request_restart(self) -> None:
         now = time.monotonic()

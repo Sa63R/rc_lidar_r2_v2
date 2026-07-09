@@ -5,7 +5,7 @@
     send_enabled: true
     can_id_frame1: 18    # 0x12 的十进制
     can_id_frame2: 19    # 0x13 的十进制
-    can_id_restart: 48   # 0x30 的十进制
+    can_id_restart: 1911 # 0x777 的十进制
     can_pose_debug_topic: "/rc_serial_driver/can_pose_debug"
     pose_source: "tf"    # tf / pose_topic / raw_odom / auto
     pose_topic: "/lidar/pose"
