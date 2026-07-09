@@ -22,8 +22,8 @@ cd /home/rc2/jwt_new_lidar/rc_lidar_r2_v2
 # 重定位调试/开机启动：核心 headless；开启 match origin 后 CANFD 发 /robot/pose_match；有显示器时打开 PlotJuggler/CANFD_TX_MONITOR，RViz 默认关闭，没显示器时自动跳过 GUI
 cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 RC_LIDAR_MODE=relocalization \
+RC_MATCH_ORIGIN_ENABLE=0 \
 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
-RC_MATCH_ORIGIN_ENABLE=1 \
 RC_AUTOSTART_HEADLESS=1 \
 RC_AUTOSTART_PLOTJUGGLER=1 \
 RC_AUTOSTART_CANFD=1 \
@@ -39,12 +39,38 @@ RC_FASTLIO_POINT_FILTER_NUM=3 \
 RC_FASTLIO_RUNTIME_POS_LOG_ENABLE=0 \
 RC_FASTLIO_DET_RANGE=100 \
 FASTLIO_RVIZ=false \
-RC_LIDAR_MAP_PATH="/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/lan1.pcd" \
+RC_LIDAR_MAP_PATH="/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/hong2.pcd" \
+./autostart/start_all_terminals.sh
+
+
+## 旧地图
+
+cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
+RC_LIDAR_MODE=relocalization \
+RC_MATCH_ORIGIN_ENABLE=0 \
+RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=1 \
+RC_AUTOSTART_HEADLESS=1 \
+RC_AUTOSTART_PLOTJUGGLER=1 \
+RC_AUTOSTART_CANFD=1 \
+RC_AUTOSTART_CANFD_TX_MONITOR=1 \
+RC_CAN_DEBUG_CSV=1 \
+RC_CANFD_SERIAL_PRESENCE_CHECK_PERIOD_SEC=0.5 \
+RC_MAP_LOCALIZER_LOCALIZE_PERIOD_SEC=0.2 \
+RC_FASTLIO_FILTER_SIZE_SURF=0.15 \
+RC_FASTLIO_FILTER_SIZE_MAP=0.25 \
+RC_MAP_LOCALIZER_MAP_LEAF_SIZE=0.10 \
+RC_MAP_LOCALIZER_SCAN_LEAF_SIZE=0.10 \
+RC_FASTLIO_POINT_FILTER_NUM=3 \
+RC_FASTLIO_RUNTIME_POS_LOG_ENABLE=0 \
+RC_FASTLIO_DET_RANGE=100 \
+FASTLIO_RVIZ=false \
+RC_LIDAR_MAP_PATH="/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/map_3qu2_05_vertical.pcd" \
 ./autostart/start_all_terminals.sh
 
 ## 在预选赛点启动的参数
 cd "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2"
 RC_LIDAR_MODE=relocalization \
+RC_MATCH_ORIGIN_ENABLE=0 \
 RC_RELOCALIZATION_ASSUME_MAP_ORIGIN=0 \
 RC_RELOCALIZATION_INITIAL_GUESS=1 \
 RC_RELOCALIZATION_INITIAL_X=8.454372 \
@@ -107,7 +133,7 @@ RC_LIDAR_MODE=mapping \
 RC_FASTLIO_FILTER_SIZE_SURF=0.3 \
 RC_FASTLIO_FILTER_SIZE_MAP=0.3 \
 RC_FASTLIO_POINT_FILTER_NUM=3 \
-RC_FASTLIO_MAP_SAVE_PATH=/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/lan1.pcd \
+RC_FASTLIO_MAP_SAVE_PATH=/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/maps/hong2.pcd \
 ./autostart/start_all_terminals.sh
 
 ## 建图（功耗更大，更实验性的参数）
