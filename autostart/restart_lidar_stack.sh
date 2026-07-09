@@ -10,6 +10,7 @@ mkdir -p "$RESTART_LOG_DIR"
 LOCK="/tmp/rc_lidar_restart.lock"
 LAST_RESTART_UPTIME_FILE="$RESTART_LOG_DIR/last_restart_uptime_sec"
 RESTART_MIN_INTERVAL_SEC="${RC_CAN_RESTART_MIN_INTERVAL_SEC:-15}"
+DRY_RUN="${RC_AUTOSTART_DRY_RUN:-0}"
 
 exec 9>"$LOCK"
 if ! flock -n 9; then
@@ -35,23 +36,25 @@ case "$RESTART_MIN_INTERVAL_SEC" in
 esac
 
 NOW_UPTIME_SEC="$(current_uptime_sec_int)"
-LAST_RESTART_UPTIME_SEC="$(cat "$LAST_RESTART_UPTIME_FILE" 2>/dev/null || true)"
-if [ "$RESTART_MIN_INTERVAL_SEC" -gt 0 ] &&
-  [[ "$LAST_RESTART_UPTIME_SEC" =~ ^[0-9]+$ ]] &&
-  [ $((NOW_UPTIME_SEC - LAST_RESTART_UPTIME_SEC)) -lt "$RESTART_MIN_INTERVAL_SEC" ]; then
-  SKIP_ID="$(date +%Y%m%d_%H%M%S)_cooldown"
-  SKIP_LOG="$RESTART_LOG_DIR/restart_${SKIP_ID}.log"
-  {
-    echo "========== restart skipped at $(date '+%F %T') =========="
-    echo "reason: restart cooldown"
-    echo "now_uptime_sec: $NOW_UPTIME_SEC"
-    echo "last_restart_uptime_sec: $LAST_RESTART_UPTIME_SEC"
-    echo "min_interval_sec: $RESTART_MIN_INTERVAL_SEC"
-  } >> "$SKIP_LOG" 2>&1
-  ln -sfn "$SKIP_LOG" "$LOG_ROOT/latest_restart"
-  exit 0
+if [ "$DRY_RUN" != "1" ]; then
+  LAST_RESTART_UPTIME_SEC="$(cat "$LAST_RESTART_UPTIME_FILE" 2>/dev/null || true)"
+  if [ "$RESTART_MIN_INTERVAL_SEC" -gt 0 ] &&
+    [[ "$LAST_RESTART_UPTIME_SEC" =~ ^[0-9]+$ ]] &&
+    [ $((NOW_UPTIME_SEC - LAST_RESTART_UPTIME_SEC)) -lt "$RESTART_MIN_INTERVAL_SEC" ]; then
+    SKIP_ID="$(date +%Y%m%d_%H%M%S)_cooldown"
+    SKIP_LOG="$RESTART_LOG_DIR/restart_${SKIP_ID}.log"
+    {
+      echo "========== restart skipped at $(date '+%F %T') =========="
+      echo "reason: restart cooldown"
+      echo "now_uptime_sec: $NOW_UPTIME_SEC"
+      echo "last_restart_uptime_sec: $LAST_RESTART_UPTIME_SEC"
+      echo "min_interval_sec: $RESTART_MIN_INTERVAL_SEC"
+    } >> "$SKIP_LOG" 2>&1
+    ln -sfn "$SKIP_LOG" "$LOG_ROOT/latest_restart"
+    exit 0
+  fi
+  printf '%s\n' "$NOW_UPTIME_SEC" > "$LAST_RESTART_UPTIME_FILE"
 fi
-printf '%s\n' "$NOW_UPTIME_SEC" > "$LAST_RESTART_UPTIME_FILE"
 
 RESTART_ID="$(date +%Y%m%d_%H%M%S)_can"
 LOG="$RESTART_LOG_DIR/restart_${RESTART_ID}.log"
@@ -166,6 +169,12 @@ close_terminal_windows_by_title() {
 
   sleep 0.5
 
+  if [ "$DRY_RUN" = "1" ]; then
+    echo "[dry-run] restart_lidar_stack.sh skipped stop/start phases."
+    echo "========== dry-run done at $(date '+%F %T') =========="
+    exit 0
+  fi
+
   echo "[1/5] stopping old terminal child processes by pid files..."
 
   shopt -s nullglob
@@ -254,7 +263,16 @@ close_terminal_windows_by_title() {
   exec 9>&-
 
   DEFAULT_RELOCALIZATION_MAP="$WORKSPACE_DIR/maps/mid360_map_20260625_005422.pcd"
-  RESTART_MAP_PATH="${RC_LOCALIZATION_MAP_PATH:-${RC_LIDAR_MAP_PATH:-$DEFAULT_RELOCALIZATION_MAP}}"
+  if [ -f "$DIR/lidar_ui_config.sh" ]; then
+    # shellcheck disable=SC1091
+    source "$DIR/lidar_ui_config.sh"
+    load_lidar_ui_config
+  fi
+  if [ -n "${RC_UI_BOOT_MAP:-}" ]; then
+    RESTART_MAP_PATH="$RC_UI_BOOT_MAP"
+  else
+    RESTART_MAP_PATH="${RC_LOCALIZATION_MAP_PATH:-${RC_LIDAR_MAP_PATH:-$DEFAULT_RELOCALIZATION_MAP}}"
+  fi
   RESTART_CONTINUOUS_TOPIC="${RC_CONTINUOUS_POSE_OUTPUT_TOPIC:-/robot/pose_continuous}"
   RESTART_MATCH_ORIGIN_ENABLE="${RC_MATCH_ORIGIN_ENABLE:-0}"
   RESTART_MATCH_ORIGIN_OUTPUT_TOPIC="${RC_MATCH_ORIGIN_OUTPUT_TOPIC:-/robot/pose_match}"

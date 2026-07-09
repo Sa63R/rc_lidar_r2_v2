@@ -46,6 +46,9 @@ should_kill_cmd() {
   local cmd="$1"
 
   case "$cmd" in
+    *"lidar_control_ui.py"*|*"lidar_control_ui.sh"*)
+      return 1
+      ;;
     *"$WORKSPACE_DIR"*|*"$DIR"*)
       return 0
       ;;

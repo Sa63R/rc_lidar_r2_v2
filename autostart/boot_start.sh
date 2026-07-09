@@ -102,6 +102,13 @@ cd "$WORKSPACE_DIR"
 
 DEFAULT_RELOCALIZATION_MAP="$WORKSPACE_DIR/maps/lan1.pcd"
 
+if [ -f "$DIR/lidar_ui_config.sh" ]; then
+  # shellcheck disable=SC1091
+  source "$DIR/lidar_ui_config.sh"
+  load_lidar_ui_config
+  apply_lidar_ui_boot_map_override
+fi
+
 export RUN_REASON="${RUN_REASON:-boot}"
 export RC_LIDAR_MODE="${RC_LIDAR_MODE:-relocalization}"
 export RC_LOCALIZATION_MAP_PATH="${RC_LOCALIZATION_MAP_PATH:-${RC_LIDAR_MAP_PATH:-$DEFAULT_RELOCALIZATION_MAP}}"
@@ -193,6 +200,9 @@ export RC_READY_NOTIFY_POPUP="${RC_READY_NOTIFY_POPUP:-0}"
 if [ "$DRY_RUN" != "1" ]; then
   write_state "starting"
 fi
+
+# Do not let long-running ROS child processes inherit the boot flock fd.
+exec 9>&-
 
 set +e
 ./autostart/start_all_terminals.sh >> "$BOOT_LOG" 2>&1

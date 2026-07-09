@@ -80,6 +80,7 @@ case "$RC_MATCH_ORIGIN_ENABLE" in
     ;;
 esac
 RC_AUTOSTART_DRY_RUN="${RC_AUTOSTART_DRY_RUN:-0}"
+RC_LIDAR_UI_AUTOSTART="${RC_LIDAR_UI_AUTOSTART:-1}"
 RC_AUTOSTART_CANFD="${RC_AUTOSTART_CANFD:-0}"
 RC_AUTOSTART_CANFD_TX_MONITOR="${RC_AUTOSTART_CANFD_TX_MONITOR:-1}"
 RC_AUTOSTART_FDCAN_GATEWAY="${RC_AUTOSTART_FDCAN_GATEWAY:-auto}"
@@ -288,6 +289,7 @@ export RC_CAN_POSE_TOPIC
 export RC_CAN_DEBUG_CSV
 export RC_CAN_DEBUG_CSV_PATH
 export RC_CAN_DEBUG_LOG_PERIOD_SEC
+export RC_LIDAR_UI_AUTOSTART
 export RC_AUTOSTART_READY_GATES
 export RC_READY_TOPIC_SPIN_TIME
 export RC_READY_SAMPLE_TIMEOUT_SEC
@@ -365,6 +367,7 @@ mkdir -p "$ROS_LOG_DIR"
   echo "canfd_serial_presence_check_period_sec: $RC_CANFD_SERIAL_PRESENCE_CHECK_PERIOD_SEC"
   echo "can_debug_csv: $RC_CAN_DEBUG_CSV"
   echo "can_debug_csv_path: ${RC_CAN_DEBUG_CSV_PATH:-}"
+  echo "lidar_ui_autostart: $RC_LIDAR_UI_AUTOSTART"
   echo "continuous_pose: $RC_CONTINUOUS_POSE"
   echo "continuous_stamp_match_mode: $RC_CONTINUOUS_POSE_STAMP_MATCH_MODE"
   echo "continuous_max_stamp_delta_sec: $RC_CONTINUOUS_POSE_MAX_STAMP_DELTA"
@@ -390,6 +393,87 @@ mkdir -p "$ROS_LOG_DIR"
   echo "========================================="
 } | tee "$LOG_DIR/start_summary.txt"
 sync_file "$LOG_DIR/start_summary.txt"
+
+lidar_ui_autostart_enabled() {
+  case "${RC_LIDAR_UI_AUTOSTART:-1}" in
+    1|true|TRUE|yes|YES|on|ON)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+find_lidar_ui_pid() {
+  local pid
+
+  if [ -f /tmp/rc_lidar_control_ui.pid ]; then
+    pid="$(cat /tmp/rc_lidar_control_ui.pid 2>/dev/null || true)"
+    if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
+      local cmd
+      cmd="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+      case "$cmd" in
+        *"lidar_control_ui.py"*|*"lidar_control_ui.sh"*)
+          echo "$pid"
+          return 0
+          ;;
+      esac
+    fi
+  fi
+
+  pid="$(pgrep -f "$DIR/lidar_control_ui.py" 2>/dev/null | head -n 1 || true)"
+  if [ -n "$pid" ]; then
+    echo "$pid"
+    return 0
+  fi
+
+  pid="$(pgrep -f "$DIR/lidar_control_ui.sh" 2>/dev/null | head -n 1 || true)"
+  if [ -n "$pid" ]; then
+    echo "$pid"
+    return 0
+  fi
+
+  return 1
+}
+
+ensure_lidar_ui() {
+  if ! lidar_ui_autostart_enabled; then
+    summary_event "skipped LIDAR_UI: RC_LIDAR_UI_AUTOSTART=$RC_LIDAR_UI_AUTOSTART"
+    return 0
+  fi
+
+  if [ "$RC_AUTOSTART_DRY_RUN" = "1" ]; then
+    summary_event "skipped LIDAR_UI: dry-run"
+    return 0
+  fi
+
+  if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
+    summary_event "skipped LIDAR_UI: no DISPLAY/WAYLAND_DISPLAY"
+    return 0
+  fi
+
+  if [ ! -x "$DIR/lidar_control_ui.sh" ]; then
+    summary_event "skipped LIDAR_UI: $DIR/lidar_control_ui.sh not executable"
+    return 0
+  fi
+
+  local existing_pid
+  existing_pid="$(find_lidar_ui_pid || true)"
+  if [ -n "$existing_pid" ]; then
+    echo "$existing_pid" > /tmp/rc_lidar_control_ui.pid
+    summary_event "LIDAR_UI already running pid=$existing_pid"
+    return 0
+  fi
+
+  summary_event "starting LIDAR_UI"
+  RUN_ID="$RUN_ID" \
+    LOG_DIR="$LOG_DIR" \
+    RUN_REASON="$RUN_REASON" \
+    RC_LIDAR_UI_AUTOSTART=0 \
+    setsid "$DIR/lidar_control_ui.sh" >> "$LOG_DIR/LIDAR_UI.log" 2>&1 < /dev/null &
+  echo $! > /tmp/rc_lidar_control_ui.pid
+}
 
 if [ -x "$DIR/cleanup_autostart_logs.sh" ]; then
   if [ "$RC_AUTOSTART_DRY_RUN" = "1" ]; then
@@ -425,6 +509,8 @@ else
   summary_event "prestop: stop_all.sh not found or not executable, skipped"
 fi
 sync_file "$LOG_DIR/start_summary.txt"
+
+ensure_lidar_ui
 
 if [ -x "$DIR/canable2_preflight.sh" ]; then
   "$DIR/canable2_preflight.sh" --check-only > "$LOG_DIR/canable2_preflight.txt" 2>&1 || true
