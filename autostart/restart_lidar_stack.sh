@@ -177,13 +177,26 @@ close_terminal_windows_by_title() {
       # shellcheck disable=SC1091
       source "$DIR/lidar_ui_config.sh"
       load_lidar_ui_config
+      load_lidar_user_defaults
     fi
     if [ -n "${RC_UI_BOOT_MAP:-}" ]; then
       DRY_RUN_MAP_PATH="$RC_UI_BOOT_MAP"
     else
       DRY_RUN_MAP_PATH="${RC_LOCALIZATION_MAP_PATH:-${RC_LIDAR_MAP_PATH:-$DEFAULT_RELOCALIZATION_MAP}}"
     fi
+    DRY_RUN_INITIAL_GUESS="${RC_RELOCALIZATION_INITIAL_GUESS:-0}"
+    DRY_RUN_ASSUME_MAP_ORIGIN="${RC_RELOCALIZATION_ASSUME_MAP_ORIGIN:-1}"
+    DRY_RUN_INITIAL_X="${RC_RELOCALIZATION_INITIAL_X:-0.0}"
+    DRY_RUN_INITIAL_Y="${RC_RELOCALIZATION_INITIAL_Y:-0.0}"
+    DRY_RUN_INITIAL_Z="${RC_RELOCALIZATION_INITIAL_Z:-0.0}"
+    DRY_RUN_INITIAL_YAW="${RC_RELOCALIZATION_INITIAL_YAW:-0.0}"
+    DRY_RUN_INITIAL_YAW_DEG="$(awk -v rad="$DRY_RUN_INITIAL_YAW" 'BEGIN { pi = atan2(0, -1); printf "%.6f", rad * 180.0 / pi }')"
     echo "[dry-run] would_use_map: $DRY_RUN_MAP_PATH"
+    echo "[dry-run] would_use_initial_guess: $DRY_RUN_INITIAL_GUESS"
+    echo "[dry-run] would_use_assume_map_origin: $DRY_RUN_ASSUME_MAP_ORIGIN"
+    echo "[dry-run] would_use_initial_xyz: $DRY_RUN_INITIAL_X,$DRY_RUN_INITIAL_Y,$DRY_RUN_INITIAL_Z"
+    echo "[dry-run] would_use_initial_yaw_rad: $DRY_RUN_INITIAL_YAW"
+    echo "[dry-run] would_use_initial_yaw_deg: $DRY_RUN_INITIAL_YAW_DEG"
     echo "========== dry-run done at $(date '+%F %T') =========="
     exit 0
   fi
@@ -280,6 +293,7 @@ close_terminal_windows_by_title() {
     # shellcheck disable=SC1091
     source "$DIR/lidar_ui_config.sh"
     load_lidar_ui_config
+    load_lidar_user_defaults
   fi
   if [ -n "${RC_UI_BOOT_MAP:-}" ]; then
     RESTART_MAP_PATH="$RC_UI_BOOT_MAP"
@@ -309,6 +323,13 @@ close_terminal_windows_by_title() {
     RC_LOCALIZATION_MAP_PATH="$RESTART_MAP_PATH" \
     RC_LIDAR_MAP_PATH="$RESTART_MAP_PATH" \
     RC_RELOCALIZATION_ASSUME_MAP_ORIGIN="${RC_RELOCALIZATION_ASSUME_MAP_ORIGIN:-1}" \
+    RC_RELOCALIZATION_INITIAL_GUESS="${RC_RELOCALIZATION_INITIAL_GUESS:-0}" \
+    RC_RELOCALIZATION_INITIAL_X="${RC_RELOCALIZATION_INITIAL_X:-0.0}" \
+    RC_RELOCALIZATION_INITIAL_Y="${RC_RELOCALIZATION_INITIAL_Y:-0.0}" \
+    RC_RELOCALIZATION_INITIAL_Z="${RC_RELOCALIZATION_INITIAL_Z:-0.0}" \
+    RC_RELOCALIZATION_INITIAL_ROLL="${RC_RELOCALIZATION_INITIAL_ROLL:-0.0}" \
+    RC_RELOCALIZATION_INITIAL_PITCH="${RC_RELOCALIZATION_INITIAL_PITCH:-0.0}" \
+    RC_RELOCALIZATION_INITIAL_YAW="${RC_RELOCALIZATION_INITIAL_YAW:-0.0}" \
     RC_AUTOSTART_HEADLESS="${RC_AUTOSTART_HEADLESS:-1}" \
     RC_AUTOSTART_PLOTJUGGLER="${RC_AUTOSTART_PLOTJUGGLER:-1}" \
     RC_AUTOSTART_LEGACY_CAN_SERIAL="${RC_AUTOSTART_LEGACY_CAN_SERIAL:-0}" \

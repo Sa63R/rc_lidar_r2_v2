@@ -45,6 +45,7 @@ compile_commands.json
 /autostart/backup/
 /autostart/tmp/
 /autostart/.marscode/
+/autostart/user_defaults.env
 
 # Editor and OS files
 .vscode/

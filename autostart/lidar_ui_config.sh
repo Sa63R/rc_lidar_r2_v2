@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+lidar_ui_autostart_dir() {
+  cd "$(dirname "${BASH_SOURCE[0]}")" && pwd
+}
+
 lidar_ui_config_path() {
   if [ -n "${RC_LIDAR_UI_CONFIG:-}" ]; then
     printf '%s\n' "$RC_LIDAR_UI_CONFIG"
@@ -7,6 +11,14 @@ lidar_ui_config_path() {
     printf '%s\n' "$XDG_CONFIG_HOME/rc_lidar_r2_v2/ui_config.env"
   else
     printf '%s\n' "${HOME:-/tmp}/.config/rc_lidar_r2_v2/ui_config.env"
+  fi
+}
+
+lidar_user_defaults_path() {
+  if [ -n "${RC_LIDAR_USER_DEFAULTS:-}" ]; then
+    printf '%s\n' "$RC_LIDAR_USER_DEFAULTS"
+  else
+    printf '%s\n' "$(lidar_ui_autostart_dir)/user_defaults.env"
   fi
 }
 
@@ -36,6 +48,54 @@ load_lidar_ui_config() {
       fi
     fi
   fi
+}
+
+load_lidar_user_defaults() {
+  RC_LIDAR_USER_DEFAULTS="$(lidar_user_defaults_path)"
+  export RC_LIDAR_USER_DEFAULTS
+
+  if [ ! -r "$RC_LIDAR_USER_DEFAULTS" ]; then
+    return 0
+  fi
+
+  local keys=(
+    RC_RELOCALIZATION_INITIAL_GUESS
+    RC_RELOCALIZATION_ASSUME_MAP_ORIGIN
+    RC_RELOCALIZATION_INITIAL_X
+    RC_RELOCALIZATION_INITIAL_Y
+    RC_RELOCALIZATION_INITIAL_Z
+    RC_RELOCALIZATION_INITIAL_ROLL
+    RC_RELOCALIZATION_INITIAL_PITCH
+    RC_RELOCALIZATION_INITIAL_YAW
+  )
+  local prior_set=()
+  local prior_value=()
+  local key
+  local idx
+
+  for key in "${keys[@]}"; do
+    if [ "${!key+x}" = "x" ]; then
+      prior_set+=("1")
+      prior_value+=("${!key}")
+    else
+      prior_set+=("0")
+      prior_value+=("")
+    fi
+  done
+
+  # shellcheck disable=SC1090
+  source "$RC_LIDAR_USER_DEFAULTS"
+
+  idx=0
+  for key in "${keys[@]}"; do
+    if [ "${prior_set[$idx]}" = "1" ]; then
+      printf -v "$key" '%s' "${prior_value[$idx]}"
+      export "$key"
+    elif [ "${!key+x}" = "x" ]; then
+      export "$key"
+    fi
+    idx=$((idx + 1))
+  done
 }
 
 apply_lidar_ui_boot_map_override() {
