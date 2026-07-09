@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import math
 import os
 import queue
@@ -11,8 +12,9 @@ import subprocess
 import sys
 import tempfile
 import threading
+import uuid
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 NONE_MAP_LABEL = "无"
 APP_TITLE = "RC LiDAR 控制"
@@ -62,6 +64,17 @@ def default_config_path() -> Path:
 
 
 CONFIG_PATH = default_config_path()
+
+
+def default_initial_pose_presets_path() -> Path:
+    if os.environ.get("RC_LIDAR_INITIAL_POSE_PRESETS"):
+        return Path(os.environ["RC_LIDAR_INITIAL_POSE_PRESETS"]).expanduser().resolve()
+    if os.environ.get("XDG_CONFIG_HOME"):
+        return Path(os.environ["XDG_CONFIG_HOME"]).expanduser() / "rc_lidar_r2_v2" / "initial_pose_presets.json"
+    return Path.home() / ".config" / "rc_lidar_r2_v2" / "initial_pose_presets.json"
+
+
+INITIAL_POSE_PRESETS_PATH = default_initial_pose_presets_path()
 
 
 def now_iso() -> str:
@@ -215,6 +228,112 @@ def user_initial_pose_values(path: Path = USER_DEFAULTS_PATH) -> tuple[float, fl
 
 def relocalization_defaults_env() -> dict[str, str]:
     return read_user_initial_pose_env()
+
+
+def default_initial_pose_preset_name(x: float, y: float, z: float, yaw_deg: float) -> str:
+    parts = [
+        f"x{format_env_float(x)}",
+        f"y{format_env_float(y)}",
+    ]
+    if abs(z) >= 1e-12:
+        parts.append(f"z{format_env_float(z)}")
+    parts.append(f"yaw{format_env_float(yaw_deg)}")
+    return "_".join(parts)
+
+
+def normalize_initial_pose_preset(raw: dict[str, Any]) -> dict[str, Any]:
+    name = str(raw.get("name", "")).strip()
+    if not name:
+        raise ValueError("预设名称不能为空")
+    preset_id = str(raw.get("id", "")).strip() or uuid.uuid4().hex
+    created_at = str(raw.get("created_at", "")).strip() or now_iso()
+    updated_at = str(raw.get("updated_at", "")).strip() or created_at
+    return {
+        "id": preset_id,
+        "name": name,
+        "x_m": parse_float_value(str(raw.get("x_m", "0.0")), "preset x_m"),
+        "y_m": parse_float_value(str(raw.get("y_m", "0.0")), "preset y_m"),
+        "z_m": parse_float_value(str(raw.get("z_m", "0.0")), "preset z_m"),
+        "yaw_deg": parse_float_value(str(raw.get("yaw_deg", "0.0")), "preset yaw_deg"),
+        "created_at": created_at,
+        "updated_at": updated_at,
+    }
+
+
+def read_initial_pose_presets(path: Path = INITIAL_POSE_PRESETS_PATH) -> list[dict[str, Any]]:
+    if not path.exists() or path.stat().st_size == 0:
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"预设文件解析失败: {exc}") from exc
+    raw_presets = data.get("presets", data) if isinstance(data, dict) else data
+    if raw_presets is None:
+        return []
+    if not isinstance(raw_presets, list):
+        raise ValueError("预设文件解析失败: presets 不是列表")
+    return [normalize_initial_pose_preset(item) for item in raw_presets if isinstance(item, dict)]
+
+
+def write_initial_pose_presets(presets: list[dict[str, Any]], path: Path = INITIAL_POSE_PRESETS_PATH) -> None:
+    normalized = [normalize_initial_pose_preset(item) for item in presets]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "version": 1,
+        "updated_at": now_iso(),
+        "presets": normalized,
+    }
+    tmp = path.with_suffix(path.suffix + f".tmp.{os.getpid()}")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def upsert_initial_pose_preset(
+    presets: list[dict[str, Any]],
+    name: str,
+    x: float,
+    y: float,
+    z: float,
+    yaw_deg: float,
+) -> tuple[list[dict[str, Any]], dict[str, Any], bool]:
+    normalized_name = name.strip()
+    if not normalized_name:
+        raise ValueError("预设名称不能为空")
+    updated = [normalize_initial_pose_preset(item) for item in presets]
+    timestamp = now_iso()
+    for index, item in enumerate(updated):
+        if item["name"] == normalized_name:
+            preset = {
+                "id": item["id"],
+                "name": normalized_name,
+                "x_m": x,
+                "y_m": y,
+                "z_m": z,
+                "yaw_deg": yaw_deg,
+                "created_at": item.get("created_at", timestamp),
+                "updated_at": timestamp,
+            }
+            updated[index] = normalize_initial_pose_preset(preset)
+            return updated, updated[index], True
+
+    preset = normalize_initial_pose_preset(
+        {
+            "id": uuid.uuid4().hex,
+            "name": normalized_name,
+            "x_m": x,
+            "y_m": y,
+            "z_m": z,
+            "yaw_deg": yaw_deg,
+            "created_at": timestamp,
+            "updated_at": timestamp,
+        }
+    )
+    updated.append(preset)
+    return updated, preset, False
+
+
+def delete_initial_pose_preset(presets: list[dict[str, Any]], preset_id: str) -> list[dict[str, Any]]:
+    return [normalize_initial_pose_preset(item) for item in presets if str(item.get("id", "")) != preset_id]
 
 
 def list_pcd_maps() -> list[Path]:
@@ -396,11 +515,12 @@ class LidarControlUi:
         self.ttk = ttk
         self.root = tk.Tk()
         self.root.title(APP_TITLE)
-        self.root.geometry("820x620")
-        self.root.minsize(760, 560)
+        self.root.geometry("860x700")
+        self.root.minsize(780, 620)
 
         self.events: queue.Queue[tuple[str, object]] = queue.Queue()
         self.map_paths: dict[str, Path] = {}
+        self.initial_pose_presets: list[dict[str, Any]] = []
         self.pose_file: Path | None = None
         self.pose_file_run_id = ""
         self.pose_count = 0
@@ -416,6 +536,7 @@ class LidarControlUi:
 
         self.build_ui()
         self.load_initial_pose_fields()
+        self.refresh_initial_pose_presets()
         self.refresh_maps(force_none=True)
         self.refresh_status()
         self.root.after(100, self.drain_events)
@@ -458,6 +579,40 @@ class LidarControlUi:
         ttk.Button(initial_pose, text="设置初始位姿", command=self.on_set_initial_pose).grid(row=0, column=8, sticky="ew", padx=(0, 8))
         ttk.Button(initial_pose, text="重置为零", command=self.on_reset_initial_pose_fields).grid(row=0, column=9, sticky="ew")
         ttk.Label(initial_pose, textvariable=self.initial_pose_status_var).grid(row=1, column=0, columnspan=10, sticky="w", pady=(8, 0))
+
+        preset_frame = ttk.Frame(initial_pose)
+        preset_frame.grid(row=2, column=0, columnspan=10, sticky="ew", pady=(8, 0))
+        preset_frame.columnconfigure(0, weight=1)
+        self.preset_tree = ttk.Treeview(
+            preset_frame,
+            columns=("name", "x", "y", "z", "yaw"),
+            show="headings",
+            height=4,
+            selectmode="browse",
+        )
+        self.preset_tree.heading("name", text="名称")
+        self.preset_tree.heading("x", text="X")
+        self.preset_tree.heading("y", text="Y")
+        self.preset_tree.heading("z", text="Z")
+        self.preset_tree.heading("yaw", text="Yaw")
+        self.preset_tree.column("name", width=220, minwidth=120, anchor="w", stretch=True)
+        self.preset_tree.column("x", width=90, minwidth=70, anchor="e", stretch=False)
+        self.preset_tree.column("y", width=90, minwidth=70, anchor="e", stretch=False)
+        self.preset_tree.column("z", width=90, minwidth=70, anchor="e", stretch=False)
+        self.preset_tree.column("yaw", width=90, minwidth=70, anchor="e", stretch=False)
+        self.preset_tree.grid(row=0, column=0, sticky="ew")
+        preset_scroll = ttk.Scrollbar(preset_frame, orient="vertical", command=self.preset_tree.yview)
+        preset_scroll.grid(row=0, column=1, sticky="ns")
+        self.preset_tree.configure(yscrollcommand=preset_scroll.set)
+        self.preset_tree.bind("<Double-1>", self.on_preset_double_click)
+
+        preset_buttons = ttk.Frame(initial_pose)
+        preset_buttons.grid(row=3, column=0, columnspan=10, sticky="ew", pady=(6, 0))
+        for index in range(3):
+            preset_buttons.columnconfigure(index, weight=1, uniform="preset_buttons")
+        ttk.Button(preset_buttons, text="保存为预设", command=self.on_save_initial_pose_preset).grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        ttk.Button(preset_buttons, text="填入选中", command=self.on_apply_initial_pose_preset).grid(row=0, column=1, sticky="ew", padx=6)
+        ttk.Button(preset_buttons, text="删除选中", command=self.on_delete_initial_pose_preset).grid(row=0, column=2, sticky="ew", padx=(6, 0))
 
         buttons = ttk.Frame(self.root, padding=(14, 6, 14, 6))
         buttons.grid(row=2, column=0, sticky="ew")
@@ -567,6 +722,129 @@ class LidarControlUi:
             parse_float_value(self.initial_z_var.get(), "Z m"),
             parse_float_value(self.initial_yaw_var.get(), "Yaw deg"),
         )
+
+    def refresh_initial_pose_presets(self, selected_id: str = "") -> None:
+        try:
+            presets = read_initial_pose_presets()
+        except ValueError as exc:
+            self.initial_pose_presets = []
+            for item in self.preset_tree.get_children():
+                self.preset_tree.delete(item)
+            self.status_var.set(str(exc))
+            self.log(str(exc))
+            return
+
+        self.initial_pose_presets = presets
+        for item in self.preset_tree.get_children():
+            self.preset_tree.delete(item)
+        for preset in presets:
+            preset_id = str(preset["id"])
+            self.preset_tree.insert(
+                "",
+                "end",
+                iid=preset_id,
+                values=(
+                    preset["name"],
+                    format_env_float(float(preset["x_m"])),
+                    format_env_float(float(preset["y_m"])),
+                    format_env_float(float(preset["z_m"])),
+                    format_env_float(float(preset["yaw_deg"])),
+                ),
+            )
+        if selected_id and self.preset_tree.exists(selected_id):
+            self.preset_tree.selection_set(selected_id)
+            self.preset_tree.focus(selected_id)
+            self.preset_tree.see(selected_id)
+
+    def selected_initial_pose_preset(self) -> dict[str, Any]:
+        selected = self.preset_tree.selection()
+        if not selected:
+            raise RuntimeError("请先选择一组预设")
+        preset_id = selected[0]
+        for preset in self.initial_pose_presets:
+            if str(preset.get("id", "")) == preset_id:
+                return preset
+        raise RuntimeError("选中的预设不存在，请刷新后重试")
+
+    def on_save_initial_pose_preset(self) -> None:
+        from tkinter import messagebox, simpledialog
+
+        try:
+            x, y, z, yaw_deg = self.parse_initial_pose_entries()
+        except ValueError as exc:
+            messagebox.showerror("预设错误", str(exc), parent=self.root)
+            return
+        default_name = default_initial_pose_preset_name(x, y, z, yaw_deg)
+        name = simpledialog.askstring("保存为预设", "输入预设名称", initialvalue=default_name, parent=self.root)
+        if name is None:
+            return
+        name = name.strip()
+        if not name:
+            messagebox.showerror("预设错误", "预设名称不能为空", parent=self.root)
+            return
+
+        try:
+            presets = read_initial_pose_presets()
+        except ValueError as exc:
+            messagebox.showerror("预设文件错误", str(exc), parent=self.root)
+            return
+        exists = any(str(preset.get("name", "")) == name for preset in presets)
+        if exists and not messagebox.askyesno("覆盖预设", f"{name} 已存在，是否覆盖？", parent=self.root):
+            return
+
+        try:
+            updated, preset, overwritten = upsert_initial_pose_preset(presets, name, x, y, z, yaw_deg)
+            write_initial_pose_presets(updated)
+        except (OSError, ValueError) as exc:
+            messagebox.showerror("保存预设失败", str(exc), parent=self.root)
+            return
+
+        self.refresh_initial_pose_presets(str(preset["id"]))
+        action = "覆盖" if overwritten else "保存"
+        self.log(f"初始位姿预设已{action}: {name}")
+        self.status_var.set(f"预设已{action}: {name}")
+
+    def on_apply_initial_pose_preset(self) -> None:
+        from tkinter import messagebox
+
+        try:
+            preset = self.selected_initial_pose_preset()
+        except RuntimeError as exc:
+            messagebox.showerror("填入预设", str(exc), parent=self.root)
+            return
+
+        self.initial_x_var.set(format_env_float(float(preset["x_m"])))
+        self.initial_y_var.set(format_env_float(float(preset["y_m"])))
+        self.initial_z_var.set(format_env_float(float(preset["z_m"])))
+        self.initial_yaw_var.set(format_env_float(float(preset["yaw_deg"])))
+        self.initial_pose_status_var.set(f"已填入预设: {preset['name']}，点击“设置初始位姿”后生效")
+        self.log(f"已填入初始位姿预设: {preset['name']}")
+
+    def on_delete_initial_pose_preset(self) -> None:
+        from tkinter import messagebox
+
+        try:
+            preset = self.selected_initial_pose_preset()
+        except RuntimeError as exc:
+            messagebox.showerror("删除预设", str(exc), parent=self.root)
+            return
+        name = str(preset["name"])
+        if not messagebox.askyesno("删除预设", f"删除 {name}？", parent=self.root):
+            return
+
+        try:
+            presets = read_initial_pose_presets()
+            write_initial_pose_presets(delete_initial_pose_preset(presets, str(preset["id"])))
+        except (OSError, ValueError) as exc:
+            messagebox.showerror("删除预设失败", str(exc), parent=self.root)
+            return
+        self.refresh_initial_pose_presets()
+        self.log(f"初始位姿预设已删除: {name}")
+        self.status_var.set(f"预设已删除: {name}")
+
+    def on_preset_double_click(self, _event: object) -> None:
+        if self.preset_tree.selection():
+            self.on_apply_initial_pose_preset()
 
     def refresh_maps(self, force_none: bool = False) -> None:
         maps = list_pcd_maps()
@@ -878,6 +1156,7 @@ class LidarControlUi:
     def run(self) -> None:
         self.log(f"UI 已启动，地图配置: {CONFIG_PATH}")
         self.log(f"初始位姿默认值: {USER_DEFAULTS_PATH}")
+        self.log(f"初始位姿预设: {INITIAL_POSE_PRESETS_PATH}")
         self.root.mainloop()
 
 
@@ -926,6 +1205,37 @@ pose:
         values = write_user_initial_pose(0.0, 0.0, 0.0, 0.0, defaults_path)
         assert values["RC_RELOCALIZATION_INITIAL_GUESS"] == "0"
         assert values["RC_RELOCALIZATION_ASSUME_MAP_ORIGIN"] == "1"
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        presets_path = Path(tmp_dir) / "initial_pose_presets.json"
+        defaults_path = Path(tmp_dir) / "user_defaults.env"
+        write_user_initial_pose(1.0, 2.0, 3.0, 4.0, defaults_path)
+        assert read_initial_pose_presets(presets_path) == []
+        presets, preset, overwritten = upsert_initial_pose_preset([], "start_a", 0.0, -11.0, 0.0, 0.0)
+        assert not overwritten
+        write_initial_pose_presets(presets, presets_path)
+        loaded = read_initial_pose_presets(presets_path)
+        assert len(loaded) == 1
+        assert loaded[0]["id"] == preset["id"]
+        assert loaded[0]["name"] == "start_a"
+        assert loaded[0]["y_m"] == -11.0
+        presets, preset, overwritten = upsert_initial_pose_preset(loaded, "start_a", 1.0, 2.0, 0.0, 90.0)
+        assert overwritten
+        write_initial_pose_presets(presets, presets_path)
+        loaded = read_initial_pose_presets(presets_path)
+        assert len(loaded) == 1
+        assert loaded[0]["id"] == preset["id"]
+        assert loaded[0]["yaw_deg"] == 90.0
+        write_initial_pose_presets(delete_initial_pose_preset(loaded, str(preset["id"])), presets_path)
+        assert read_initial_pose_presets(presets_path) == []
+        unchanged = read_user_initial_pose_env(defaults_path)
+        assert unchanged["RC_RELOCALIZATION_INITIAL_X"] == "1.0"
+        presets_path.write_text("{bad json", encoding="utf-8")
+        try:
+            read_initial_pose_presets(presets_path)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("corrupt preset json should fail")
 
 
 def main() -> int:
