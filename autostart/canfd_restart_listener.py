@@ -14,6 +14,7 @@ import socket
 import subprocess
 import sys
 import time
+from typing import NamedTuple
 
 
 DEFAULT_GATEWAY_SOCKET = "/tmp/rc_fdcan_gateway.sock"
@@ -21,6 +22,13 @@ DEFAULT_LOCK_PATH = "/tmp/rc_can_wakeup_listener.lock"
 DEFAULT_HEARTBEAT_PATH = "/tmp/rc_can_wakeup_listener.heartbeat"
 DEFAULT_EVENT_PATH = "/tmp/rc_can_wakeup_last_event"
 DEFAULT_CAN_ID = 0x777
+
+
+class PendingRestart(NamedTuple):
+    request_id: str
+    payload: bytes
+    process: subprocess.Popen
+    result_path: Path
 
 
 def log(message: str) -> None:
@@ -135,6 +143,8 @@ class RestartListener:
         self.last_register_monotonic = 0.0
         self.last_heartbeat_monotonic = 0.0
         self.last_unavailable_log_monotonic = 0.0
+        self.pending_restarts: dict[str, PendingRestart] = {}
+        self.processes_to_reap: list[subprocess.Popen] = []
 
     def acquire_lock(self) -> None:
         self.lock_file = open(self.args.lock_path, "a+", encoding="utf-8")
@@ -160,19 +170,44 @@ class RestartListener:
         tmp.write_text(f"pid={os.getpid()}\nepoch={time.time():.6f}\n", encoding="utf-8")
         os.replace(tmp, path)
 
-    def record_event(self, payload: bytes, action: str, detail: str = "") -> None:
+    def record_event(
+        self,
+        payload: bytes,
+        action: str,
+        detail: str = "",
+        *,
+        request_id: str = "",
+        reason: str = "",
+        run_id: str = "",
+        run_dir: str = "",
+    ) -> None:
         path = Path(self.args.event_path)
         tmp = path.with_name(f"{path.name}.tmp.{os.getpid()}")
-        safe_detail = str(detail).replace("\n", " ").replace("\r", " ")
+        safe_values = {
+            "request_id": request_id,
+            "action": action,
+            "reason": reason,
+            "detail": detail,
+            "run_id": run_id,
+            "run_dir": run_dir,
+        }
+        safe_values = {
+            key: str(value).replace("\n", " ").replace("\r", " ")
+            for key, value in safe_values.items()
+        }
         tmp.write_text(
             "\n".join(
                 [
                     f"event_id={time.time_ns()}-{os.getpid()}",
                     f"epoch={time.time():.6f}",
+                    f"request_id={safe_values['request_id']}",
                     f"can_id=0x{self.args.can_id:X}",
                     f"payload={payload.hex().upper()}",
-                    f"action={action}",
-                    f"detail={safe_detail}",
+                    f"action={safe_values['action']}",
+                    f"reason={safe_values['reason']}",
+                    f"detail={safe_values['detail']}",
+                    f"run_id={safe_values['run_id']}",
+                    f"run_dir={safe_values['run_dir']}",
                     "",
                 ]
             ),
@@ -191,33 +226,137 @@ class RestartListener:
         self.client.close()
         self.client = None
 
+    @staticmethod
+    def read_result(path: Path) -> dict[str, str]:
+        result: dict[str, str] = {}
+        for raw_line in path.read_text(encoding="utf-8").splitlines():
+            key, separator, value = raw_line.partition("=")
+            if separator and key in {"status", "reason", "detail", "run_id", "run_dir"}:
+                result[key] = value
+        return result
+
+    def poll_pending_restarts(self) -> None:
+        self.processes_to_reap = [
+            process for process in self.processes_to_reap if process.poll() is None
+        ]
+        completed: list[str] = []
+        for request_id, pending in list(self.pending_restarts.items()):
+            if pending.result_path.is_file():
+                try:
+                    result = self.read_result(pending.result_path)
+                except OSError as exc:
+                    log(f"failed reading restart result request={request_id}: {exc}")
+                    continue
+
+                status = result.get("status", "failed")
+                action = {
+                    "success": "succeeded",
+                    "rejected": "rejected",
+                    "failed": "failed",
+                }.get(status, "failed")
+                self.record_event(
+                    pending.payload,
+                    action,
+                    result.get("detail", ""),
+                    request_id=request_id,
+                    reason=result.get("reason", "invalid_result" if action == "failed" else ""),
+                    run_id=result.get("run_id", ""),
+                    run_dir=result.get("run_dir", ""),
+                )
+                log(
+                    f"restart result request={request_id} action={action} "
+                    f"reason={result.get('reason', '')}"
+                )
+                try:
+                    pending.result_path.unlink()
+                except FileNotFoundError:
+                    pass
+                if pending.process.poll() is None:
+                    self.processes_to_reap.append(pending.process)
+                completed.append(request_id)
+                continue
+
+            return_code = pending.process.poll()
+            if return_code is not None:
+                self.record_event(
+                    pending.payload,
+                    "failed",
+                    f"restart script exited rc={return_code} without result",
+                    request_id=request_id,
+                    reason="missing_result",
+                )
+                log(
+                    f"restart failed request={request_id}: script exited "
+                    f"rc={return_code} without result"
+                )
+                completed.append(request_id)
+
+        for request_id in completed:
+            self.pending_restarts.pop(request_id, None)
+
     def request_restart(self, payload: bytes) -> None:
         now = time.monotonic()
+        request_id = f"{time.time_ns()}-{os.getpid()}"
         if (
             self.last_restart_monotonic > 0.0
             and now - self.last_restart_monotonic < self.args.debounce_sec
         ):
-            self.record_event(payload, "debounced", f"debounce_sec={self.args.debounce_sec:.1f}")
+            self.record_event(
+                payload,
+                "rejected",
+                f"debounce_sec={self.args.debounce_sec:.1f}",
+                request_id=request_id,
+                reason="debounce",
+            )
             log(f"restart frame ignored by debounce ({self.args.debounce_sec:.1f}s)")
             return
         self.last_restart_monotonic = now
+        event_path = Path(self.args.event_path)
+        result_path = event_path.with_name(f"rc_can_restart_result_{request_id}")
+        child_env = os.environ.copy()
+        child_env.update(
+            {
+                "RC_CAN_RESTART_REQUEST_ID": request_id,
+                "RC_CAN_RESTART_RESULT_FILE": str(result_path),
+            }
+        )
         try:
             process = subprocess.Popen(
                 ["/bin/bash", self.args.restart_script],
                 close_fds=True,
                 start_new_session=True,
+                env=child_env,
             )
         except OSError as exc:
-            self.record_event(payload, "launch_failed", str(exc))
+            self.record_event(
+                payload,
+                "failed",
+                str(exc),
+                request_id=request_id,
+                reason="launch_failed",
+            )
             log(f"ERROR: failed to launch restart script: {exc}")
             return
-        self.record_event(payload, "launched", f"pid={process.pid}")
+        self.pending_restarts[request_id] = PendingRestart(
+            request_id=request_id,
+            payload=payload,
+            process=process,
+            result_path=result_path,
+        )
+        self.record_event(
+            payload,
+            "pending",
+            f"pid={process.pid}",
+            request_id=request_id,
+            reason="received",
+        )
         log(
             f"received CAN restart id=0x{self.args.can_id:X} "
-            f"payload={payload.hex().upper()} launched pid={process.pid}"
+            f"payload={payload.hex().upper()} request={request_id} launched pid={process.pid}"
         )
 
     def run_once(self, now: float) -> None:
+        self.poll_pending_restarts()
         if now - self.last_heartbeat_monotonic >= self.args.heartbeat_period_sec:
             self.last_heartbeat_monotonic = now
             self.write_heartbeat()

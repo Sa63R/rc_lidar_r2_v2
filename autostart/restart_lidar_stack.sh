@@ -11,6 +11,41 @@ LOCK="/tmp/rc_lidar_restart.lock"
 LAST_RESTART_UPTIME_FILE="$RESTART_LOG_DIR/last_restart_uptime_sec"
 RESTART_MIN_INTERVAL_SEC="${RC_CAN_RESTART_MIN_INTERVAL_SEC:-15}"
 DRY_RUN="${RC_AUTOSTART_DRY_RUN:-0}"
+CAN_RESTART_REQUEST_ID="${RC_CAN_RESTART_REQUEST_ID:-}"
+CAN_RESTART_RESULT_FILE="${RC_CAN_RESTART_RESULT_FILE:-}"
+CAN_RESTART_COMPLETION_FILE="${CAN_RESTART_RESULT_FILE:+${CAN_RESTART_RESULT_FILE}.completion}"
+
+# shellcheck disable=SC1091
+source "$DIR/restart_cooldown.sh"
+
+single_line_value() {
+  printf '%s' "$1" | tr '\r\n' '  '
+}
+
+write_restart_result() {
+  local status="$1"
+  local reason="$2"
+  local detail="${3:-}"
+  local run_id="${4:-}"
+  local run_dir="${5:-}"
+
+  [ -n "$CAN_RESTART_RESULT_FILE" ] || return 0
+  local tmp="${CAN_RESTART_RESULT_FILE}.tmp.$$"
+  {
+    printf 'status=%s\n' "$(single_line_value "$status")"
+    printf 'reason=%s\n' "$(single_line_value "$reason")"
+    printf 'detail=%s\n' "$(single_line_value "$detail")"
+    printf 'run_id=%s\n' "$(single_line_value "$run_id")"
+    printf 'run_dir=%s\n' "$(single_line_value "$run_dir")"
+  } > "$tmp"
+  mv -f "$tmp" "$CAN_RESTART_RESULT_FILE"
+}
+
+read_result_value() {
+  local path="$1"
+  local key="$2"
+  sed -n "s/^${key}=//p" "$path" 2>/dev/null | head -n 1
+}
 
 exec 9>"$LOCK"
 if ! flock -n 9; then
@@ -22,6 +57,7 @@ if ! flock -n 9; then
     echo "lock: $LOCK"
   } >> "$SKIP_LOG" 2>&1
   ln -sfn "$SKIP_LOG" "$LOG_ROOT/latest_restart"
+  write_restart_result "rejected" "lock_busy" "another restart is already running"
   exit 0
 fi
 
@@ -38,9 +74,10 @@ esac
 NOW_UPTIME_SEC="$(current_uptime_sec_int)"
 if [ "$DRY_RUN" != "1" ]; then
   LAST_RESTART_UPTIME_SEC="$(cat "$LAST_RESTART_UPTIME_FILE" 2>/dev/null || true)"
-  if [ "$RESTART_MIN_INTERVAL_SEC" -gt 0 ] &&
-    [[ "$LAST_RESTART_UPTIME_SEC" =~ ^[0-9]+$ ]] &&
-    [ $((NOW_UPTIME_SEC - LAST_RESTART_UPTIME_SEC)) -lt "$RESTART_MIN_INTERVAL_SEC" ]; then
+  if restart_cooldown_active \
+    "$NOW_UPTIME_SEC" \
+    "$LAST_RESTART_UPTIME_SEC" \
+    "$RESTART_MIN_INTERVAL_SEC"; then
     SKIP_ID="$(date +%Y%m%d_%H%M%S)_cooldown"
     SKIP_LOG="$RESTART_LOG_DIR/restart_${SKIP_ID}.log"
     {
@@ -51,8 +88,20 @@ if [ "$DRY_RUN" != "1" ]; then
       echo "min_interval_sec: $RESTART_MIN_INTERVAL_SEC"
     } >> "$SKIP_LOG" 2>&1
     ln -sfn "$SKIP_LOG" "$LOG_ROOT/latest_restart"
+    RESTART_REMAINING_SEC="$(restart_cooldown_remaining_sec \
+      "$NOW_UPTIME_SEC" \
+      "$LAST_RESTART_UPTIME_SEC" \
+      "$RESTART_MIN_INTERVAL_SEC")"
+    write_restart_result \
+      "rejected" \
+      "cooldown" \
+      "cooldown remaining ${RESTART_REMAINING_SEC}s"
     exit 0
   fi
+  # /proc/uptime restarts from zero after a host reboot.  The cooldown file is
+  # intentionally persistent, so an uptime value from the previous boot can be
+  # greater than the current value.  Treat that as an expired cooldown instead
+  # of interpreting the negative age as "less than the minimum interval".
   printf '%s\n' "$NOW_UPTIME_SEC" > "$LAST_RESTART_UPTIME_FILE"
 fi
 
@@ -198,6 +247,7 @@ close_terminal_windows_by_title() {
     echo "[dry-run] would_use_initial_yaw_rad: $DRY_RUN_INITIAL_YAW"
     echo "[dry-run] would_use_initial_yaw_deg: $DRY_RUN_INITIAL_YAW_DEG"
     echo "========== dry-run done at $(date '+%F %T') =========="
+    write_restart_result "rejected" "dry_run" "restart dry-run does not start the stack"
     exit 0
   fi
 
@@ -339,7 +389,67 @@ close_terminal_windows_by_title() {
       ;;
   esac
 
+  launch_start_all() {
+    if [ -z "$CAN_RESTART_RESULT_FILE" ]; then
+      nohup "$DIR/start_all_terminals.sh" >> "$LOG" 2>&1 &
+      echo "[5/5] restart command launched asynchronously."
+      return 0
+    fi
+
+    rm -f "$CAN_RESTART_COMPLETION_FILE"
+    local start_rc=0
+    RC_AUTOSTART_COMPLETION_FILE="$CAN_RESTART_COMPLETION_FILE" \
+      "$DIR/start_all_terminals.sh" || start_rc=$?
+
+    if [ -f "$CAN_RESTART_COMPLETION_FILE" ]; then
+      local completion_status completion_reason completion_detail completion_run_id completion_run_dir
+      completion_status="$(read_result_value "$CAN_RESTART_COMPLETION_FILE" status)"
+      completion_reason="$(read_result_value "$CAN_RESTART_COMPLETION_FILE" reason)"
+      completion_detail="$(read_result_value "$CAN_RESTART_COMPLETION_FILE" detail)"
+      completion_run_id="$(read_result_value "$CAN_RESTART_COMPLETION_FILE" run_id)"
+      completion_run_dir="$(read_result_value "$CAN_RESTART_COMPLETION_FILE" run_dir)"
+      rm -f "$CAN_RESTART_COMPLETION_FILE"
+
+      if [ "$start_rc" -eq 0 ] && [ "$completion_status" = "success" ]; then
+        write_restart_result \
+          "success" \
+          "${completion_reason:-stack_started}" \
+          "$completion_detail" \
+          "$completion_run_id" \
+          "$completion_run_dir"
+        echo "[5/5] CAN restart stack verification succeeded."
+        return 0
+      fi
+
+      write_restart_result \
+        "failed" \
+        "${completion_reason:-start_failed}" \
+        "${completion_detail:-start_all_terminals.sh exited rc=$start_rc}" \
+        "$completion_run_id" \
+        "$completion_run_dir"
+      echo "[5/5] CAN restart stack verification failed rc=$start_rc."
+      return 0
+    fi
+
+    if [ "$start_rc" -ne 0 ]; then
+      write_restart_result \
+        "failed" \
+        "start_failed" \
+        "start_all_terminals.sh exited rc=$start_rc"
+    else
+      write_restart_result \
+        "failed" \
+        "missing_completion" \
+        "start_all_terminals.sh exited without a completion receipt"
+    fi
+    echo "[5/5] CAN restart finished without completion receipt rc=$start_rc."
+    return 0
+  }
+
+  # The restart path has already completed its TERM/KILL cleanup above.  A
+  # second prestop can match and terminate this freshly launched start command.
   RUN_REASON="can_restart" \
+    RC_AUTOSTART_SKIP_PRESTOP=1 \
     RC_LIDAR_MODE="${RC_LIDAR_MODE:-relocalization}" \
     RC_LOCALIZATION_MAP_PATH="$RESTART_MAP_PATH" \
     RC_LIDAR_MAP_PATH="$RESTART_MAP_PATH" \
@@ -414,8 +524,7 @@ close_terminal_windows_by_title() {
     RC_READY_NOTIFY_POSE_TOPIC="$RESTART_READY_NOTIFY_POSE_TOPIC" \
     RC_HEALTH_MONITOR="${RC_HEALTH_MONITOR:-1}" \
     RESTART_LOG="$LOG" \
-    nohup "$DIR/start_all_terminals.sh" >> "$LOG" 2>&1 &
+    launch_start_all
 
-  echo "[5/5] restart command launched."
   echo "========== done at $(date '+%F %T') =========="
 } >> "$LOG" 2>&1

@@ -97,6 +97,56 @@ def format_env_float(value: float) -> str:
     return text
 
 
+def format_can_restart_event(status: dict[str, str]) -> str:
+    can_id = status.get("last_event_can_id", "0x777")
+    payload = status.get("last_event_payload", "") or "<empty>"
+    request_id = status.get("last_event_request_id", "")
+    action = status.get("last_event_action", "")
+    reason = status.get("last_event_reason", "")
+    detail = status.get("last_event_detail", "")
+    run_id = status.get("last_event_run_id", "")
+    run_dir = status.get("last_event_run_dir", "")
+    prefix = f"收到 CAN {can_id}: payload={payload}"
+    request_text = f" request={request_id}" if request_id else ""
+
+    if action == "pending":
+        return f"{prefix}，CAN 重启处理中{request_text}"
+
+    if action == "succeeded":
+        run_text = f" run={run_id}" if run_id else ""
+        dir_text = f" dir={run_dir}" if run_dir else ""
+        return (
+            f"{prefix}，CAN 重启成功：整条启动链路已拉起"
+            f"（不检查坐标）{run_text}{dir_text}"
+        )
+
+    if action == "rejected":
+        reason_text = {
+            "debounce": "防抖时间内重复请求",
+            "cooldown": "重启冷却时间未结束",
+            "lock_busy": "已有重启正在进行",
+            "dry_run": "当前为 dry-run",
+        }.get(reason, reason or "请求未执行")
+        detail_text = f"，{detail}" if detail else ""
+        return f"{prefix}，CAN 重启被拒绝：{reason_text}{detail_text}{request_text}"
+
+    if action == "failed":
+        reason_text = {
+            "launch_failed": "重启脚本无法启动",
+            "start_failed": "启动脚本执行失败",
+            "core_process_missing": "核心进程未全部存活",
+            "missing_completion": "启动链路没有返回完成标志",
+            "missing_result": "重启脚本没有返回结果",
+            "invalid_result": "重启脚本返回了无效结果",
+        }.get(reason, reason or "未知错误")
+        detail_text = f"，{detail}" if detail else ""
+        run_text = f" run={run_id}" if run_id else ""
+        return f"{prefix}，CAN 重启失败：{reason_text}{detail_text}{run_text}{request_text}"
+
+    detail_text = f"，{detail}" if detail else ""
+    return f"{prefix}，{action or '已接收'}{detail_text}{request_text}"
+
+
 def parse_float_value(raw: str, field: str) -> float:
     text = raw.strip()
     if not text:
@@ -754,19 +804,7 @@ class LidarControlUi:
         if not event_id or event_id == self.last_can_event_id:
             return
         self.last_can_event_id = event_id
-        can_id = status.get("last_event_can_id", "0x777")
-        payload = status.get("last_event_payload", "") or "<empty>"
-        action = status.get("last_event_action", "")
-        detail = status.get("last_event_detail", "")
-        if action == "launched":
-            result = f"已触发重定位重启 {detail}".strip()
-        elif action == "debounced":
-            result = f"防抖忽略 {detail}".strip()
-        elif action == "launch_failed":
-            result = f"重启脚本启动失败 {detail}".strip()
-        else:
-            result = action or "已接收"
-        self.log(f"收到 CAN {can_id}: payload={payload}，{result}")
+        self.log(format_can_restart_event(status))
 
     def refresh_can_listener_status_async(self) -> None:
         if self.closing or self.can_status_check_running:

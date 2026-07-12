@@ -645,6 +645,97 @@ else
   echo "diagnose_logger.sh not found or not executable, skipped." > "$LOG_DIR/diagnose_logger.out"
 fi
 
+RC_AUTOSTART_COMPLETION_FILE="${RC_AUTOSTART_COMPLETION_FILE:-}"
+RC_AUTOSTART_PROCESS_VERIFY_TIMEOUT_SEC="${RC_AUTOSTART_PROCESS_VERIFY_TIMEOUT_SEC:-3}"
+case "$RC_AUTOSTART_PROCESS_VERIFY_TIMEOUT_SEC" in
+  ''|*[!0-9]*)
+    RC_AUTOSTART_PROCESS_VERIFY_TIMEOUT_SEC=3
+    ;;
+esac
+
+declare -a RC_REQUIRED_COMPONENT_TITLES=()
+declare -a RC_REQUIRED_COMPONENT_SCRIPTS=()
+
+track_required_component() {
+  local title="$1"
+  local script="$2"
+
+  [ "$RUN_REASON" = "can_restart" ] || return 0
+  case "$title" in
+    PLOTJUGGLER|CANFD_TX_MONITOR|CAN_MONITOR|LIDAR_XYZR|POSE_ODOM_ONLY|READY_NOTIFY)
+      return 0
+      ;;
+  esac
+  RC_REQUIRED_COMPONENT_TITLES+=("$title")
+  RC_REQUIRED_COMPONENT_SCRIPTS+=("$script")
+}
+
+write_autostart_completion() {
+  local status="$1"
+  local reason="$2"
+  local detail="${3:-}"
+
+  [ -n "$RC_AUTOSTART_COMPLETION_FILE" ] || return 0
+  local tmp="${RC_AUTOSTART_COMPLETION_FILE}.tmp.$$"
+  detail="$(printf '%s' "$detail" | tr '\r\n' '  ')"
+  {
+    printf 'status=%s\n' "$status"
+    printf 'reason=%s\n' "$reason"
+    printf 'detail=%s\n' "$detail"
+    printf 'run_id=%s\n' "$RUN_ID"
+    printf 'run_dir=%s\n' "$LOG_DIR"
+  } > "$tmp"
+  mv -f "$tmp" "$RC_AUTOSTART_COMPLETION_FILE"
+}
+
+verify_can_restart_components() {
+  [ "$RUN_REASON" = "can_restart" ] || return 0
+
+  local missing=()
+  local index title script pidfile statusfile deadline pid cmd status
+  for index in "${!RC_REQUIRED_COMPONENT_TITLES[@]}"; do
+    title="${RC_REQUIRED_COMPONENT_TITLES[$index]}"
+    script="${RC_REQUIRED_COMPONENT_SCRIPTS[$index]}"
+    pidfile="/tmp/rc_autostart_${title}.pid"
+    statusfile="$LOG_DIR/${title}.status"
+    deadline=$((SECONDS + RC_AUTOSTART_PROCESS_VERIFY_TIMEOUT_SEC))
+
+    while true; do
+      pid="$(cat "$pidfile" 2>/dev/null || true)"
+      status="$(cat "$statusfile" 2>/dev/null || true)"
+      cmd=""
+      if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
+        cmd="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+      fi
+      if [ -n "$cmd" ] && [[ "$cmd" == *"$DIR/$script"* ]] && [ -z "$status" ]; then
+        break
+      fi
+      if [ -n "$status" ] || [ "$SECONDS" -ge "$deadline" ]; then
+        missing+=("$title")
+        break
+      fi
+      sleep 0.1
+    done
+  done
+
+  if should_start_fdcan_gateway; then
+    if ! "$DIR/can_wakeup_control.sh" status > "$LOG_DIR/can_wakeup_verify.txt" 2>&1; then
+      missing+=("CAN_WAKEUP")
+    fi
+  fi
+
+  if [ "${#missing[@]}" -gt 0 ]; then
+    local detail="missing_or_exited=$(IFS=,; echo "${missing[*]}")"
+    summary_event "CAN restart core verification FAILED: $detail"
+    write_autostart_completion "failed" "core_process_missing" "$detail"
+    return 1
+  fi
+
+  summary_event \
+    "CAN restart core verification passed: components=${#RC_REQUIRED_COMPONENT_TITLES[@]}"
+  return 0
+}
+
 start_one() {
   local title="$1"
   local script="$2"
@@ -662,6 +753,8 @@ start_one() {
     echo "[dry-run] would launch $title using $DIR/$script" | tee -a "$LOG_DIR/start_summary.txt"
     return 0
   fi
+
+  track_required_component "$title" "$script"
 
   if [ "$RUN_HEADLESS" = "1" ]; then
     setsid bash -lc "
@@ -720,6 +813,7 @@ start_one() {
   cat > "$runner" <<EOF
 #!/usr/bin/env bash
 echo \$\$ > '$pidfile'
+printf '\033]0;%s\007' '$title'
 
 export RUN_ID='$RUN_ID'
 export LOG_DIR='$LOG_DIR'
@@ -782,7 +876,9 @@ EOF
   if [ "$GUI_TERMINAL" = "xfce4-terminal" ]; then
     xfce4-terminal --disable-server --title="$title" --command "$runner" >> "$LOG_DIR/terminal_launch.log" 2>&1 &
   else
-    gnome-terminal --title="$title" -- "$runner" >> "$LOG_DIR/terminal_launch.log" 2>&1 &
+    env -u GNOME_TERMINAL_SCREEN \
+      gnome-terminal --title="$title" -- "$runner" \
+      >> "$LOG_DIR/terminal_launch.log" 2>&1 &
   fi
 
   sleep "${RC_AUTOSTART_TERMINAL_LAUNCH_DELAY:-0.4}"
@@ -998,6 +1094,92 @@ should_start_can_restart_listener() {
   esac
 }
 
+terminal_runner_is_alive() {
+  local pidfile="$1"
+  local runner="$2"
+  local pid cmd
+  pid="$(cat "$pidfile" 2>/dev/null || true)"
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  cmd="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+  [[ "$cmd" == *"$runner"* ]]
+}
+
+launch_gui_terminal_runner() {
+  local terminal="$1"
+  local title="$2"
+  local runner="$3"
+  local pidfile="$4"
+  local attempts="${RC_AUTOSTART_TERMINAL_LAUNCH_ATTEMPTS:-2}"
+  local ready_checks="${RC_AUTOSTART_TERMINAL_READY_CHECKS:-20}"
+  local retry_delay="${RC_AUTOSTART_TERMINAL_RETRY_DELAY_SEC:-0.5}"
+  local attempt check launcher_pid launcher_rc runner_pid
+
+  case "$attempts" in
+    ''|*[!0-9]*) attempts=2 ;;
+  esac
+  case "$ready_checks" in
+    ''|*[!0-9]*) ready_checks=20 ;;
+  esac
+  [ "$attempts" -gt 0 ] || attempts=1
+  [ "$ready_checks" -gt 0 ] || ready_checks=1
+
+  for attempt in $(seq 1 "$attempts"); do
+    rm -f "$pidfile"
+    echo "[$(date -Iseconds)] GUI launch attempt=$attempt terminal=$terminal title=$title" \
+      >> "$LOG_DIR/terminal_launch.log"
+
+    if [ "$terminal" = "xfce4-terminal" ]; then
+      xfce4-terminal \
+        --disable-server \
+        --title="$title" \
+        --command "$runner" \
+        >> "$LOG_DIR/terminal_launch.log" 2>&1 &
+    else
+      # --wait keeps the launcher alive while its screen exists, allowing us to
+      # distinguish a real terminal from a transient D-Bus screen-path failure.
+      env -u GNOME_TERMINAL_SCREEN gnome-terminal \
+        --wait \
+        --title="$title" \
+        -- "$runner" \
+        >> "$LOG_DIR/terminal_launch.log" 2>&1 &
+    fi
+    launcher_pid=$!
+
+    for check in $(seq 1 "$ready_checks"); do
+      if terminal_runner_is_alive "$pidfile" "$runner"; then
+        runner_pid="$(cat "$pidfile")"
+        echo "[$(date -Iseconds)] GUI launch ready attempt=$attempt launcher_pid=$launcher_pid runner_pid=$runner_pid title=$title" \
+          >> "$LOG_DIR/terminal_launch.log"
+        return 0
+      fi
+      if ! kill -0 "$launcher_pid" 2>/dev/null; then
+        launcher_rc=0
+        wait "$launcher_pid" 2>/dev/null || launcher_rc=$?
+        echo "[$(date -Iseconds)] GUI launcher exited attempt=$attempt rc=$launcher_rc title=$title" \
+          >> "$LOG_DIR/terminal_launch.log"
+        break
+      fi
+      sleep 0.1
+    done
+
+    if kill -0 "$launcher_pid" 2>/dev/null; then
+      kill -TERM "$launcher_pid" 2>/dev/null || true
+      wait "$launcher_pid" 2>/dev/null || true
+    fi
+    rm -f "$pidfile"
+    if [ "$attempt" -lt "$attempts" ]; then
+      echo "[$(date -Iseconds)] GUI launch retrying after ${retry_delay}s title=$title" \
+        >> "$LOG_DIR/terminal_launch.log"
+      sleep "$retry_delay"
+    fi
+  done
+
+  echo "[$(date -Iseconds)] GUI launch failed after ${attempts} attempt(s) title=$title" \
+    >> "$LOG_DIR/terminal_launch.log"
+  return 1
+}
+
 start_one_gui_terminal() {
   local title="$1"
   local script="$2"
@@ -1028,6 +1210,7 @@ start_one_gui_terminal() {
   cat > "$runner" <<EOF
 #!/usr/bin/env bash
 echo \$\$ > '$pidfile'
+printf '\033]0;%s\007' '$title'
 
 export RUN_ID='$RUN_ID'
 export LOG_DIR='$LOG_DIR'
@@ -1074,13 +1257,14 @@ EOF
     echo "pidfile: $pidfile"
   } >> "$LOG_DIR/start_summary.txt"
 
-  if [ "$terminal" = "xfce4-terminal" ]; then
-    xfce4-terminal --disable-server --title="$title" --command "$runner" >> "$LOG_DIR/terminal_launch.log" 2>&1 &
-  else
-    gnome-terminal --title="$title" -- "$runner" >> "$LOG_DIR/terminal_launch.log" 2>&1 &
+  if launch_gui_terminal_runner "$terminal" "$title" "$runner" "$pidfile"; then
+    summary_event "GUI $title ready pid=$(cat "$pidfile")"
+    return 0
   fi
 
-  sleep "${RC_AUTOSTART_TERMINAL_LAUNCH_DELAY:-0.4}"
+  summary_event \
+    "GUI $title failed after retry; launching as background log instead"
+  start_one "$title" "$script"
 }
 
 READY_GATE_ROS_ENV_READY=0
@@ -1610,6 +1794,10 @@ if [ -n "$(jobs -p)" ]; then
   disown
 fi
 
+if ! verify_can_restart_components; then
+  exit 1
+fi
+
 summary_event "Started all terminals."
 {
   echo "Log dir: $LOG_DIR"
@@ -1620,3 +1808,7 @@ summary_event "Started all terminals."
   fi
 } | tee -a "$LOG_DIR/start_summary.txt"
 sync_file "$LOG_DIR/start_summary.txt"
+write_autostart_completion \
+  "success" \
+  "stack_started" \
+  "core components are running; coordinates were not checked"

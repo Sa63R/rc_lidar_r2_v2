@@ -96,11 +96,15 @@ class RestartListenerTest(unittest.TestCase):
             class FakeProcess:
                 pid = 42
 
+                @staticmethod
+                def poll():
+                    return None
+
             original_popen = listener_module.subprocess.Popen
             try:
                 listener_module.subprocess.Popen = (
-                    lambda args, close_fds, start_new_session:
-                    calls.append((args, close_fds, start_new_session)) or FakeProcess()
+                    lambda args, close_fds, start_new_session, env:
+                    calls.append((args, close_fds, start_new_session, env)) or FakeProcess()
                 )
                 listener.run_once(time.monotonic())
             finally:
@@ -108,12 +112,108 @@ class RestartListenerTest(unittest.TestCase):
 
             self.assertEqual(len(calls), 1)
             self.assertEqual(calls[0][0], ["/bin/bash", "/tmp/restart_lidar_stack.sh"])
+            self.assertIn("RC_CAN_RESTART_REQUEST_ID", calls[0][3])
+            self.assertIn("RC_CAN_RESTART_RESULT_FILE", calls[0][3])
             self.assertEqual(fake_client.register_count, 1)
             self.assertEqual(fake_client.ping_count, 1)
             self.assertTrue(Path(listener.args.heartbeat_path).is_file())
             event_text = Path(listener.args.event_path).read_text(encoding="utf-8")
             self.assertIn("can_id=0x777", event_text)
-            self.assertIn("action=debounced", event_text)
+            self.assertIn("action=rejected", event_text)
+            self.assertIn("reason=debounce", event_text)
+
+    def test_pending_restart_result_becomes_success(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            listener = listener_module.RestartListener(make_args(tmpdir))
+
+            class FakeProcess:
+                pid = 43
+
+                @staticmethod
+                def poll():
+                    return None
+
+            original_popen = listener_module.subprocess.Popen
+            try:
+                listener_module.subprocess.Popen = lambda *_args, **_kwargs: FakeProcess()
+                listener.request_restart(b"restart")
+            finally:
+                listener_module.subprocess.Popen = original_popen
+
+            self.assertEqual(len(listener.pending_restarts), 1)
+            pending = next(iter(listener.pending_restarts.values()))
+            pending.result_path.write_text(
+                "\n".join(
+                    [
+                        "status=success",
+                        "reason=stack_started",
+                        "detail=core components are running",
+                        "run_id=test_run",
+                        f"run_dir={tmpdir}/test_run",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            listener.poll_pending_restarts()
+
+            self.assertFalse(listener.pending_restarts)
+            event_text = Path(listener.args.event_path).read_text(encoding="utf-8")
+            self.assertIn("action=succeeded", event_text)
+            self.assertIn("reason=stack_started", event_text)
+            self.assertIn("run_id=test_run", event_text)
+            self.assertFalse(pending.result_path.exists())
+
+    def test_process_exit_without_result_becomes_failure(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            listener = listener_module.RestartListener(make_args(tmpdir))
+
+            class FakeProcess:
+                pid = 44
+
+                @staticmethod
+                def poll():
+                    return 7
+
+            original_popen = listener_module.subprocess.Popen
+            try:
+                listener_module.subprocess.Popen = lambda *_args, **_kwargs: FakeProcess()
+                listener.request_restart(b"restart")
+            finally:
+                listener_module.subprocess.Popen = original_popen
+
+            listener.poll_pending_restarts()
+            event_text = Path(listener.args.event_path).read_text(encoding="utf-8")
+            self.assertIn("action=failed", event_text)
+            self.assertIn("reason=missing_result", event_text)
+
+    def test_separate_requests_have_separate_ids_and_result_files(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            listener = listener_module.RestartListener(make_args(tmpdir))
+
+            class FakeProcess:
+                pid = 45
+
+                @staticmethod
+                def poll():
+                    return None
+
+            original_popen = listener_module.subprocess.Popen
+            try:
+                listener_module.subprocess.Popen = lambda *_args, **_kwargs: FakeProcess()
+                listener.request_restart(b"first")
+                listener.last_restart_monotonic = 0.0
+                listener.request_restart(b"second")
+            finally:
+                listener_module.subprocess.Popen = original_popen
+
+            request_ids = list(listener.pending_restarts)
+            result_paths = [
+                pending.result_path for pending in listener.pending_restarts.values()
+            ]
+            self.assertEqual(len(request_ids), 2)
+            self.assertEqual(len(set(request_ids)), 2)
+            self.assertEqual(len(set(result_paths)), 2)
 
     def test_single_instance_lock_rejects_second_listener(self):
         with tempfile.TemporaryDirectory() as tmpdir:

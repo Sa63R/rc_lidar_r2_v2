@@ -157,7 +157,7 @@ status_command() {
   if [ -f "$EVENT_FILE" ]; then
     while IFS= read -r event_line; do
       case "$event_line" in
-        event_id=*|epoch=*|can_id=*|payload=*|action=*|detail=*)
+        event_id=*|epoch=*|request_id=*|can_id=*|payload=*|action=*|reason=*|detail=*|run_id=*|run_dir=*)
           echo "last_event_${event_line}"
           ;;
       esac
@@ -276,7 +276,8 @@ stop_command() {
   [ -z "$gateway_pid" ] || terminate_pid "$gateway_pid" gateway KILL
   rm -f "$GATEWAY_PID_FILE" "$LISTENER_PID_FILE" "$HEARTBEAT_FILE" "$EVENT_FILE" "$GATEWAY_SOCKET"
   rm -f /tmp/rc_fdcan_client_canfd_restart_listener_*.sock \
-    /tmp/rc_fdcan_client_can_wakeup_probe_*.sock 2>/dev/null || true
+    /tmp/rc_fdcan_client_can_wakeup_probe_*.sock \
+    /tmp/rc_can_restart_result_* 2>/dev/null || true
   log "CAN wakeup chain stopped"
 }
 
