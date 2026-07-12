@@ -6,6 +6,11 @@ chromium-browser --proxy-server="http://127.0.0.1:7897"
 
 ## 单独启动fdcan
 
+## 纯雷达UI
+cd /home/rc2/jwt_new_lidar/rc_lidar_r2_v2
+./autostart/lidar_control_ui.sh
+
+
 ## 启动重定位位置检测
 
 cd /home/rc2/jwt_new_lidar/rc_lidar_r2_v2
