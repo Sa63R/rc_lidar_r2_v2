@@ -4,6 +4,7 @@ set -u
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_DIR="$(cd "$DIR/.." && pwd)"
 QUIET=0
+KEEP_CAN_WAKEUP=0
 STOP_WAIT_SEC="${RC_STOP_ALL_WAIT_SEC:-2}"
 STOP_FORCE_WAIT_SEC="${RC_STOP_ALL_FORCE_WAIT_SEC:-1}"
 
@@ -24,9 +25,12 @@ for arg in "$@"; do
     --quiet)
       QUIET=1
       ;;
+    --keep-can-wakeup)
+      KEEP_CAN_WAKEUP=1
+      ;;
     --help|-h)
-      echo "Usage: $0 [--quiet]"
-      echo "Stop RC LIDAR autostart ROS processes and remove stale pid files."
+      echo "Usage: $0 [--quiet] [--keep-can-wakeup]"
+      echo "Stop RC LIDAR processes; optionally preserve the CAN Gateway and 0x777 listener."
       exit 0
       ;;
   esac
@@ -239,7 +243,6 @@ close_terminal_windows_by_title() {
     "FASTLIO"
     "CAN_SERIAL"
     "CAN_RESTART"
-    "FDCAN_GATEWAY"
     "CANFD_POSE"
     "CANFD_TX_MONITOR"
     "CAN+SERIAL"
@@ -270,6 +273,10 @@ close_terminal_windows_by_title() {
     "RC LiDAR Not Ready"
   )
 
+  if [ "$KEEP_CAN_WAKEUP" != "1" ]; then
+    titles+=("FDCAN_GATEWAY")
+  fi
+
   if command -v wmctrl >/dev/null 2>&1; then
     local title
     for title in "${titles[@]}"; do
@@ -290,7 +297,6 @@ patterns=(
   "$DIR/fastlio.sh"
   "$DIR/serial_driver.sh"
   "$DIR/can_restart_listener.sh"
-  "$DIR/fdcan_gateway.sh"
   "$DIR/canfd_pose_sender.sh"
   "$DIR/canfd_tx_monitor.sh"
   "$DIR/can_pose_monitor.sh"
@@ -325,9 +331,7 @@ patterns=(
   "ros2 run fastlio_world_init"
   "ros2 run lidar_localization canfd_pose_sender"
   "ros2 run lidar_localization match_origin_pose"
-  "ros2 run lidar_localization fdcan_gateway"
   "canfd_tx_monitor.sh"
-  "fdcan_gateway"
   "ros2 run lidar_localization pose_filter"
   "ros2 run lidar_localization health_monitor"
   "fastlio_mapping"
@@ -356,10 +360,39 @@ patterns=(
   "plotjuggler"
 )
 
+if [ "$KEEP_CAN_WAKEUP" != "1" ]; then
+  patterns+=(
+    "$DIR/fdcan_gateway.sh"
+    "$DIR/canfd_restart_listener.py"
+    "ros2 run lidar_localization fdcan_gateway"
+    "/lidar_localization/fdcan_gateway"
+  )
+  if [ -x "$DIR/can_wakeup_control.sh" ]; then
+    log "stopping persistent CAN wakeup chain"
+    "$DIR/can_wakeup_control.sh" stop >/dev/null 2>&1 || true
+  fi
+else
+  log "preserving persistent CAN Gateway and 0x777 listener"
+fi
+
+should_skip_pidfile() {
+  local path="$1"
+  [ "$KEEP_CAN_WAKEUP" = "1" ] || return 1
+  case "$(basename "$path")" in
+    rc_autostart_FDCAN_GATEWAY.pid)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
 log "stopping processes recorded in /tmp/rc_autostart_*.pid"
 shopt -s nullglob
 pidfiles=(/tmp/rc_autostart_*.pid)
 for f in "${pidfiles[@]}"; do
+  if should_skip_pidfile "$f"; then
+    continue
+  fi
   pid="$(cat "$f" 2>/dev/null || true)"
   kill_pid_safely "$pid" TERM
 done
@@ -376,6 +409,9 @@ fi
 
 log "force killing remaining matching RC LIDAR processes"
 for f in "${pidfiles[@]}"; do
+  if should_skip_pidfile "$f"; then
+    continue
+  fi
   pid="$(cat "$f" 2>/dev/null || true)"
   kill_pid_safely "$pid" KILL
 done
@@ -388,5 +424,10 @@ else
   log_remaining_processes "after KILL wait ${STOP_FORCE_WAIT_SEC}s"
 fi
 
-rm -f /tmp/rc_autostart_*.pid 2>/dev/null || true
+for f in "${pidfiles[@]}"; do
+  if should_skip_pidfile "$f"; then
+    continue
+  fi
+  rm -f "$f" 2>/dev/null || true
+done
 log "done"

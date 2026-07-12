@@ -206,7 +206,20 @@ close_terminal_windows_by_title() {
   shopt -s nullglob
   pidfiles=(/tmp/rc_autostart_*.pid)
 
+  is_persistent_can_pidfile() {
+    case "$(basename "$1")" in
+      rc_autostart_FDCAN_GATEWAY.pid)
+        return 0
+        ;;
+    esac
+    return 1
+  }
+
   for f in "${pidfiles[@]}"; do
+    if is_persistent_can_pidfile "$f"; then
+      echo "preserving persistent CAN pidfile=$f"
+      continue
+    fi
     pid="$(cat "$f" 2>/dev/null || true)"
     echo "pidfile=$f pid=$pid"
     kill_pid_safely "$pid"
@@ -268,6 +281,9 @@ close_terminal_windows_by_title() {
   echo "[3/5] force killing remaining old processes if needed..."
 
   for f in "${pidfiles[@]}"; do
+    if is_persistent_can_pidfile "$f"; then
+      continue
+    fi
     pid="$(cat "$f" 2>/dev/null || true)"
     force_kill_pid_safely "$pid"
   done
@@ -278,7 +294,12 @@ close_terminal_windows_by_title() {
 
   close_terminal_windows_by_title
 
-  rm -f /tmp/rc_autostart_*.pid 2>/dev/null || true
+  for f in "${pidfiles[@]}"; do
+    if is_persistent_can_pidfile "$f"; then
+      continue
+    fi
+    rm -f "$f" 2>/dev/null || true
+  done
 
   echo "[4/5] starting new stack..."
   cd "$WORKSPACE_DIR"

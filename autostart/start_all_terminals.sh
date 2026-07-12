@@ -394,6 +394,8 @@ mkdir -p "$ROS_LOG_DIR"
   echo "fdcan_gateway_socket: $RC_FDCAN_GATEWAY_SOCKET"
   echo "can_restart_listener: $RC_CAN_RESTART_LISTENER"
   echo "canfd_restart_enabled: $RC_CANFD_RESTART_ENABLED"
+  echo "can_wakeup_listener: persistent"
+  echo "canfd_pose_restart_listener: 0"
   echo "canfd_serial_presence_check_period_sec: $RC_CANFD_SERIAL_PRESENCE_CHECK_PERIOD_SEC"
   echo "can_debug_csv: $RC_CAN_DEBUG_CSV"
   echo "can_debug_csv_path: ${RC_CAN_DEBUG_CSV_PATH:-}"
@@ -532,8 +534,8 @@ if [ "$RC_AUTOSTART_DRY_RUN" = "1" ]; then
 elif [ "${RC_AUTOSTART_SKIP_PRESTOP:-0}" = "1" ]; then
   summary_event "prestop: skipped by RC_AUTOSTART_SKIP_PRESTOP=1"
 elif [ -x "$DIR/stop_all.sh" ]; then
-  summary_event "prestop: running $DIR/stop_all.sh --quiet"
-  "$DIR/stop_all.sh" --quiet > "$LOG_DIR/prestop.log" 2>&1 || true
+  summary_event "prestop: running $DIR/stop_all.sh --quiet --keep-can-wakeup"
+  "$DIR/stop_all.sh" --quiet --keep-can-wakeup > "$LOG_DIR/prestop.log" 2>&1 || true
   sync_file "$LOG_DIR/prestop.log"
 else
   summary_event "prestop: stop_all.sh not found or not executable, skipped"
@@ -973,6 +975,11 @@ should_start_can_restart_listener() {
     return 1
   fi
 
+  if canfd_enabled && fdcan_gateway_transport_enabled; then
+    summary_event "skipped legacy CAN_RESTART listener; persistent CAN wakeup listener owns 0x777"
+    return 1
+  fi
+
   case "${RC_CAN_RESTART_LISTENER:-auto}" in
     1|true|TRUE|yes|YES|on|ON)
       return 0
@@ -981,9 +988,6 @@ should_start_can_restart_listener() {
       return 1
       ;;
     auto)
-      if canfd_enabled; then
-        summary_event "skipped CAN_RESTART listener; CANFD_POSE listens for FD CAN restart frames"
-      fi
       return 1
       ;;
     *)
@@ -1461,9 +1465,17 @@ should_start_match_origin() {
 }
 
 if should_start_fdcan_gateway; then
-  start_one "FDCAN_GATEWAY" "fdcan_gateway.sh"
+  if [ "$RC_AUTOSTART_DRY_RUN" = "1" ]; then
+    summary_event "dry-run: would ensure persistent FDCAN_GATEWAY and 0x777 restart listener"
+  elif "$DIR/can_wakeup_control.sh" start > "$LOG_DIR/can_wakeup_start.log" 2>&1; then
+    summary_event "persistent CAN wakeup chain ready"
+  else
+    cat "$LOG_DIR/can_wakeup_start.log" >&2 || true
+    echo "[ERROR] persistent CAN wakeup chain failed to start" >&2
+    exit 1
+  fi
 else
-  summary_event "skipped FDCAN_GATEWAY"
+  summary_event "skipped persistent CAN wakeup chain"
 fi
 start_one "TF_STATIC1" "lidar_to_base_tf.sh"
 start_one "TF_STATIC2" "map_to_init_tf.sh"
@@ -1563,6 +1575,8 @@ else
 fi
 case "$RC_AUTOSTART_CANFD" in
   1|true|TRUE|yes|YES|on|ON)
+    # The persistent listener is the sole owner of 0x777 restart handling.
+    export CANFD_RESTART_ENABLED=0
     start_one "CANFD_POSE" "canfd_pose_sender.sh"
     ;;
   *)

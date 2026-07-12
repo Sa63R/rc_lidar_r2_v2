@@ -360,7 +360,7 @@ class FdcanGateway:
         if command == "BYE":
             if address:
                 self.clients.discard(address)
-            return "OK BYE"
+            return ""
 
         if command == "TXCAN":
             if len(parts) != 3:
