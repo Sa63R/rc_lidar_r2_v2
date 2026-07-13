@@ -226,7 +226,7 @@ close_terminal_windows_by_title() {
       # shellcheck disable=SC1091
       source "$DIR/lidar_ui_config.sh"
       load_lidar_ui_config
-      load_lidar_user_defaults
+      load_lidar_user_defaults override_existing
     fi
     if [ -n "${RC_UI_BOOT_MAP:-}" ]; then
       DRY_RUN_MAP_PATH="$RC_UI_BOOT_MAP"
@@ -364,7 +364,7 @@ close_terminal_windows_by_title() {
     # shellcheck disable=SC1091
     source "$DIR/lidar_ui_config.sh"
     load_lidar_ui_config
-    load_lidar_user_defaults
+    load_lidar_user_defaults override_existing
   fi
   if [ -n "${RC_UI_BOOT_MAP:-}" ]; then
     RESTART_MAP_PATH="$RC_UI_BOOT_MAP"
