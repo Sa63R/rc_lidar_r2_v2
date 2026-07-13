@@ -51,6 +51,17 @@ load_lidar_ui_config() {
 }
 
 load_lidar_user_defaults() {
+  local mode="${1:-preserve_existing}"
+
+  case "$mode" in
+    preserve_existing|override_existing)
+      ;;
+    *)
+      echo "[lidar_ui_config] unknown user-defaults load mode: $mode" >&2
+      return 2
+      ;;
+  esac
+
   RC_LIDAR_USER_DEFAULTS="$(lidar_user_defaults_path)"
   export RC_LIDAR_USER_DEFAULTS
 
@@ -72,6 +83,26 @@ load_lidar_user_defaults() {
   local prior_value=()
   local key
   local idx
+
+  # A CAN restart is launched by a long-running listener, so its environment
+  # can contain the initial pose that was active when the listener started.
+  # In override_existing mode, make the persisted file authoritative and
+  # clear omitted keys instead of accidentally retaining that stale pose.
+  if [ "$mode" = "override_existing" ]; then
+    for key in "${keys[@]}"; do
+      unset "$key"
+    done
+
+    # shellcheck disable=SC1090
+    source "$RC_LIDAR_USER_DEFAULTS"
+
+    for key in "${keys[@]}"; do
+      if [ "${!key+x}" = "x" ]; then
+        export "$key"
+      fi
+    done
+    return 0
+  fi
 
   for key in "${keys[@]}"; do
     if [ "${!key+x}" = "x" ]; then

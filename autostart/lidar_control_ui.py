@@ -18,6 +18,7 @@ from typing import Any, Callable
 
 NONE_MAP_LABEL = "无"
 APP_TITLE = "RC LiDAR 控制"
+CAN_WAKEUP_CONTROL = Path(__file__).resolve().parent / "can_wakeup_control.sh"
 CAN_FRAME_MODES = {
     "normal",
     "yaw_180",
@@ -94,6 +95,56 @@ def format_env_float(value: float) -> str:
     if "." not in text:
         text += ".0"
     return text
+
+
+def format_can_restart_event(status: dict[str, str]) -> str:
+    can_id = status.get("last_event_can_id", "0x777")
+    payload = status.get("last_event_payload", "") or "<empty>"
+    request_id = status.get("last_event_request_id", "")
+    action = status.get("last_event_action", "")
+    reason = status.get("last_event_reason", "")
+    detail = status.get("last_event_detail", "")
+    run_id = status.get("last_event_run_id", "")
+    run_dir = status.get("last_event_run_dir", "")
+    prefix = f"收到 CAN {can_id}: payload={payload}"
+    request_text = f" request={request_id}" if request_id else ""
+
+    if action == "pending":
+        return f"{prefix}，CAN 重启处理中{request_text}"
+
+    if action == "succeeded":
+        run_text = f" run={run_id}" if run_id else ""
+        dir_text = f" dir={run_dir}" if run_dir else ""
+        return (
+            f"{prefix}，CAN 重启成功：整条启动链路已拉起"
+            f"（不检查坐标）{run_text}{dir_text}"
+        )
+
+    if action == "rejected":
+        reason_text = {
+            "debounce": "防抖时间内重复请求",
+            "cooldown": "重启冷却时间未结束",
+            "lock_busy": "已有重启正在进行",
+            "dry_run": "当前为 dry-run",
+        }.get(reason, reason or "请求未执行")
+        detail_text = f"，{detail}" if detail else ""
+        return f"{prefix}，CAN 重启被拒绝：{reason_text}{detail_text}{request_text}"
+
+    if action == "failed":
+        reason_text = {
+            "launch_failed": "重启脚本无法启动",
+            "start_failed": "启动脚本执行失败",
+            "core_process_missing": "核心进程未全部存活",
+            "missing_completion": "启动链路没有返回完成标志",
+            "missing_result": "重启脚本没有返回结果",
+            "invalid_result": "重启脚本返回了无效结果",
+        }.get(reason, reason or "未知错误")
+        detail_text = f"，{detail}" if detail else ""
+        run_text = f" run={run_id}" if run_id else ""
+        return f"{prefix}，CAN 重启失败：{reason_text}{detail_text}{run_text}{request_text}"
+
+    detail_text = f"，{detail}" if detail else ""
+    return f"{prefix}，{action or '已接收'}{detail_text}{request_text}"
 
 
 def parse_float_value(raw: str, field: str) -> float:
@@ -480,6 +531,15 @@ def run_command(args: list[str], env: dict[str, str] | None = None, timeout: flo
     )
 
 
+def parse_can_wakeup_status(output: str) -> dict[str, str]:
+    status: dict[str, str] = {}
+    for raw_line in output.splitlines():
+        key, separator, value = raw_line.strip().partition("=")
+        if separator and key:
+            status[key] = value
+    return status
+
+
 def base_start_env() -> dict[str, str]:
     env = os.environ.copy()
     env.update(
@@ -524,6 +584,9 @@ class LidarControlUi:
         self.pose_file: Path | None = None
         self.pose_file_run_id = ""
         self.pose_count = 0
+        self.can_status_check_running = False
+        self.closing = False
+        self.last_can_event_id = ""
 
         self.map_var = tk.StringVar(value=NONE_MAP_LABEL)
         self.status_var = tk.StringVar(value="就绪")
@@ -533,6 +596,7 @@ class LidarControlUi:
         self.initial_z_var = tk.StringVar(value="0.0")
         self.initial_yaw_var = tk.StringVar(value="0.0")
         self.initial_pose_status_var = tk.StringVar(value="")
+        self.can_listener_status_var = tk.StringVar(value="CAN 监听未运行")
 
         self.build_ui()
         self.load_initial_pose_fields()
@@ -540,6 +604,7 @@ class LidarControlUi:
         self.refresh_maps(force_none=True)
         self.refresh_status()
         self.root.after(100, self.drain_events)
+        self.root.after(0, self.refresh_can_listener_status_async)
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def build_ui(self) -> None:
@@ -625,6 +690,24 @@ class LidarControlUi:
         ttk.Button(buttons, text="保存坐标", command=self.on_save_pose).grid(row=1, column=0, sticky="ew", padx=(0, 6), pady=4)
         ttk.Button(buttons, text="停止雷达", command=self.on_stop_lidar).grid(row=1, column=1, sticky="ew", padx=6, pady=4)
         ttk.Button(buttons, text="设置开机/CAN地图", command=self.on_set_boot_map).grid(row=1, column=2, sticky="ew", padx=(6, 0), pady=4)
+        ttk.Button(buttons, text="启动 CAN 监听", command=self.on_start_can_listener).grid(row=2, column=0, sticky="ew", padx=(0, 6), pady=4)
+        ttk.Button(buttons, text="彻底停止全部", command=self.on_stop_everything).grid(row=2, column=1, sticky="ew", padx=6, pady=4)
+
+        can_status = ttk.Frame(buttons)
+        can_status.grid(row=2, column=2, sticky="ew", padx=(12, 0), pady=4)
+        self.can_listener_indicator = tk.Canvas(
+            can_status,
+            width=18,
+            height=18,
+            highlightthickness=0,
+            borderwidth=0,
+            background=self.root.cget("background"),
+        )
+        self.can_listener_indicator.grid(row=0, column=0, padx=(0, 7))
+        self.can_listener_indicator_item = self.can_listener_indicator.create_oval(
+            2, 2, 16, 16, fill="#d32f2f", outline="#8b0000"
+        )
+        ttk.Label(can_status, textvariable=self.can_listener_status_var).grid(row=0, column=1, sticky="w")
 
         status = ttk.Frame(self.root, padding=(14, 2, 14, 4))
         status.grid(row=3, column=0, sticky="ew")
@@ -676,7 +759,72 @@ class LidarControlUi:
             elif kind == "info":
                 title, message = payload  # type: ignore[misc]
                 messagebox.showinfo(str(title), str(message), parent=self.root)
-        self.root.after(100, self.drain_events)
+            elif kind == "can_status":
+                self.can_status_check_running = False
+                self.apply_can_listener_status(payload)  # type: ignore[arg-type]
+                if not self.closing:
+                    self.root.after(1000, self.refresh_can_listener_status_async)
+            elif kind == "can_status_refresh":
+                self.refresh_can_listener_status_async()
+        if not self.closing:
+            self.root.after(100, self.drain_events)
+
+    def apply_can_listener_status(self, status: dict[str, str]) -> None:
+        self.apply_can_listener_event(status)
+        if status.get("healthy") == "1":
+            self.can_listener_indicator.itemconfigure(
+                self.can_listener_indicator_item, fill="#2e7d32", outline="#145a20"
+            )
+            self.can_listener_status_var.set("CAN 监听正常")
+            return
+
+        self.can_listener_indicator.itemconfigure(
+            self.can_listener_indicator_item, fill="#d32f2f", outline="#8b0000"
+        )
+        gateway_process = status.get("gateway_process", "stopped")
+        gateway_socket = status.get("gateway_socket", "down")
+        listener_process = status.get("listener_process", "stopped")
+        listener_heartbeat = status.get("listener_heartbeat", "missing")
+        if gateway_process == "stopped" and listener_process == "stopped":
+            text = "CAN 监听未运行"
+        elif gateway_process != "running":
+            text = "异常：Gateway 未运行"
+        elif gateway_socket != "ready":
+            text = "异常：Gateway Socket 未就绪"
+        elif listener_process != "running":
+            text = "异常：监听器未运行"
+        elif listener_heartbeat != "fresh":
+            text = "异常：监听器心跳超时"
+        else:
+            text = "CAN 监听异常"
+        self.can_listener_status_var.set(text)
+
+    def apply_can_listener_event(self, status: dict[str, str]) -> None:
+        event_id = status.get("last_event_event_id", "")
+        if not event_id or event_id == self.last_can_event_id:
+            return
+        self.last_can_event_id = event_id
+        self.log(format_can_restart_event(status))
+
+    def refresh_can_listener_status_async(self) -> None:
+        if self.closing or self.can_status_check_running:
+            return
+        self.can_status_check_running = True
+
+        def check() -> None:
+            try:
+                result = run_command([str(CAN_WAKEUP_CONTROL), "status"], timeout=1.5)
+                status = parse_can_wakeup_status(result.stdout)
+                if not status:
+                    status = {"healthy": "0"}
+            except Exception:  # noqa: BLE001
+                status = {"healthy": "0"}
+            self.events.put(("can_status", status))
+
+        threading.Thread(target=check, daemon=True).start()
+
+    def request_can_listener_status_refresh(self) -> None:
+        self.events.put(("can_status_refresh", None))
 
     def refresh_status(self) -> None:
         config = read_config()
@@ -871,9 +1019,12 @@ class LidarControlUi:
 
         threading.Thread(target=run, daemon=True).start()
 
-    def run_stop_all(self) -> None:
+    def run_stop_all(self, keep_can_wakeup: bool = True) -> None:
         stop_script = AUTOSTART / "stop_all.sh"
-        result = run_command([str(stop_script), "--quiet"], timeout=20)
+        args = [str(stop_script), "--quiet"]
+        if keep_can_wakeup:
+            args.append("--keep-can-wakeup")
+        result = run_command(args, timeout=20)
         if result.returncode != 0:
             tail = (result.stderr or result.stdout).strip().splitlines()[-6:]
             raise RuntimeError("stop_all.sh 失败:\n" + "\n".join(tail))
@@ -1142,14 +1293,38 @@ class LidarControlUi:
 
     def on_stop_lidar(self) -> None:
         def task() -> None:
-            self.log("停止雷达进程，保留 UI")
-            self.run_stop_all()
+            self.log("停止雷达进程，保留 UI 和 CAN 唤醒监听")
+            self.run_stop_all(keep_can_wakeup=True)
             self.append_pose_footer()
             self.log("雷达已停止")
+            self.request_can_listener_status_refresh()
 
         self.worker("停止雷达", task)
 
+    def on_start_can_listener(self) -> None:
+        def task() -> None:
+            self.log("启动后台 CAN Gateway 和 0x777 监听器")
+            result = run_command([str(CAN_WAKEUP_CONTROL), "start"], timeout=15)
+            output = (result.stdout + "\n" + result.stderr).strip()
+            if result.returncode != 0:
+                raise RuntimeError("CAN 监听启动失败:\n" + "\n".join(output.splitlines()[-10:]))
+            self.log("CAN Gateway 和 0x777 监听器已运行")
+            self.request_can_listener_status_refresh()
+
+        self.worker("启动 CAN 监听", task)
+
+    def on_stop_everything(self) -> None:
+        def task() -> None:
+            self.log("彻底停止雷达、CAN 监听和 Gateway，保留 UI")
+            self.run_stop_all(keep_can_wakeup=False)
+            self.append_pose_footer()
+            self.log("全部雷达相关进程已停止")
+            self.request_can_listener_status_refresh()
+
+        self.worker("彻底停止全部", task)
+
     def on_close(self) -> None:
+        self.closing = True
         self.append_pose_footer()
         self.root.destroy()
 
@@ -1161,6 +1336,11 @@ class LidarControlUi:
 
 
 def self_test() -> None:
+    can_status = parse_can_wakeup_status(
+        "healthy=1\ngateway_process=running\nlistener_process=running\n"
+    )
+    assert can_status["healthy"] == "1"
+    assert can_status["gateway_process"] == "running"
     test_dir = Path("/tmp/rc_lidar_ui_test_maps")
     assert normalize_map_name("map", test_dir) == test_dir / "map.pcd"
     assert normalize_map_name("map.pcd", test_dir) == test_dir / "map.pcd"
