@@ -8,6 +8,7 @@ import os
 import queue
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -19,6 +20,7 @@ from typing import Any, Callable
 NONE_MAP_LABEL = "无"
 APP_TITLE = "RC LiDAR 控制"
 CAN_WAKEUP_CONTROL = Path(__file__).resolve().parent / "can_wakeup_control.sh"
+MAP_POSE_PRINTER = Path(__file__).resolve().parent / "print_map_pose.sh"
 CAN_FRAME_MODES = {
     "normal",
     "yaw_180",
@@ -519,6 +521,36 @@ def parse_pose_yaml(text: str) -> tuple[float, float, float, float]:
     return position["x"], position["y"], position["z"], yaw
 
 
+def parse_map_pose_output(text: str) -> tuple[float, float, float, float]:
+    number = r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?"
+    required_keys = {
+        "RC_RELOCALIZATION_INITIAL_X": "X m",
+        "RC_RELOCALIZATION_INITIAL_Y": "Y m",
+        "RC_RELOCALIZATION_INITIAL_Z": "Z m",
+        "RC_RELOCALIZATION_INITIAL_YAW": "Yaw rad",
+    }
+    values: dict[str, float] = {}
+
+    for line in text.splitlines():
+        if "init_env:" not in line:
+            continue
+        for key, field in required_keys.items():
+            match = re.search(rf"(?:^|\s){re.escape(key)}=({number})(?=\s|$)", line)
+            if match:
+                values[key] = parse_float_value(match.group(1), field)
+
+    missing = [key for key in required_keys if key not in values]
+    if missing:
+        raise ValueError("没有从位置检测输出里解析到完整的 X/Y/Z/Yaw")
+
+    return (
+        values["RC_RELOCALIZATION_INITIAL_X"],
+        values["RC_RELOCALIZATION_INITIAL_Y"],
+        values["RC_RELOCALIZATION_INITIAL_Z"],
+        math.degrees(values["RC_RELOCALIZATION_INITIAL_YAW"]),
+    )
+
+
 def run_command(args: list[str], env: dict[str, str] | None = None, timeout: float | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         args,
@@ -709,6 +741,13 @@ class LidarControlUi:
         )
         ttk.Label(can_status, textvariable=self.can_listener_status_var).grid(row=0, column=1, sticky="w")
 
+        ttk.Button(buttons, text="启动位置检测", command=self.on_start_pose_monitor).grid(
+            row=3, column=0, sticky="ew", padx=(0, 6), pady=4
+        )
+        ttk.Button(buttons, text="测定坐标存为预设", command=self.on_save_measured_pose_preset).grid(
+            row=3, column=1, sticky="ew", padx=6, pady=4
+        )
+
         status = ttk.Frame(self.root, padding=(14, 2, 14, 4))
         status.grid(row=3, column=0, sticky="ew")
         status.columnconfigure(0, weight=1)
@@ -759,6 +798,15 @@ class LidarControlUi:
             elif kind == "info":
                 title, message = payload  # type: ignore[misc]
                 messagebox.showinfo(str(title), str(message), parent=self.root)
+            elif kind == "save_measured_pose_preset":
+                x, y, z, yaw_deg = payload  # type: ignore[misc]
+                self.root.after_idle(
+                    self.save_initial_pose_preset_values,
+                    float(x),
+                    float(y),
+                    float(z),
+                    float(yaw_deg),
+                )
             elif kind == "can_status":
                 self.can_status_check_running = False
                 self.apply_can_listener_status(payload)  # type: ignore[arg-type]
@@ -915,13 +963,18 @@ class LidarControlUi:
         raise RuntimeError("选中的预设不存在，请刷新后重试")
 
     def on_save_initial_pose_preset(self) -> None:
-        from tkinter import messagebox, simpledialog
+        from tkinter import messagebox
 
         try:
             x, y, z, yaw_deg = self.parse_initial_pose_entries()
         except ValueError as exc:
             messagebox.showerror("预设错误", str(exc), parent=self.root)
             return
+        self.save_initial_pose_preset_values(x, y, z, yaw_deg)
+
+    def save_initial_pose_preset_values(self, x: float, y: float, z: float, yaw_deg: float) -> None:
+        from tkinter import messagebox, simpledialog
+
         default_name = default_initial_pose_preset_name(x, y, z, yaw_deg)
         name = simpledialog.askstring("保存为预设", "输入预设名称", initialvalue=default_name, parent=self.root)
         if name is None:
@@ -951,6 +1004,64 @@ class LidarControlUi:
         action = "覆盖" if overwritten else "保存"
         self.log(f"初始位姿预设已{action}: {name}")
         self.status_var.set(f"预设已{action}: {name}")
+
+    def on_start_pose_monitor(self) -> None:
+        from tkinter import messagebox
+
+        if not MAP_POSE_PRINTER.is_file() or not os.access(MAP_POSE_PRINTER, os.X_OK):
+            messagebox.showerror("启动位置检测", f"位置检测脚本不存在或不可执行:\n{MAP_POSE_PRINTER}", parent=self.root)
+            return
+
+        xfce = shutil.which("xfce4-terminal")
+        gnome = shutil.which("gnome-terminal")
+        xterm = shutil.which("xterm")
+        title = "RC LiDAR 重定位位置检测"
+        env = os.environ.copy()
+        if xfce:
+            command = [xfce, "--disable-server", f"--title={title}", "--command", str(MAP_POSE_PRINTER)]
+        elif gnome:
+            env.pop("GNOME_TERMINAL_SCREEN", None)
+            command = [gnome, "--title", title, "--", str(MAP_POSE_PRINTER)]
+        elif xterm:
+            command = [xterm, "-T", title, "-e", str(MAP_POSE_PRINTER)]
+        else:
+            messagebox.showerror(
+                "启动位置检测",
+                "未找到可用终端，请安装 xfce4-terminal、gnome-terminal 或 xterm",
+                parent=self.root,
+            )
+            return
+
+        try:
+            subprocess.Popen(
+                command,
+                cwd=str(WORKSPACE),
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
+                start_new_session=True,
+            )
+        except OSError as exc:
+            messagebox.showerror("启动位置检测", str(exc), parent=self.root)
+            return
+
+        self.log(f"已打开重定位位置检测终端: {MAP_POSE_PRINTER}")
+        self.status_var.set("位置检测终端已打开")
+
+    def on_save_measured_pose_preset(self) -> None:
+        def task() -> None:
+            self.log("读取当前重定位测定坐标: /map_lidar/pose")
+            result = run_command([str(MAP_POSE_PRINTER), "--once"], timeout=5)
+            output = (result.stdout + "\n" + result.stderr).strip()
+            if result.returncode != 0:
+                tail = output.splitlines()[-10:]
+                raise RuntimeError("读取重定位测定坐标失败:\n" + "\n".join(tail))
+            x, y, z, yaw_deg = parse_map_pose_output(output)
+            self.log(f"已测定坐标: x={x:.6f}, y={y:.6f}, z={z:.6f}, yaw={yaw_deg:.3f}deg")
+            self.events.put(("save_measured_pose_preset", (x, y, z, yaw_deg)))
+
+        self.worker("测定坐标存为预设", task)
 
     def on_apply_initial_pose_preset(self) -> None:
         from tkinter import messagebox
@@ -1367,6 +1478,26 @@ pose:
     )
     assert (x, y, z) == (1.0, 2.0, 0.5)
     assert abs(yaw) < 1e-9
+    measured_x, measured_y, measured_z, measured_yaw_deg = parse_map_pose_output(
+        """
+[map_pose] frame=map child=/map_lidar/pose stamp=1.000000000 age=0.100s
+  xyz: x=2.253850 y=-1.526798 z=0.074816
+  rpy_deg: roll=-0.428 pitch=1.072 yaw=-7.183
+  rpy_rad: roll=-0.007474 pitch=0.018718 yaw=-0.125366
+  init_env: RC_RELOCALIZATION_INITIAL_GUESS=1 RC_RELOCALIZATION_INITIAL_X=2.253850 RC_RELOCALIZATION_INITIAL_Y=-1.526798 RC_RELOCALIZATION_INITIAL_Z=7.4816e-02 RC_RELOCALIZATION_INITIAL_ROLL=-0.007474 RC_RELOCALIZATION_INITIAL_PITCH=0.018718 RC_RELOCALIZATION_INITIAL_YAW=-0.125366
+"""
+    )
+    assert measured_x == 2.25385
+    assert measured_y == -1.526798
+    assert measured_z == 0.074816
+    assert abs(measured_yaw_deg - math.degrees(-0.125366)) < 1e-9
+    for invalid_map_pose_output in ("", "init_env: RC_RELOCALIZATION_INITIAL_X=1.0"):
+        try:
+            parse_map_pose_output(invalid_map_pose_output)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("incomplete map pose output should fail")
     tx, ty, _, tyaw = transform_can_pose(1.0, 2.0, 0.0, 0.25, "flip_xy_yaw_180")
     assert tx == -1.0 and ty == -2.0
     assert abs(normalize_angle(tyaw - (0.25 + math.pi))) < 1e-9
