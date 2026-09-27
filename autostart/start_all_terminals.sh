@@ -1295,8 +1295,8 @@ prepare_ready_gate_ros_env() {
     return 0
   fi
 
-  if [ ! -f /opt/ros/humble/setup.bash ]; then
-    summary_event "ready_gate: /opt/ros/humble/setup.bash missing; skipping ROS readiness checks"
+  if [ ! -f "${RC_ROS_SETUP:-/opt/ros/${RC_ROS_DISTRO:-jazzy}/setup.bash}" ]; then
+    summary_event "ready_gate: ${RC_ROS_SETUP:-/opt/ros/${RC_ROS_DISTRO:-jazzy}/setup.bash} missing; skipping ROS readiness checks"
     return 1
   fi
 
@@ -1317,11 +1317,11 @@ prepare_ready_gate_ros_env() {
   esac
 
   # shellcheck disable=SC1091
-  if ! source /opt/ros/humble/setup.bash; then
+  if ! source "${RC_ROS_SETUP:-/opt/ros/${RC_ROS_DISTRO:-jazzy}/setup.bash}"; then
     if [ "$restore_nounset" = "1" ]; then
       set -u
     fi
-    summary_event "ready_gate: failed to source /opt/ros/humble/setup.bash; skipping ROS readiness checks"
+    summary_event "ready_gate: failed to source ${RC_ROS_SETUP:-/opt/ros/${RC_ROS_DISTRO:-jazzy}/setup.bash}; skipping ROS readiness checks"
     return 1
   fi
 

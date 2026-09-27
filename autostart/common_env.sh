@@ -19,7 +19,7 @@ export RC_LIDAR_WORKSPACE="${RC_LIDAR_WORKSPACE:-$RC_LIDAR_ROOT}"
 AUTOSTART_DIR="$RC_LIDAR_AUTOSTART"
 WORKSPACE_DIR="$RC_LIDAR_WORKSPACE"
 
-# ROS 2 Humble on this board uses the system Python 3.10. If a terminal has
+# ROS 2 uses the distribution system Python (Jazzy: Python 3.12). If a terminal has
 # conda activated, python3 may point at Miniconda Python 3.13 and rclpy imports
 # fail. Keep autostart scripts isolated from the user's interactive conda state.
 unset CONDA_DEFAULT_ENV CONDA_PREFIX CONDA_PROMPT_MODIFIER CONDA_PYTHON_EXE
@@ -44,7 +44,15 @@ if [ -n "${PATH:-}" ]; then
   export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$CLEAN_PATH"
 fi
 
-export LD_LIBRARY_PATH="/usr/local/lib:${LD_LIBRARY_PATH:-}"
+# Hikrobot MVS exports an older libusb globally. PCL 1.14 needs the system
+# libusb_set_option symbol. Isolate this ROS process tree; do not edit MVS.
+RC_CLEAN_LD_PATH=""
+IFS=: read -r -a RC_LD_ENTRIES <<< "${LD_LIBRARY_PATH:-}"
+for RC_LD_ENTRY in "${RC_LD_ENTRIES[@]}"; do
+  case "$RC_LD_ENTRY" in /opt/MVS/lib/*|"") continue ;; esac
+  RC_CLEAN_LD_PATH="${RC_CLEAN_LD_PATH:+$RC_CLEAN_LD_PATH:}$RC_LD_ENTRY"
+done
+export LD_LIBRARY_PATH="/usr/local/lib${RC_CLEAN_LD_PATH:+:$RC_CLEAN_LD_PATH}"
 export RCUTILS_LOGGING_USE_STDOUT="${RCUTILS_LOGGING_USE_STDOUT:-1}"
 export RCUTILS_LOGGING_BUFFERED_STREAM="${RCUTILS_LOGGING_BUFFERED_STREAM:-0}"
 
@@ -55,19 +63,22 @@ rc_bool() {
   esac
 }
 
+export RC_ROS_DISTRO="${RC_ROS_DISTRO:-jazzy}"
+export RC_ROS_SETUP="${RC_ROS_SETUP:-/opt/ros/$RC_ROS_DISTRO/setup.bash}"
+
 cd "$WORKSPACE_DIR"
 
-if [ ! -f /opt/ros/humble/setup.bash ]; then
-  echo "[common_env] ERROR: /opt/ros/humble/setup.bash not found."
+if [ ! -f "$RC_ROS_SETUP" ]; then
+  echo "[common_env] ERROR: $RC_ROS_SETUP not found."
   exit 2
 fi
 
 # shellcheck disable=SC1091
-source /opt/ros/humble/setup.bash
+source "$RC_ROS_SETUP"
 
 if [ ! -f "$WORKSPACE_DIR/install/setup.bash" ]; then
   echo "[common_env] ERROR: $WORKSPACE_DIR/install/setup.bash not found."
-  echo "[common_env] Build first: colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release -DROS_EDITION=ROS2 -DHUMBLE_ROS=humble"
+  echo "[common_env] Build first: colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release -DROS_EDITION=ROS2 -DCMAKE_CXX_STANDARD=17"
   exit 2
 fi
 

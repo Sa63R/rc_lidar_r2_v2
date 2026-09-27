@@ -3,7 +3,7 @@
   <use_relative_time_offset enabled="1"/>
   <streaming_buffer_size value="300"/>
   <Plugins>
-    <plugin ID="DataStreamROS2">
+    <plugin ID="ROS2 Topic Subscriber">
       <use_header_stamp value="true"/>
       <discard_large_arrays value="true"/>
       <max_array_size value="100"/>
@@ -12,5 +12,5 @@
       <selected_topics value="/robot/pose;/robot/pose_continuous;/robot/pose_continuous/status;/robot/pose_odom_only;/map_lidar/quality;/tf_compare/robot_origin_to_robot_base;/tf_compare/robot_origin_to_robot_base_highrate;/tf_compare/map_to_body"/>
     </plugin>
   </Plugins>
-  <previouslyLoaded_Streamer name="DataStreamROS2"/>
+  <previouslyLoaded_Streamer name="ROS2 Topic Subscriber"/>
 </root>

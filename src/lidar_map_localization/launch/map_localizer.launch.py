@@ -36,6 +36,7 @@ def generate_launch_description():
 
     return LaunchDescription(
         [
+            DeclareLaunchArgument("use_sim_time", default_value="false"),
             DeclareLaunchArgument(
                 "params_file",
                 default_value=PathJoinSubstitution(
@@ -91,6 +92,9 @@ def generate_launch_description():
                 parameters=[
                     params_file,
                     {
+                        "use_sim_time": ParameterValue(
+                            LaunchConfiguration("use_sim_time"), value_type=bool
+                        ),
                         "map_path": map_path,
                         "auto_initialize_identity": ParameterValue(
                             auto_initialize_identity, value_type=bool

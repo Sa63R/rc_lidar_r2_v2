@@ -15,7 +15,7 @@ from pathlib import Path
 root = Path(
     os.environ.get(
         "RC_CANFD_TX_MONITOR_LOG_ROOT",
-        "/home/rc2/jwt_new_lidar/rc_lidar_r2_v2/logs/autostart",
+        str(Path(os.environ["RC_LIDAR_WORKSPACE"]) / "logs" / "autostart"),
     )
 )
 run_log_dir = os.environ.get("LOG_DIR", "")

@@ -336,10 +336,16 @@ auto_confirm_plotjuggler_dialogs
 
 if [ -n "$LAYOUT_FILE" ]; then
   echo "[plotjuggler] Starting PlotJuggler with layout: $LAYOUT_FILE"
+  STREAMER_ARGS=(--start_streamer "${RC_PLOTJUGGLER_STREAMER:-ROS2 Topic Subscriber}")
+  # A saved streamer starts while the layout is loaded. Starting it again can
+  # stop/restart the active stream in PlotJuggler 3.17.
+  if grep -q '<previouslyLoaded_Streamer' "$LAYOUT_FILE"; then
+    STREAMER_ARGS=()
+  fi
   exec ros2 run plotjuggler plotjuggler \
     --nosplash \
     --layout "$LAYOUT_FILE" \
-    --start_streamer DataStreamROS2 \
+    "${STREAMER_ARGS[@]}" \
     --buffer_size "$BUFFER_SIZE" \
     --window_title "TF Compare"
 fi
@@ -347,6 +353,6 @@ fi
 echo "[plotjuggler] Starting PlotJuggler without a forced plot layout."
 exec ros2 run plotjuggler plotjuggler \
   --nosplash \
-  --start_streamer DataStreamROS2 \
+  --start_streamer "${RC_PLOTJUGGLER_STREAMER:-ROS2 Topic Subscriber}" \
   --buffer_size "$BUFFER_SIZE" \
   --window_title "TF Compare"
