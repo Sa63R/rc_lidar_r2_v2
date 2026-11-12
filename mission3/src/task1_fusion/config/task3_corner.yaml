@@ -1,0 +1,62 @@
+task3_corner:
+  ros__parameters:
+    input_topic: /map_lidar/odom
+    input_parent_frame: map
+    input_child_frame: body
+    # Empty: preserve the input parent frame. A different world frame requires
+    # a measured output_from_input transform; changing a name alone is not calibration.
+    output_frame: ""
+    output_child_frame: task3_corner
+    output_prefix: /task3/corner
+
+    # T_source_body: identity for /map_lidar/odom (source child = body).
+    # input_mode:=fused in task3.launch.py derives this from the SAME fusion.yaml.
+    source_to_body_xyz: [0.0, 0.0, 0.0]
+    source_to_body_rpy: [0.0, 0.0, 0.0]
+    # T_body_lidar from reference FAST-LIO mid360.yaml, NOT verified on this car.
+    body_to_lidar_xyz: [-0.011, -0.02329, 0.04412]
+    body_to_lidar_rpy: [0.0, 0.0, 0.0]
+    # R_lidar_diagram: diagram axes expressed in LiDAR axes (radians).
+    # User: LiDAR +X faces diagram -Y; cable is on the opposite side.
+    # With both +Z axes upward, diagram +X=LiDAR +Y and diagram +Y=-LiDAR +X.
+    # This parameter stores R_L_D, the INVERSE of the LiDAR pose in diagram axes.
+    # Horizontal mounting direction is user-confirmed; roll/pitch remain nominal.
+    lidar_to_diagram_rpy: [0.0, 0.0, 1.5707963267948966]
+    # Latest LiDAR-side CAD: dX=175, dY=340, dZ=374.5 mm.
+    # User 2026-10-25: facing away from cable, corner is behind-left.
+    # Left=+X, forward=-Y, hence LiDAR -> corner is +X/+Y/-Z.
+    # This supersedes the earlier image-inferred negative XY signs.
+    # The 598/12.5 mm measurements belong to the top-camera-side drawing.
+    # Hemisphere-center final ground height ~434.7 mm; do not add 20 mm.
+    # Current delivery is X/Y/yaw; retain the CAD Z lever for internal 3D
+    # projection, without claiming calibrated ground height. Precise mounting
+    # tilt and the exact CAD measurement-origin correspondence remain unverified.
+    lidar_to_corner_diagram_xyz: [0.175, 0.340, -0.3745]
+
+    # T_output_input: transform points from input parent to output parent.
+    output_from_input_xyz: [0.0, 0.0, 0.0]
+    output_from_input_rpy: [0.0, 0.0, 0.0]
+    # Import tools fill these together. Startup refuses a mismatched map file.
+    map_file: ""
+    expected_map_sha256: ""
+    input_timeout_sec: 0.5
+    future_tolerance_sec: 0.05
+    # False emits an explicit warning but allows software/debug outputs.
+    calibration_confirmed: false
+    publish_tf: false
+    # Optional bounded causal XY smoothing. The car template enables this;
+    # raw rigid projection is published on <output_prefix>/raw_odom when enabled.
+    # This reduces jitter, not systematic drift; Z/orientation remain untouched.
+    xy_smoothing_enabled: false
+    xy_smoothing_min_cutoff_hz: 1.0
+    xy_smoothing_beta: 40.0
+    xy_smoothing_derivative_cutoff_hz: 1.0
+    xy_smoothing_max_correction_m: 0.003
+
+task3_vision:
+  ros__parameters:
+    # Input topic/frames are derived from task3_corner by task3.launch.py.
+    # Both teams agreed: publish the CORNER; vision converts it to chassis center.
+    input_timeout_sec: 0.5
+    future_tolerance_sec: 0.05
+    diagnostics_topic: /task3/diagnostics

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Topic-selection preset using the reference repo's PlotJuggler ROS2 schema.
+     Receipt time is intentional: header time would conceal delayed delivery.
+     Arrange x/y/z/yaw plots and save your own layout in the installed GUI. -->
+<root>
+  <use_relative_time_offset enabled="1"/>
+  <streaming_buffer_size value="300"/>
+  <Plugins>
+    <plugin ID="DataStreamROS2">
+      <use_header_stamp value="false"/>
+      <discard_large_arrays value="true"/>
+      <max_array_size value="100"/>
+      <boolean_strings_to_number value="true"/>
+      <remove_suffix_from_strings value="true"/>
+      <selected_topics value="/task1/fused/pose;/task1/baseline/lidar;/task1/baseline/naive;/robot/pose_continuous;/wheel/odom;/map_lidar/quality;/task1/diagnostics"/>
+    </plugin>
+  </Plugins>
+  <previouslyLoaded_Streamer name="DataStreamROS2"/>
+</root>

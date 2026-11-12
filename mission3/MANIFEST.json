@@ -1,0 +1,976 @@
+{
+  "release": "task3_corner_vision_20261112_r1",
+  "files": [
+    {
+      "path": "README_先读.md",
+      "size": 3151,
+      "sha256": "e985943edac82391332f8dcfdc53db5d56f8c0c1fb11d30540b42e1611482224"
+    },
+    {
+      "path": "bin/task3",
+      "size": 5316,
+      "sha256": "7794f72b4564dda7187558e6e065f75b0d6f11e29bfb818313c1302cefc1ec61"
+    },
+    {
+      "path": "build_information.json",
+      "size": 557,
+      "sha256": "618b8f286b8666b30b80328fa064e778a427f440289346031ed204d87a82b19c"
+    },
+    {
+      "path": "config/car_fastlio.yaml",
+      "size": 1408,
+      "sha256": "eec17cf6d628b85791d0fa11f710a102f910789b7a51ea587867e1d638f825c4"
+    },
+    {
+      "path": "config/car_mid360_131.json",
+      "size": 809,
+      "sha256": "1ce37624e0bfe5db137c2e656cd967d750805b80a6f0c6363d2b71587d5c318f"
+    },
+    {
+      "path": "config/car_task3_local.yaml",
+      "size": 1980,
+      "sha256": "65dc6e7601a59758f73c90a7c822b4853ca5e604a661f5d95d8df6ff5a807df4"
+    },
+    {
+      "path": "config/deploy.env.example",
+      "size": 411,
+      "sha256": "a859736018188d9aced44d381bfb30ffc8de7dd227443a519f88dc5a18585991"
+    },
+    {
+      "path": "docs/00_使用说明.html",
+      "size": 23776,
+      "sha256": "59ae7ac17ddef987b47865420e476cd6c89e0c39ce764e233320db3385e04816"
+    },
+    {
+      "path": "docs/01_主机部署与启动.md",
+      "size": 5966,
+      "sha256": "a0dd8b4e9c9ed3a0caca1b8746a8efa196ef3e610187f3617ee70d1dbdbe209e"
+    },
+    {
+      "path": "docs/02_角点计算与坐标约定.md",
+      "size": 4637,
+      "sha256": "6413507f735cb3238087abe49c0690c504de814b58263385f665fb69ff01a739"
+    },
+    {
+      "path": "docs/03_视觉接收接口.md",
+      "size": 3215,
+      "sha256": "b3ad9324f5cd714a4bb13e1fe74051f7f616b9a2e1c6669b36cb139aa66daa32"
+    },
+    {
+      "path": "docs/04_版本与测试结论.md",
+      "size": 2621,
+      "sha256": "0b2f77bb052549090aa312de220669fd0ab502f1e10770a97005f0a7018f0b3c"
+    },
+    {
+      "path": "docs/corner_cad_reference.png",
+      "size": 378964,
+      "sha256": "0778b0cfc3cc0074ad66144693308502649bd18f8d09b1a5b85f301f1f425a0e"
+    },
+    {
+      "path": "scripts/car_task3_ui.sh",
+      "size": 464,
+      "sha256": "95cf56ddd05cc1847b0266981c3b12356ceb33c998b3ad70ceedfcc5a353ac74"
+    },
+    {
+      "path": "scripts/start_car_lidar.sh",
+      "size": 827,
+      "sha256": "167961c51224fc6eb44be4e25ace916e2da24311ff06cffd65bdc4763a237959"
+    },
+    {
+      "path": "scripts/start_car_task3_relative.sh",
+      "size": 1571,
+      "sha256": "d6bf555e2e67e2daebef9a21f96eb121ff297150e3c4e4f9cd6caa52f7043e78"
+    },
+    {
+      "path": "scripts/task3_demo.sh",
+      "size": 411,
+      "sha256": "e3ade11f5306a16814454c91ac3484b45a33d8311816472ec9d9ef027e9c0031"
+    },
+    {
+      "path": "scripts/vision_ui.sh",
+      "size": 393,
+      "sha256": "f4f2d2e23f7aaf0b87b4c74b7003982612fb78f9309c67b8e91caf8f9dd3b395"
+    },
+    {
+      "path": "src/task1_fusion/config/can_body_twist.example.yaml",
+      "size": 1023,
+      "sha256": "2777fdc16804c20f335009c7319aed40894bb502eb52722be9cdf130688b950e"
+    },
+    {
+      "path": "src/task1_fusion/config/can_differential.example.yaml",
+      "size": 632,
+      "sha256": "c77835e5a91bfeb1a65078d766e16aec00f0ae13afa86a6f0711b337afedca55"
+    },
+    {
+      "path": "src/task1_fusion/config/fusion.yaml",
+      "size": 1311,
+      "sha256": "a885c1917d49333dd8fefb7b6d5ae6704adddc4fd8a08d0e2e36ee9aac5060b7"
+    },
+    {
+      "path": "src/task1_fusion/config/plotjuggler_live_topics.xml",
+      "size": 882,
+      "sha256": "e13b4fa2e75b7c01d3da1ab40457b1dc83fc9d7a85ad6f18cfa848304bdf3123"
+    },
+    {
+      "path": "src/task1_fusion/config/task3_corner.yaml",
+      "size": 3107,
+      "sha256": "178acbada3c268acafc601baf702452393019004a65ea4ee6b3545b165db0b81"
+    },
+    {
+      "path": "src/task1_fusion/launch/task1.launch.py",
+      "size": 2514,
+      "sha256": "01d3f63267e5a0b62e55b9352d613f1a348104deed833245bb090395bcb68d43"
+    },
+    {
+      "path": "src/task1_fusion/launch/task3.launch.py",
+      "size": 2540,
+      "sha256": "ea37b559711c0bbd44c15fa22dd4dcfe1719f40daf9d37f39e0c588b913ea840"
+    },
+    {
+      "path": "src/task1_fusion/package.xml",
+      "size": 885,
+      "sha256": "1b6c5c500e60bdc48063fae1b589f43c14bdc9535d4ccf891d855d102f76db8f"
+    },
+    {
+      "path": "src/task1_fusion/resource/task1_fusion",
+      "size": 1,
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    {
+      "path": "src/task1_fusion/setup.cfg",
+      "size": 93,
+      "sha256": "b62da5fd86a13f93e1563de0d5026538c72f30ab94b4534b1578de0895f6bbce"
+    },
+    {
+      "path": "src/task1_fusion/setup.py",
+      "size": 1040,
+      "sha256": "aac57b579c7749b940219dfe76c171e1945b0b48b2c6028caf9f89f9ea367a14"
+    },
+    {
+      "path": "src/task1_fusion/task1_fusion/__init__.py",
+      "size": 81,
+      "sha256": "8d1c0f63fce2f771a81a765f4a4052b3b0e699d3358e2cb1823ccde6b138d45c"
+    },
+    {
+      "path": "src/task1_fusion/task1_fusion/bag_input.py",
+      "size": 1221,
+      "sha256": "eb4013755a60037fd7de3e0462b9c19aa2c07dd0ce0796649759f7a8fc072750"
+    },
+    {
+      "path": "src/task1_fusion/task1_fusion/can_bridge.py",
+      "size": 3568,
+      "sha256": "577604fafeac4df91b4f7d015b7938de666c092cfea9631404d06e229da3a4a7"
+    },
+    {
+      "path": "src/task1_fusion/task1_fusion/can_protocol.py",
+      "size": 5459,
+      "sha256": "ddada535a4df7ccf920fe2b5d2b9b7707169958dee8d30a5299e3b31c9e7f622"
+    },
+    {
+      "path": "src/task1_fusion/task1_fusion/core.py",
+      "size": 8281,
+      "sha256": "cffd51305e9449d53a31039eecab974193d7fe577a9d25b58e2dba76dbb9674b"
+    },
+    {
+      "path": "src/task1_fusion/task1_fusion/corner.py",
+      "size": 4647,
+      "sha256": "91c73f2d4c066b11fd142095fd49f97b2ce6528244667bf7f52b5c11dc17433d"
+    },
+    {
+      "path": "src/task1_fusion/task1_fusion/corner_node.py",
+      "size": 7536,
+      "sha256": "d561fee8273ada12ea7c3c8164057135eb4bbdc54a49d96616f4dff4e279618f"
+    },
+    {
+      "path": "src/task1_fusion/task1_fusion/fusion_node.py",
+      "size": 13075,
+      "sha256": "2540e8e3695a6905b2e5d85652e8ed88507b25fe5cbf678c0aa5cc0bc11eeb79"
+    },
+    {
+      "path": "src/task1_fusion/task1_fusion/logger_node.py",
+      "size": 3134,
+      "sha256": "b96e0e2973396e3355c3a488b9474e6a96a1380def02ea2a674f5c065108e242"
+    },
+    {
+      "path": "src/task1_fusion/task1_fusion/manual_session.py",
+      "size": 9115,
+      "sha256": "f16a4db571c476c37938e826aaf617c5a3cd6d649b210808c7271da2ad3fe0a1"
+    },
+    {
+      "path": "src/task1_fusion/task1_fusion/math_utils.py",
+      "size": 2296,
+      "sha256": "5e655b9e9c73e4acac84132832099b1a2200b69d5d4a8e1fd126f9741e45b18a"
+    },
+    {
+      "path": "src/task1_fusion/task1_fusion/task3_config.py",
+      "size": 9154,
+      "sha256": "6be2ce59bba57b6e7fdeba452060236b5d03b167234276c9956bef22d4baf25b"
+    },
+    {
+      "path": "src/task1_fusion/task1_fusion/task3_quality.py",
+      "size": 6155,
+      "sha256": "b9e31340a24f66af12d1014673628e297c715670580920e50a20d54637c05fd1"
+    },
+    {
+      "path": "src/task1_fusion/task1_fusion/vision.py",
+      "size": 4477,
+      "sha256": "4fef87c04495f04db6e2e5df815fea450fa0b48f3252e821a9141b213b8cb7c9"
+    },
+    {
+      "path": "src/task1_fusion/task1_fusion/vision_node.py",
+      "size": 4243,
+      "sha256": "f30cc0894da2833ac4940d9d3f72fede9682cab8177ac83556fd653e1da52da4"
+    },
+    {
+      "path": "src/task1_fusion/task1_fusion/vision_ui.py",
+      "size": 14892,
+      "sha256": "c99652d9ceb26a817d2e46e532636d62818e9dc9d8f9e7233aabd29c10696f06"
+    },
+    {
+      "path": "tools/probe_host.py",
+      "size": 2424,
+      "sha256": "4c8e0d623a295128f147b48332e3011c23f3ea14d03e8c03498105c5cf088c7b"
+    },
+    {
+      "path": "tools/task3_set_start.py",
+      "size": 6456,
+      "sha256": "6de3bc07d34661e713ef4cdcfa4699f76ecaa71ab7a63d319d76b41448171bb5"
+    },
+    {
+      "path": "tools/task3_stationary_demo.py",
+      "size": 5971,
+      "sha256": "91ce4070a29e8153c5a0f3a689517061de8e7538ef60da19b0eaebc644f28acc"
+    },
+    {
+      "path": "tools/verify_release.py",
+      "size": 1137,
+      "sha256": "c63793578e3faba98fc59e7c59f7187de20148c83cccff78fa39b9a4d097912b"
+    },
+    {
+      "path": "tools/vision_subscriber.py",
+      "size": 5144,
+      "sha256": "a53b66e0634782fb62645ad61ec7f7b8e2216a29dd006961225660ec30022a62"
+    },
+    {
+      "path": "vendor/FAST_LIO/.github/stale.yml",
+      "size": 682,
+      "sha256": "43f4c7c1cd847756a97d5415b630aa143768865b8252273cb1b3ab10326b1ab8"
+    },
+    {
+      "path": "vendor/FAST_LIO/.gitignore",
+      "size": 108,
+      "sha256": "795630267d82a868299154c5d0e6bc4e0fe875e799534da04be6a320f55114e2"
+    },
+    {
+      "path": "vendor/FAST_LIO/.gitmodules",
+      "size": 123,
+      "sha256": "dce23769c95c9f6038a738f13da0d73f6bbf098926f628cd0faa31e9fcc2a0c8"
+    },
+    {
+      "path": "vendor/FAST_LIO/CMakeLists.txt",
+      "size": 3354,
+      "sha256": "64f7ae6b99df24f7f7b84fb7ddb3ad393c00c251d6970fe82eb25c12b695b188"
+    },
+    {
+      "path": "vendor/FAST_LIO/LICENSE",
+      "size": 18092,
+      "sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643"
+    },
+    {
+      "path": "vendor/FAST_LIO/Log/.keep",
+      "size": 57,
+      "sha256": "e5f1bf925b52162002170d40ccec10f6a174cb99eb9138429b923b0dc6716a0e"
+    },
+    {
+      "path": "vendor/FAST_LIO/PCD/.keep",
+      "size": 57,
+      "sha256": "e5f1bf925b52162002170d40ccec10f6a174cb99eb9138429b923b0dc6716a0e"
+    },
+    {
+      "path": "vendor/FAST_LIO/README.md",
+      "size": 10751,
+      "sha256": "f1fbe9178871c53a63ed2bff627c712520a07463a996e579d7c8d800d2d8e27b"
+    },
+    {
+      "path": "vendor/FAST_LIO/config/avia.yaml",
+      "size": 2066,
+      "sha256": "47de1f48a605b04a8fcec4a98a41a13a502dcd5ad39d06ad1c75c9d737e74e00"
+    },
+    {
+      "path": "vendor/FAST_LIO/config/horizon.yaml",
+      "size": 2079,
+      "sha256": "816688b9c73a6d93e7f1331ac5d15d4f5720c55bf2bac9c4076b9e2c91e1d730"
+    },
+    {
+      "path": "vendor/FAST_LIO/config/mid360.yaml",
+      "size": 2338,
+      "sha256": "e38b30999909f6633b247072bcdae8761439d8eb5dcd26e899ad4d4f2d5a71ae"
+    },
+    {
+      "path": "vendor/FAST_LIO/config/ouster64.yaml",
+      "size": 2185,
+      "sha256": "fbf800038ce8ed2a7be23d1a55f6263f86fa6288b881ba871a59ec7f3ace9cb1"
+    },
+    {
+      "path": "vendor/FAST_LIO/config/velodyne.yaml",
+      "size": 2297,
+      "sha256": "c3a5c83dd3073a62416a2e0f5a0b436288e1fa41fad46e30d6dd8cacbc635e6f"
+    },
+    {
+      "path": "vendor/FAST_LIO/include/Exp_mat.h",
+      "size": 2743,
+      "sha256": "abce87e1fb0e60febf42f38b75f4c018bac24c1bf652e26b7a510a9296d3031d"
+    },
+    {
+      "path": "vendor/FAST_LIO/include/IKFoM_toolkit/esekfom/esekfom.hpp",
+      "size": 68556,
+      "sha256": "b990411209fe06ae64112c8bc807b0c2a13922fc1460ec2745c6701cc9344e85"
+    },
+    {
+      "path": "vendor/FAST_LIO/include/IKFoM_toolkit/esekfom/util.hpp",
+      "size": 2363,
+      "sha256": "3c4265d25ea3f8c7f586d1e34bc352e981e09e30555e42011cd23a0a147d6918"
+    },
+    {
+      "path": "vendor/FAST_LIO/include/IKFoM_toolkit/mtk/build_manifold.hpp",
+      "size": 9436,
+      "sha256": "0e88522551d02e78dc995e6c9d7883d9ecca7190379ec047ab839fff7186ea0f"
+    },
+    {
+      "path": "vendor/FAST_LIO/include/IKFoM_toolkit/mtk/src/SubManifold.hpp",
+      "size": 4886,
+      "sha256": "96709f0f453a0c8776b1969064275ebf14dc5234b7024e68eb1cfc51a513864f"
+    },
+    {
+      "path": "vendor/FAST_LIO/include/IKFoM_toolkit/mtk/src/mtkmath.hpp",
+      "size": 10176,
+      "sha256": "f9627989cf578f35ec5594a6956b4e9283d4dd109b26e7d2621682c508546295"
+    },
+    {
+      "path": "vendor/FAST_LIO/include/IKFoM_toolkit/mtk/src/vectview.hpp",
+      "size": 6540,
+      "sha256": "7855408124ea65df4423bae5f97d5104af5552318796bc6324bdbf98a45101f3"
+    },
+    {
+      "path": "vendor/FAST_LIO/include/IKFoM_toolkit/mtk/startIdx.hpp",
+      "size": 12515,
+      "sha256": "79cdc368bb4e083f5fda7549094c0aba8b599aee1f88e9f2a8b7fa785bf1f757"
+    },
+    {
+      "path": "vendor/FAST_LIO/include/IKFoM_toolkit/mtk/types/S2.hpp",
+      "size": 9971,
+      "sha256": "f861be0bbb1a80d968189c90f9ef6b8e56b5f4bb19a9043a2e41c9397c215d56"
+    },
+    {
+      "path": "vendor/FAST_LIO/include/IKFoM_toolkit/mtk/types/SOn.hpp",
+      "size": 10624,
+      "sha256": "90a8384a05d656698e6826b892561dc6cd619b62a7e32f9e6e3a9253e5e0c8aa"
+    },
+    {
+      "path": "vendor/FAST_LIO/include/IKFoM_toolkit/mtk/types/vect.hpp",
+      "size": 14226,
+      "sha256": "771ecededd51dc694bdadb57f8a49fad7bc6091c6f6112142096954649ac405f"
+    },
+    {
+      "path": "vendor/FAST_LIO/include/IKFoM_toolkit/mtk/types/wrapped_cv_mat.hpp",
+      "size": 3236,
+      "sha256": "3040f43fcb4195a2572a8819be012ebd2c4b59a38cfae86fcac3e01d7039a589"
+    },
+    {
+      "path": "vendor/FAST_LIO/include/common_lib.h",
+      "size": 8059,
+      "sha256": "bd9d6cf500f6f77e880c0cbf451ce6fc8b0e6d638773a4580a1ee779744e9e54"
+    },
+    {
+      "path": "vendor/FAST_LIO/include/ikd-Tree/README.md",
+      "size": 73,
+      "sha256": "a7f6feab008dc54a053963fb518e360389ee807af63ebddcc15e90b1ede78073"
+    },
+    {
+      "path": "vendor/FAST_LIO/include/ikd-Tree/ikd_Tree.cpp",
+      "size": 68733,
+      "sha256": "ec3cbbbb6386eb6c68f9aa081c48b5d62209ada44fe167a002d4e3b112a1ea9f"
+    },
+    {
+      "path": "vendor/FAST_LIO/include/ikd-Tree/ikd_Tree.h",
+      "size": 10279,
+      "sha256": "bb87cab944c6c59e0be61cb0b3a2cd0e334d93dc1bf768875058857278135a4b"
+    },
+    {
+      "path": "vendor/FAST_LIO/include/matplotlibcpp.h",
+      "size": 81837,
+      "sha256": "360d70cb9a7dd6cb981622871204c394b56f856ef42abd0e07a011a5e146f4d6"
+    },
+    {
+      "path": "vendor/FAST_LIO/include/so3_math.h",
+      "size": 2936,
+      "sha256": "e02f73dc804c3f539a80fe49d4221a85dbfeaee4cf0b643d7af062b49148e9f7"
+    },
+    {
+      "path": "vendor/FAST_LIO/include/use-ikfom.hpp",
+      "size": 4337,
+      "sha256": "1ee2c078ee757ff2dffedf48da764daec152baa79876a70785d010cc2e6165ab"
+    },
+    {
+      "path": "vendor/FAST_LIO/launch/gdb_debug_example.launch",
+      "size": 962,
+      "sha256": "f635965b011c5f4872be2a1cc0fe711d0a999bc7d489bab4c401cbb41318103e"
+    },
+    {
+      "path": "vendor/FAST_LIO/launch/mapping.launch.py",
+      "size": 6329,
+      "sha256": "a92fa23b39d86c7c5193889c3d37bfdf51232f6ceb18968cd12713c3e84adbaa"
+    },
+    {
+      "path": "vendor/FAST_LIO/msg/Pose6D.msg",
+      "size": 597,
+      "sha256": "91b5397207076295c2b20273552b80267e258a749ae1a932dc00f48cfc31334f"
+    },
+    {
+      "path": "vendor/FAST_LIO/package.xml",
+      "size": 1144,
+      "sha256": "a5c9a445f5dd7e69e0ad3c181627ff881e10bfc0ec897830fc69848e4e5cb554"
+    },
+    {
+      "path": "vendor/FAST_LIO/rviz/fastlio.rviz",
+      "size": 9335,
+      "sha256": "4908b856b6e8b61eec6512de360ac3868243539bb89b1c32d5ce7de2cda8712a"
+    },
+    {
+      "path": "vendor/FAST_LIO/rviz_cfg/.gitignore",
+      "size": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "vendor/FAST_LIO/rviz_cfg/loam_livox.rviz",
+      "size": 11178,
+      "sha256": "cea6f0134e2b63feb5d619510823a827fd598f8b5542f42db58a4df952d89947"
+    },
+    {
+      "path": "vendor/FAST_LIO/src/IMU_Processing.hpp",
+      "size": 12672,
+      "sha256": "2b786c50c255a118fe95c9b017ef13af9e27a79b0624a718d4e192c3e5ca138d"
+    },
+    {
+      "path": "vendor/FAST_LIO/src/laserMapping.cpp",
+      "size": 54192,
+      "sha256": "003be779703c27164e1e30240e39569cb83c18283b492f10512f4e98e2e8ca85"
+    },
+    {
+      "path": "vendor/FAST_LIO/src/preprocess.cpp",
+      "size": 27486,
+      "sha256": "65354415440c45d1c8c185a27b60b8078c91ac8609a1a3d43cb5d1050b0adf53"
+    },
+    {
+      "path": "vendor/FAST_LIO/src/preprocess.h",
+      "size": 4628,
+      "sha256": "ccb4f18adf86cadff22b4b74a677edf1eb7b88511863e82ec4c4b015900fb157"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/.gitignore",
+      "size": 37,
+      "sha256": "2da9e4085d66ed68d16a4d7d4c97ced71bf404f0cb1a4c7c028f44079b86351b"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/allocators.h",
+      "size": 10437,
+      "sha256": "49b554ebfc2369438fd9365b28f0453485d936437847de31a7bb770001abca55"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/cursorstreamwrapper.h",
+      "size": 2230,
+      "sha256": "de1a52b674c998a7581f9cb69c9310757f825595c3fef985d5d153f7ac1b6aaf"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/document.h",
+      "size": 117966,
+      "sha256": "6afae6a8825b03b4c6baa42a513e5a5242ac96b4c95968c07ee8bda8163eb3ff"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/encodedstream.h",
+      "size": 10634,
+      "sha256": "4bb5e4853943d5ead467e46b5313d95aa23645018cda93e7907a934a06cfbb26"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/encodings.h",
+      "size": 29827,
+      "sha256": "0201c664e471c615b5cd27d2e981cf8b21ac9c210bdf108062fb2fd9d493a501"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/error/en.h",
+      "size": 3739,
+      "sha256": "484dcd32c0b35b7a81561740fad970402c0ffcec44311381a2fb265cfe5e273c"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/error/error.h",
+      "size": 6472,
+      "sha256": "aa9b40b61754b227248b4b092331dbd5721ef6565d962e4c225c6c1e7974817e"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/filereadstream.h",
+      "size": 2961,
+      "sha256": "8c7d282eb32897969430f5a94178cab238433e25fa139ee74eda87eb1d42690a"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/filewritestream.h",
+      "size": 3073,
+      "sha256": "1db49a4cd9038f2670667e5900f346d231a0eece06ac1817f33feb63f33545b9"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/fwd.h",
+      "size": 4120,
+      "sha256": "2a0e024b8b6b87d1d3f50d1d0dd4656124c161fea88406265d097d613498854e"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/internal/biginteger.h",
+      "size": 8296,
+      "sha256": "0be8375c2d39bc1f8f57b755a26569db9ed35c86d066b294911690513786afb3"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/internal/clzll.h",
+      "size": 2035,
+      "sha256": "93d71c879a805a8c17cfd8913cf1add4d2f25407bbf668abe1dcca6e40ebc746"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/internal/diyfp.h",
+      "size": 11387,
+      "sha256": "f2c45af9e73a451e5472e5dd10a7672085e9a3504d1f3ab864a5b9cc7445c1eb"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/internal/dtoa.h",
+      "size": 7724,
+      "sha256": "965deca8d1382c30db9e0a1d51200a4934bfe032eda3dcde10d4bdb39817c05a"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/internal/ieee754.h",
+      "size": 2990,
+      "sha256": "a1b4a88d5e0f633e99c7d68a34fdebc6289e6be0f0cfba452a7793166d7ea970"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/internal/itoa.h",
+      "size": 9272,
+      "sha256": "45c96bab2327aee5ff999167fac8f768a3a9e1003142fa68e3aee50b54d93e12"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/internal/meta.h",
+      "size": 6731,
+      "sha256": "a20dad578c7d714ff04029f04719df19be5835c30bf9c7028d226e67d065bf0b"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/internal/pow10.h",
+      "size": 3957,
+      "sha256": "7a7693969c936ddb6d036467a0f6b53def076922bb838d250eb40f12b2e2ce0e"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/internal/regex.h",
+      "size": 23238,
+      "sha256": "624cf078b8179a198374eebe94331aa2d8b70b08997f4e270ccfaccc90fd09b2"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/internal/stack.h",
+      "size": 6805,
+      "sha256": "46c4f98ff2acce64d1280458dd1224aaee9a9035eebd3462cdf31ee25a13702e"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/internal/strfunc.h",
+      "size": 2184,
+      "sha256": "e083b68f7bf3570653fce1e3ea0a573a75745a096dd80194e1a2fde4d7695bb8"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/internal/strtod.h",
+      "size": 8656,
+      "sha256": "2134c15ad40b9584ecb8e1a7f6163277a6d783574b3fb08574f88ab769b91751"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/internal/swap.h",
+      "size": 1421,
+      "sha256": "48ecb57c3b2ca955ad3cccdfff03835be495a56c9c5da07ab9c02f488b7d7fe1"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/istreamwrapper.h",
+      "size": 4112,
+      "sha256": "b3c03a5826b8d8c9dfcef64eb09d8ec4a955e0c6edd38d9c3a127dbca53ec2dc"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/license.txt",
+      "size": 5152,
+      "sha256": "a140e5d46fe734a1c78f1a3c3ef207871dd75648be71fdda8e309b23ab8b1f32"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/memorybuffer.h",
+      "size": 2573,
+      "sha256": "cf661606aa41bee3466cee20174bc7454210e8aabac929b1d8e9e189fef601ab"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/memorystream.h",
+      "size": 2673,
+      "sha256": "8dd07eb66381de95a69c9cadce537d76c0349f913cfe183ab6243c54863c4dcf"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/msinttypes/inttypes.h",
+      "size": 7824,
+      "sha256": "92f53d3ba0cdebaeb20a52893f89d0c29aae5111a3a8bb555eabdd8c96e3244f"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/msinttypes/stdint.h",
+      "size": 9151,
+      "sha256": "515ff5e244372892293c20bbfe6a5b3dcca7265442941df31dcebdfbe2a828fe"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/ostreamwrapper.h",
+      "size": 2342,
+      "sha256": "366d953184777b0de0a102ef38cf56f9fc766422246f16be9af2dad8ad787054"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/pointer.h",
+      "size": 60230,
+      "sha256": "d74ab63c76a99a5a92418d2420cc733c22767b6d9e9a6f989689940de4f7c478"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/prettywriter.h",
+      "size": 10253,
+      "sha256": "e8495e521c5d726c7e2ff59b1f7eb6f08a1e0298055d1fbbc4f29f08d736360d"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/rapidjson.h",
+      "size": 24293,
+      "sha256": "22ffbcb054cecc5180bdb72478ab32598c9aa40421322f17923809acdcf99629"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/reader.h",
+      "size": 89290,
+      "sha256": "291f6d315a3617c9bd83d8b2836f9dc1e45a2a9770dcb0745f9eaaa603b715a6"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/schema.h",
+      "size": 101259,
+      "sha256": "473b44fcb9f88d2fa7439e1c9f86899deae44205323a7ba7709e6b4b513f01fa"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/stream.h",
+      "size": 6694,
+      "sha256": "58e37336dafded31177eb2381f0d553de8a5fd33c8580873de32b0e467d85677"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/stringbuffer.h",
+      "size": 3984,
+      "sha256": "8434f52ca786bf876b3d3d693ce8e2d399325ddf891e0437becd41ed590806e9"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/3rdparty/rapidjson/writer.h",
+      "size": 26178,
+      "sha256": "b42eca28a42d7b3806aaf691ee921accabcf911be6728c35fa04e14162a72bdf"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/CHANGELOG.md",
+      "size": 1573,
+      "sha256": "b5abf4f88cd797a9f1cdf22c3cc0a162f7a56d60e3493fe26b944e69bf31e98c"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/CMakeLists.txt",
+      "size": 11004,
+      "sha256": "03f5996b88653732bf0b84e2c133279f1c2842ea37e418c900b21280793d8a08"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/LICENSE.txt",
+      "size": 19928,
+      "sha256": "5d965fd1439196751d5ccad8064a51dafdb2d88548174bb5516d393c7a4c0717"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/README.md",
+      "size": 19951,
+      "sha256": "281d4149b6bdfb8dfb93a99c11607a5fb24986d774d06881fd80734b4b2c476c"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/build.sh",
+      "size": 1638,
+      "sha256": "bb19f5ee4f25f2d63ce278cd785be451a7bef456a1b1721004acf590f95ca801"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/cmake/version.cmake",
+      "size": 990,
+      "sha256": "698b065d680a20695f2163ca5bbe601792b24069357919bee3136768d75f8f7f"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/config/HAP_config.json",
+      "size": 863,
+      "sha256": "956414d48bf17af2427e2b8f3dbbeff92345f93fe81e97422f22117ea0ef3f35"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/config/MID360_config.json",
+      "size": 873,
+      "sha256": "4041e9911696058e0f50b8ed308fe14ddcb746dcffe6e3562b39ab07626c4fb8"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/config/MID360_config.json.bak_20261011_220600_698164",
+      "size": 884,
+      "sha256": "b18c60c91f580696bdf06f6d2a4818d491308ee488871658ef5074c42961c7b3"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/config/MID360_config.json.bak_20261012_194321_449885",
+      "size": 873,
+      "sha256": "0332a35914186f4c6d3a7b333fa1fc67bc72d44f0845d56f552038db27b367c0"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/config/display_point_cloud_ROS1.rviz",
+      "size": 5650,
+      "sha256": "89d934b783d9f0386dbaef7cbbf0ea3f4ee0c87c57b313178d822cec93320caf"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/config/display_point_cloud_ROS2.rviz",
+      "size": 4834,
+      "sha256": "ae7cea85c28bcb532f3504994aa287ad14100048cd53b30821b73df0a1f94e61"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/config/mixed_HAP_MID360_config.json",
+      "size": 1665,
+      "sha256": "99895013db7bfc1d58fef1abb2d25461624ab468bce5f5c4381172f3b7d235cf"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/launch_ROS1/msg_HAP.launch",
+      "size": 1743,
+      "sha256": "2bb9adeab763da7a414fe756fa0569e41ab4795722817ad950a39450f97813ef"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/launch_ROS1/msg_MID360.launch",
+      "size": 1744,
+      "sha256": "b4a86ae5e58d354e454140fe6e3b0032193826f764ed8da9f6d1519ba99f60dd"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/launch_ROS1/msg_mixed.launch",
+      "size": 1754,
+      "sha256": "77c8f7eed8d2702211f52db053f792f2b5906123e8ab647a913313bb015c6ab8"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/launch_ROS1/rviz_HAP.launch",
+      "size": 1930,
+      "sha256": "be4b09a282eb005128933ec802d0658d273ebe5b91dc65d0413a78c603ee3f78"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/launch_ROS1/rviz_MID360.launch",
+      "size": 1933,
+      "sha256": "03a622737d58ac346261ad5bf87df109d3c339184c1baeee11ba8371396f6578"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/launch_ROS1/rviz_mixed.launch",
+      "size": 1943,
+      "sha256": "bb9830540646897bb52e4abd76947232a751b27f0f9ec7c4fedc953bb4fbcb79"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/launch_ROS2/msg_HAP_launch.py",
+      "size": 1979,
+      "sha256": "e1da5f731e06e6d71f4c15b100fddd98ef9497ea75235d0ed71f33a9e40cec93"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/launch_ROS2/msg_MID360_launch.py",
+      "size": 1913,
+      "sha256": "b910ab9012544dc14d7692d5dced98c9576053417aef6f08409d725bc708c079"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/launch_ROS2/rviz_HAP_launch.py",
+      "size": 2197,
+      "sha256": "d4d7ac3acddb0853541798fd1ed2a9003c0f78a97dda7073bfb1beba8ebf6d42"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/launch_ROS2/rviz_MID360_launch.py",
+      "size": 2200,
+      "sha256": "3ebdb3986614b23e15c5dac17fc2ea98445b394f9a011367518d29cd04858962"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/launch_ROS2/rviz_mixed.py",
+      "size": 2210,
+      "sha256": "62a250c88ba8d9591054756bfa30925eea3ba98567f53e568c336d75537efc8b"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/msg/CustomMsg.msg",
+      "size": 341,
+      "sha256": "f42d6709db951b1fa307e929e742c0593cbf0d1b0ff977d2ed63ad8d7cee0a96"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/msg/CustomPoint.msg",
+      "size": 353,
+      "sha256": "b64b31a8edc8c8b3765d82b5d3ccd2d2e1f217b9525ef7007ab918674c619c59"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/package.xml",
+      "size": 1123,
+      "sha256": "084b1db3a68ef3cf979da0c8ce6a8bf9566dc586ebfdd51d0dbe012f43c3d2dd"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/package_ROS1.xml",
+      "size": 3395,
+      "sha256": "2e3eb6932e9fe365d31aa69926aa6cae76464f4176008cf33de26f0fbee29c27"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/package_ROS2.xml",
+      "size": 1123,
+      "sha256": "084b1db3a68ef3cf979da0c8ce6a8bf9566dc586ebfdd51d0dbe012f43c3d2dd"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/src/call_back/lidar_common_callback.cpp",
+      "size": 2276,
+      "sha256": "8f37b7dda4236edbcb4a87cfa6a016e4105ca1e0b8e0e99f2446953636412196"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/src/call_back/lidar_common_callback.h",
+      "size": 1575,
+      "sha256": "e0fd66f13ad20b0426b9b5384abee61c8b2b85ace2e9904c470da9fd7c0cc366"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/src/call_back/livox_lidar_callback.cpp",
+      "size": 15357,
+      "sha256": "3c89ef3bbcc78488b1117421ff05d0100d5ff4867df5c6752e68f4f8b364f635"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/src/call_back/livox_lidar_callback.h",
+      "size": 3296,
+      "sha256": "cd484274d87f1cc43c0a2b72a9d04d728db37369238e43b72c83de80f34abacf"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/src/comm/cache_index.cpp",
+      "size": 3858,
+      "sha256": "dca25f47674f530249e94c0ac8ac368d122910ca66336bd1bee65a06d2f01667"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/src/comm/cache_index.h",
+      "size": 2055,
+      "sha256": "65c635bd6903564bc1e0547113a6aff52e592c16295ed23264b5726317327c01"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/src/comm/comm.cpp",
+      "size": 2209,
+      "sha256": "73e6b7469337528ffb60b0f670bedc3c01dfcd7d8a048e72e8f04bd5d839f126"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/src/comm/comm.h",
+      "size": 8580,
+      "sha256": "72c639ba1d6eaf7c355050672c865c7615cea3619abee628683d98920fb31fa4"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/src/comm/ldq.cpp",
+      "size": 4682,
+      "sha256": "b5a11f2b4b658e4fc2c53dc261a7401e09516a6276e9b1a9c7568a4ee6d86a3f"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/src/comm/ldq.h",
+      "size": 2330,
+      "sha256": "01ccf8d13f84475cb126dea1f15546a59ce9398968360e6484da5832729aa077"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/src/comm/lidar_imu_data_queue.cpp",
+      "size": 2248,
+      "sha256": "7f9ecbdad433653233b2701dbd06dd4f7f523d0e972cc5cb4bf0aca2ed7494b5"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/src/comm/lidar_imu_data_queue.h",
+      "size": 2632,
+      "sha256": "cc8ae6d425cf6fb173b59072e5310f7b984e776a9d8277c8e9e0ef9d9dc58998"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/src/comm/pub_handler.cpp",
+      "size": 16120,
+      "sha256": "1cc813603036627f1e7e98d099cc8710d65f213035ac796186bd5f1b302cbcbc"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/src/comm/pub_handler.h",
+      "size": 4465,
+      "sha256": "0d46b585f457e948a32eda201b78fc6b2f922b27a515da3f7d730c2114fc892e"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/src/comm/semaphore.cpp",
+      "size": 1470,
+      "sha256": "7ea77d2b2b9f5aca1aa1c4f239d427398699b504a25b5bcd1667545650a0c587"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/src/comm/semaphore.h",
+      "size": 1623,
+      "sha256": "a07dedf139d6a1f85d572b23f4a69b1f0574577366b2ecd759f06da4995eadcb"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/src/driver_node.cpp",
+      "size": 1485,
+      "sha256": "2367146dbf888b8eb6ac661792c3858ae7c2f8bb3136888fbbaee7593f1c1a1c"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/src/driver_node.h",
+      "size": 2482,
+      "sha256": "503851a1fe806c633377f891479b8b434e89a0ac4070db80d9e3b8fc36070a6a"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/src/include/livox_ros_driver2.h",
+      "size": 1734,
+      "sha256": "b344ecdbe8a80b4bbe6cc5ba72a49dbf9dec979d283b43fcd2f36669acd48efa"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/src/include/ros1_headers.h",
+      "size": 2216,
+      "sha256": "25d868b0c4e1972ad61619b26e47c5538d282b520143f6c03300b0adeab8fb0b"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/src/include/ros2_headers.h",
+      "size": 2478,
+      "sha256": "16aa2833be3b35acb0bbb9c71e78e261f65d7251740565571ae24d2c43b579d1"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/src/include/ros_headers.h",
+      "size": 1341,
+      "sha256": "67c52fefe87f71fb83d99774ba8569fff0de7c698a6917c31de2f4ccff3c78eb"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/src/lddc.cpp",
+      "size": 22762,
+      "sha256": "37dcc252a743fafe14c7ee5341d8827f1a5298ec910502b201bd0feb3476c71e"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/src/lddc.h",
+      "size": 5868,
+      "sha256": "31a78f172caf82f3b2938c9e2c296cd582da228d0043c17849f7a9b20788d4ea"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/src/lds.cpp",
+      "size": 5950,
+      "sha256": "a53c0f737a61282c523a00bbdc5a76bfbb7ed5616fc5bbb4265bc64ca0853efe"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/src/lds.h",
+      "size": 2689,
+      "sha256": "090334fb09e5b9a946042af06abe46d0f5a098b9978527b42ac1d0b7ce022b63"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/src/lds_lidar.cpp",
+      "size": 6492,
+      "sha256": "e7fce0a88e662a2335b6153502ad912bceeb6d15e003cbda5eba55ba132acb99"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/src/lds_lidar.h",
+      "size": 2734,
+      "sha256": "6b94cb2956ec36028d445500741914bccec05cc1e352fc73d269e21051e42990"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/src/livox_ros_driver2.cpp",
+      "size": 7937,
+      "sha256": "b95258191e24cfae3d678563237afdb85551d4093364249173f42a3aced355a3"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/src/parse_cfg_file/parse_cfg_file.cpp",
+      "size": 2381,
+      "sha256": "f893a7397f05e81826d6097233ae6a90d3428f921ceb04d9f957427f4bcf7e5e"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/src/parse_cfg_file/parse_cfg_file.h",
+      "size": 1721,
+      "sha256": "c0512f0ddb732861ec152e93d7d6477dd620865b4a92c385379d013286506998"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/src/parse_cfg_file/parse_livox_lidar_cfg.cpp",
+      "size": 5293,
+      "sha256": "ce7cc5df5f7e09768a2d256f0d1cae30ae9c6214d821be95036311cef08912ed"
+    },
+    {
+      "path": "vendor/livox_ros_driver2/src/parse_cfg_file/parse_livox_lidar_cfg.h",
+      "size": 2047,
+      "sha256": "0ad28cf4977f6c9c07aa23dbac80f66ba4da7680042ba59f8d0d794d78d262f8"
+    }
+  ],
+  "scope": "Frozen app/config/UI/docs and selected field upstream source; no historical origins/raw data."
+}

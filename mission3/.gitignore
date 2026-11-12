@@ -1,0 +1,12 @@
+build/
+install/
+upstream_ws/
+.logs/
+results/
+__pycache__/
+*.pyc
+config/deploy.env
+config/car_task3_start.yaml
+host_environment*.json
+*.mcap
+*.db3

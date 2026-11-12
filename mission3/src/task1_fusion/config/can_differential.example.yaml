@@ -1,0 +1,23 @@
+# EXAMPLE ONLY: use only for a confirmed two-wheel differential chassis.
+protocol_confirmed: false
+mode: differential_counts
+can_id: 769
+extended_id: false
+byte_order: little
+payload_length: 8
+base_frame: robot_base
+count_bits: 32
+left_sign: 1
+right_sign: 1
+meters_per_count_left: 0.00001  # replace with measured values
+meters_per_count_right: 0.00001
+track_width_m: 0.30  # replace with effective calibrated track width
+forward_axis: y
+receive_latency_sec: 0.0
+max_gap_sec: 0.1
+max_receive_age_sec: 0.1
+max_speed_mps: 5.0
+max_yaw_rate: 10.0
+fields:
+  left_count: {offset: 0, type: uint32}
+  right_count: {offset: 4, type: uint32}

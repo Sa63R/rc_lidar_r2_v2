@@ -1,0 +1,1 @@
+Use bin/task3 build-app or build-stack; exclude nested packages from the parent workspace crawl.

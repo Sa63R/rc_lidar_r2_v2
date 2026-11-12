@@ -1,0 +1,67 @@
+# Temporary car commissioning frame: camera_init from current FAST-LIO startup.
+# Not the saved map or a calibrated physical field frame.
+# Known CAD/mounting parameters are available for XY/yaw integration.
+# Availability is distinct from unverified physical accuracy and deferred Z.
+task3_corner:
+  ros__parameters:
+    input_topic: /Odometry
+    input_parent_frame: camera_init
+    input_child_frame: body
+    output_frame: ''
+    output_child_frame: task3_corner
+    output_prefix: /task3/corner
+    source_to_body_xyz:
+    - 0.0
+    - 0.0
+    - 0.0
+    source_to_body_rpy:
+    - 0.0
+    - 0.0
+    - 0.0
+    body_to_lidar_xyz:
+    - -0.011
+    - -0.02329
+    - 0.04412
+    body_to_lidar_rpy:
+    - 0.0
+    - 0.0
+    - 0.0
+    lidar_to_diagram_rpy:
+    - 0.0
+    - 0.0
+    - 1.5707963267948966  # LiDAR +X -> diagram -Y; R_L_D yaw is +90 degrees.
+    lidar_to_corner_diagram_xyz:
+    # User 2026-10-25: facing away from cable, corner is behind-left;
+    # left=+X, forward=-Y. This overrides the earlier image-inferred XY signs.
+    - 0.175
+    - 0.34
+    - -0.3745
+    output_from_input_xyz:
+    - 0.0
+    - 0.0
+    - 0.0
+    output_from_input_rpy:
+    - 0.0
+    - 0.0
+    - 0.0
+    map_file: ''
+    expected_map_sha256: ''
+    input_timeout_sec: 0.5
+    future_tolerance_sec: 0.05
+    calibration_confirmed: false
+    publish_tf: false
+    # Causal jitter reduction; 3 mm maximum change, not a drift correction.
+    xy_smoothing_enabled: true
+    # Two real recordings: lower stationary jitter and lower fitted motion lag.
+    # Bounded to 3 mm; preserves mean biases, lever geometry and acquisition time.
+    # Evidence: results/task3_smoothing_20261108/
+    xy_smoothing_min_cutoff_hz: 0.5
+    xy_smoothing_beta: 80.0
+    xy_smoothing_derivative_cutoff_hz: 1.0
+    xy_smoothing_max_correction_m: 0.003
+task3_vision:
+  ros__parameters:
+    allow_unverified_extrinsics: true
+    input_timeout_sec: 0.5
+    future_tolerance_sec: 0.05
+    diagnostics_topic: /task3/diagnostics

@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+# Portable release entry; never auto-starts, kills or reuses a saved origin.
+set -euo pipefail
+TASK3_RELEASE_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+TASK3_COMMAND="${1:-help}"
+if [[ $# -gt 0 ]]; then shift; fi
+if [[ "$TASK3_COMMAND" == help || "$TASK3_COMMAND" == --help ]]; then
+  cat <<'EOF'
+任务三角点坐标交付包
+  bash bin/task3 check          生成主机环境报告（不连接雷达）
+  bash bin/task3 build-app      编译角点/UI程序；已有上游时用此项
+  bash bin/task3 build-stack    从vendor编译驱动/FAST-LIO，再编译本程序；需已装SDK2
+  bash bin/task3 lidar          启动雷达驱动（已有健康驱动则跳过）
+  bash bin/task3 fastlio        启动FAST-LIO（已有健康定位则跳过）
+  bash bin/task3 ui             打开现有坐标UI，人工在正确角点/朝向建立起点
+  bash bin/task3 start          无桌面时在终端建立起点并运行接口
+  bash bin/task3 receive        视觉接收示例；Ctrl+C退出
+  bash bin/task3 demo           域93合成演示；可加--no-gui --seconds 8
+  bash bin/task3 manual         打开离线使用说明
+首次部署先阅读README_先读.md，按config/deploy.env.example配置已有上游环境。
+EOF
+  exit 0
+fi
+if [[ "$TASK3_COMMAND" == check ]]; then
+  exec /usr/bin/python3 "$TASK3_RELEASE_ROOT/tools/probe_host.py" "$@"
+fi
+if [[ "$TASK3_COMMAND" == manual ]]; then
+  exec xdg-open "$TASK3_RELEASE_ROOT/docs/00_使用说明.html"
+fi
+if [[ -f "$TASK3_RELEASE_ROOT/config/deploy.env" ]]; then
+  source "$TASK3_RELEASE_ROOT/config/deploy.env"
+fi
+export TASK1_ROS_SETUP="${TASK1_ROS_SETUP:-/opt/ros/jazzy/setup.bash}"
+if [[ ! -f "$TASK1_ROS_SETUP" ]]; then
+  printf '找不到ROS环境：%s。先运行bash bin/task3 check并查看部署说明。\n' "$TASK1_ROS_SETUP" >&2
+  exit 2
+fi
+# Use the ROS system Python; do not modify the login shell or installed software.
+unset PYTHONHOME CONDA_PREFIX CONDA_DEFAULT_ENV CONDA_PROMPT_MODIFIER
+export PATH="/usr/bin:/usr/local/bin:/bin:/usr/sbin:/usr/local/sbin:$PATH"
+TASK3_CLEAN_LD=""
+IFS=: read -r -a TASK3_LD_PARTS <<< "${LD_LIBRARY_PATH:-}"
+for TASK3_LD_PART in "${TASK3_LD_PARTS[@]}"; do
+  case "$TASK3_LD_PART" in /opt/MVS/lib/*|"") continue ;; esac
+  TASK3_CLEAN_LD="${TASK3_CLEAN_LD:+$TASK3_CLEAN_LD:}$TASK3_LD_PART"
+done
+export LD_LIBRARY_PATH="/usr/local/lib${TASK3_CLEAN_LD:+:$TASK3_CLEAN_LD}"
+set +u
+source "$TASK1_ROS_SETUP"
+if [[ -n "${TASK3_BASE_SETUP:-}" ]]; then
+  if [[ ! -f "$TASK3_BASE_SETUP" ]]; then
+    printf '配置的TASK3_BASE_SETUP不存在：%s\n' "$TASK3_BASE_SETUP" >&2
+    exit 2
+  fi
+  source "$TASK3_BASE_SETUP"
+elif [[ -f "$TASK3_RELEASE_ROOT/upstream_ws/install/setup.bash" ]]; then
+  TASK3_BASE_SETUP="$TASK3_RELEASE_ROOT/upstream_ws/install/setup.bash"
+  source "$TASK3_BASE_SETUP"
+fi
+set -u
+export TASK1_BASE_SETUP="${TASK3_BASE_SETUP:-$TASK1_ROS_SETUP}"
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
+cd "$TASK3_RELEASE_ROOT"
+build_app() {
+  colcon --log-base "$TASK3_RELEASE_ROOT/.logs/app" build \
+    --base-paths "$TASK3_RELEASE_ROOT/src" --packages-select task1_fusion \
+    --build-base "$TASK3_RELEASE_ROOT/build" --install-base "$TASK3_RELEASE_ROOT/install" \
+    --symlink-install
+}
+case "$TASK3_COMMAND" in
+  build-app) build_app; exit ;;
+  build-stack)
+    colcon --log-base "$TASK3_RELEASE_ROOT/.logs/upstream" build \
+      --base-paths "$TASK3_RELEASE_ROOT/vendor" --packages-select livox_ros_driver2 fast_lio \
+      --build-base "$TASK3_RELEASE_ROOT/upstream_ws/build" \
+      --install-base "$TASK3_RELEASE_ROOT/upstream_ws/install" --executor sequential \
+      --cmake-args -DROS_EDITION=ROS2 -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release \
+      -DPYTHON_EXECUTABLE=/usr/bin/python3 -DPython_EXECUTABLE=/usr/bin/python3
+    set +u
+    source "$TASK3_RELEASE_ROOT/upstream_ws/install/setup.bash"
+    set -u
+    build_app
+    exit ;;
+  receive)
+    exec /usr/bin/python3 "$TASK3_RELEASE_ROOT/tools/vision_subscriber.py" "$@" ;;
+  lidar)
+    if ! ros2 pkg prefix livox_ros_driver2 >/dev/null 2>&1; then
+      echo '缺livox_ros_driver2：配置已有上游TASK3_BASE_SETUP或按说明build-stack。' >&2
+      exit 2
+    fi
+    exec bash "$TASK3_RELEASE_ROOT/scripts/start_car_lidar.sh" "$@" ;;
+  fastlio)
+    if ! ros2 pkg prefix fast_lio >/dev/null 2>&1; then
+      echo '缺fast_lio：配置已有上游TASK3_BASE_SETUP或按说明build-stack。' >&2
+      exit 2
+    fi
+    mkdir -p "$TASK3_RELEASE_ROOT/results"
+    exec ros2 launch fast_lio mapping.launch.py \
+      "config_path:=$TASK3_RELEASE_ROOT/config" config_file:=car_fastlio.yaml rviz:=false \
+      "map_file_path:=$TASK3_RELEASE_ROOT/results/car_fastlio_debug.pcd" "$@" ;;
+  ui|start|demo)
+    if [[ ! -f "$TASK3_RELEASE_ROOT/install/setup.bash" ]]; then
+      echo '先运行bash bin/task3 build-app。' >&2
+      exit 2
+    fi
+    set +u
+    source "$TASK3_RELEASE_ROOT/install/setup.bash"
+    set -u
+    case "$TASK3_COMMAND" in
+      ui) exec bash "$TASK3_RELEASE_ROOT/scripts/car_task3_ui.sh" "$@" ;;
+      start) exec bash "$TASK3_RELEASE_ROOT/scripts/start_car_task3_relative.sh" "$@" ;;
+      demo) exec bash "$TASK3_RELEASE_ROOT/scripts/task3_demo.sh" "$@" ;;
+    esac ;;
+  *) printf '未知命令：%s；运行bash bin/task3 help。\n' "$TASK3_COMMAND" >&2; exit 2 ;;
+esac

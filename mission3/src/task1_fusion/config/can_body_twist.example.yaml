@@ -1,0 +1,24 @@
+# EXAMPLE ONLY. The real car protocol is currently unknown.
+# This does not describe the reference repo's 0x12/0x13 TX pose frames.
+protocol_confirmed: false
+mode: body_twist
+can_id: 769  # placeholder 0x301, not measured from your hardware
+extended_id: false
+byte_order: little
+payload_length: 8
+base_frame: robot_base
+max_gap_sec: 0.1
+max_receive_age_sec: 0.1
+receive_latency_sec: 0.0
+max_speed_mps: 5.0
+max_yaw_rate: 10.0
+# Body axes must match robot_base: +x right, +y forward, +wz left turn.
+# These must be interval-average measured velocities, not command velocities.
+fields:
+  vx: {offset: 0, type: int16, scale: 0.001}
+  vy: {offset: 2, type: int16, scale: 0.001}
+  wz: {offset: 4, type: int16, scale: 0.001}
+# Optional raw millisecond counter in the same atomic frame. Remove this
+# section if absent. Host receive time then needs a calibrated latency offset.
+# Wrap is supported; MCU reboot/long dropout requires a decoder restart.
+timestamp_counter: {offset: 6, type: uint16, bits: 16, seconds_per_tick: 0.001}

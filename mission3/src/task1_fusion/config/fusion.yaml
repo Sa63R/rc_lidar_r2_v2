@@ -1,0 +1,38 @@
+task1_fusion:
+  ros__parameters:
+    wheel_topic: /wheel/odom
+    lidar_topic: /map_lidar/odom
+    lidar_parent_frame: map
+    lidar_child_frame: body
+    wheel_parent_frame: wheel_odom
+    wheel_child_frame: robot_base
+    output_frame: robot_origin
+    output_child_frame: robot_base_fused
+    # These are copied from repo 1, NOT a calibration of your own car.
+    # T_body_base: pose of base in body. T_map_origin: pose of origin in map.
+    body_to_base_xyz: [0.237488, -0.272804, -0.483]
+    body_to_base_rpy: [0.0, 0.0, -1.5707963267948966]
+    map_to_origin_xyz: [0.237488, -0.272804, -0.483]
+    map_to_origin_rpy: [0.0, 0.0, -1.5707963267948966]
+    history_sec: 2.0
+    max_wheel_gap_sec: 0.10
+    wheel_timeout_sec: 0.10
+    lidar_timeout_sec: 1.0
+    lidar_std: [0.010, 0.010, 0.012, 0.015]
+    wheel_noise_per_sqrt_m: 0.01
+    yaw_noise_per_sqrt_m: 0.02
+    moving_xy_noise: 0.001
+    moving_z_noise: 0.002
+    stationary_xy_noise: 0.00015
+    stationary_z_noise: 0.00010
+    stationary_yaw_noise: 0.0002
+    stationary_lidar_std_scale: 1.5
+    stationary_speed_mps: 0.003
+    stationary_yaw_rate: 0.01
+    stationary_dwell_sec: 0.30
+    innovation_gate: 18.47
+    max_position_innovation_m: 0.50
+    max_yaw_innovation_rad: 0.50
+    max_speed_mps: 5.0
+    max_yaw_rate: 10.0
+    publish_tf: false
