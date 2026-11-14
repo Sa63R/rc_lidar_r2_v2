@@ -12,6 +12,8 @@ if [[ "$TASK3_COMMAND" == help || "$TASK3_COMMAND" == --help ]]; then
   bash bin/task3 build-stack    从vendor编译驱动/FAST-LIO，再编译本程序；需已装SDK2
   bash bin/task3 lidar          启动雷达驱动（已有健康驱动则跳过）
   bash bin/task3 fastlio        启动FAST-LIO（已有健康定位则跳过）
+  bash bin/task3 run            日常一键启动：雷达、定位、原点与坐标窗口
+  bash bin/task3 install-launcher 添加应用菜单启动入口（首次部署做一次）
   bash bin/task3 ui             打开现有坐标UI，人工在正确角点/朝向建立起点
   bash bin/task3 start          无桌面时在终端建立起点并运行接口
   bash bin/task3 receive        视觉接收示例；Ctrl+C退出
@@ -26,6 +28,9 @@ if [[ "$TASK3_COMMAND" == check ]]; then
 fi
 if [[ "$TASK3_COMMAND" == manual ]]; then
   exec xdg-open "$TASK3_RELEASE_ROOT/docs/00_使用说明.html"
+fi
+if [[ "$TASK3_COMMAND" == install-launcher ]]; then
+  exec /usr/bin/python3 "$TASK3_RELEASE_ROOT/tools/install_task3_shortcut.py" "$@"
 fi
 if [[ -f "$TASK3_RELEASE_ROOT/config/deploy.env" ]]; then
   source "$TASK3_RELEASE_ROOT/config/deploy.env"
@@ -98,7 +103,7 @@ case "$TASK3_COMMAND" in
     exec ros2 launch fast_lio mapping.launch.py \
       "config_path:=$TASK3_RELEASE_ROOT/config" config_file:=car_fastlio.yaml rviz:=false \
       "map_file_path:=$TASK3_RELEASE_ROOT/results/car_fastlio_debug.pcd" "$@" ;;
-  ui|start|demo)
+  ui|start|demo|run)
     if [[ ! -f "$TASK3_RELEASE_ROOT/install/setup.bash" ]]; then
       echo '先运行bash bin/task3 build-app。' >&2
       exit 2
@@ -110,6 +115,7 @@ case "$TASK3_COMMAND" in
       ui) exec bash "$TASK3_RELEASE_ROOT/scripts/car_task3_ui.sh" "$@" ;;
       start) exec bash "$TASK3_RELEASE_ROOT/scripts/start_car_task3_relative.sh" "$@" ;;
       demo) exec bash "$TASK3_RELEASE_ROOT/scripts/task3_demo.sh" "$@" ;;
+      run) exec /usr/bin/python3 "$TASK3_RELEASE_ROOT/tools/task3_operator.py" "$@" ;;
     esac ;;
   *) printf '未知命令：%s；运行bash bin/task3 help。\n' "$TASK3_COMMAND" >&2; exit 2 ;;
 esac

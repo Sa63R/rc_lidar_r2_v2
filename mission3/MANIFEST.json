@@ -1,20 +1,20 @@
 {
-  "release": "task3_corner_vision_20261112_r1",
+  "release": "task3_corner_vision_20261114_r3",
   "files": [
     {
       "path": "README_先读.md",
-      "size": 3151,
-      "sha256": "e985943edac82391332f8dcfdc53db5d56f8c0c1fb11d30540b42e1611482224"
+      "size": 1217,
+      "sha256": "2f5472f3c08291b379ddba0efaf8827191e4c8f2c88ceb65fd90da1876177277"
     },
     {
       "path": "bin/task3",
-      "size": 5316,
-      "sha256": "7794f72b4564dda7187558e6e065f75b0d6f11e29bfb818313c1302cefc1ec61"
+      "size": 5730,
+      "sha256": "c9ce7755acd8215b7309ac2eba1b873d28310503429e61dc91bed9f294ba852d"
     },
     {
       "path": "build_information.json",
-      "size": 557,
-      "sha256": "618b8f286b8666b30b80328fa064e778a427f440289346031ed204d87a82b19c"
+      "size": 3712,
+      "sha256": "4d2ed95f1ef07afd7729a4f4543d7b200f083abb88b921870c3e4b80ca864987"
     },
     {
       "path": "config/car_fastlio.yaml",
@@ -38,13 +38,13 @@
     },
     {
       "path": "docs/00_使用说明.html",
-      "size": 23776,
-      "sha256": "59ae7ac17ddef987b47865420e476cd6c89e0c39ce764e233320db3385e04816"
+      "size": 8166,
+      "sha256": "0c2e27651578e9e3214b1c829d5d36ce48d45420a0d018abd42af3d04731c37b"
     },
     {
       "path": "docs/01_主机部署与启动.md",
-      "size": 5966,
-      "sha256": "a0dd8b4e9c9ed3a0caca1b8746a8efa196ef3e610187f3617ee70d1dbdbe209e"
+      "size": 6495,
+      "sha256": "c50bbee3a86d960c675e0b2b9a56db48f0555e1f3d1824bb5e4e9a4a0f2d32cd"
     },
     {
       "path": "docs/02_角点计算与坐标约定.md",
@@ -53,13 +53,18 @@
     },
     {
       "path": "docs/03_视觉接收接口.md",
-      "size": 3215,
-      "sha256": "b3ad9324f5cd714a4bb13e1fe74051f7f616b9a2e1c6669b36cb139aa66daa32"
+      "size": 3278,
+      "sha256": "02ac109f1eaf6770dd3f1a08a2622c1805ec4274b2dfa33dbaf9604f88e4c57d"
     },
     {
       "path": "docs/04_版本与测试结论.md",
-      "size": 2621,
-      "sha256": "0b2f77bb052549090aa312de220669fd0ab502f1e10770a97005f0a7018f0b3c"
+      "size": 2797,
+      "sha256": "e53c3bcb8d1bddff96d28847d099cd6efbbbb9c02d8572b15e74762e80dfb2f1"
+    },
+    {
+      "path": "docs/05_完整使用说明.html",
+      "size": 22319,
+      "sha256": "3d4a3fe1b5d1bb236f200d5db6a43de7c4cd5f00bccd5c57e1d4f1374de7e47c"
     },
     {
       "path": "docs/corner_cad_reference.png",
@@ -223,13 +228,33 @@
     },
     {
       "path": "src/task1_fusion/task1_fusion/vision_ui.py",
-      "size": 14892,
-      "sha256": "c99652d9ceb26a817d2e46e532636d62818e9dc9d8f9e7233aabd29c10696f06"
+      "size": 14947,
+      "sha256": "31be2fab83bcd375a9ee21c49b56b2802dc4fe7de5176d6324953c5c469e9246"
+    },
+    {
+      "path": "tools/install_task3_shortcut.py",
+      "size": 1463,
+      "sha256": "1ff89787857540810363b2aab0c3227874e93f9888112a488c356d3fd4dd0a2a"
+    },
+    {
+      "path": "tools/install_update.py",
+      "size": 4976,
+      "sha256": "a52b4bfd0608ea135aa072e75a88d44a69b32c35640b5092d22bae6435e061f9"
     },
     {
       "path": "tools/probe_host.py",
       "size": 2424,
       "sha256": "4c8e0d623a295128f147b48332e3011c23f3ea14d03e8c03498105c5cf088c7b"
+    },
+    {
+      "path": "tools/task3_operator.py",
+      "size": 6608,
+      "sha256": "da3d15a39e32e1f41b4b8c7525c16cd8141070e9a3f20ab82990f98f949f0d12"
+    },
+    {
+      "path": "tools/task3_runtime.py",
+      "size": 5313,
+      "sha256": "07c7c2d927c1756fb90bb8126cafb2163aeef97dfb9bade7298300334c7b9ab7"
     },
     {
       "path": "tools/task3_set_start.py",
@@ -970,6 +995,16 @@
       "path": "vendor/livox_ros_driver2/src/parse_cfg_file/parse_livox_lidar_cfg.h",
       "size": 2047,
       "sha256": "0ad28cf4977f6c9c07aa23dbac80f66ba4da7680042ba59f8d0d794d78d262f8"
+    },
+    {
+      "path": "启动任务三.sh",
+      "size": 158,
+      "sha256": "e226c7e14b20bda27847924994a0aa4f07a51843ee0e6b36b537fff278b4c654"
+    },
+    {
+      "path": "更新主机.sh",
+      "size": 294,
+      "sha256": "61e10372dea68fdccc187237bf5b2e675069c4c71a954e7f487ffd607a5c392f"
     }
   ],
   "scope": "Frozen app/config/UI/docs and selected field upstream source; no historical origins/raw data."

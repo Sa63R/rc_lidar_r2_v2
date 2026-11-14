@@ -1,0 +1,166 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>任务三 · 视觉交付说明</title>
+<style>
+:root{font-family:system-ui,"Noto Sans CJK SC",sans-serif;color:#172a3a;background:#f3f6f9;line-height:1.8}
+body{margin:0}header{background:#173d54;color:white;padding:36px max(6vw,20px)}
+header h1{margin:0;font-size:30px}header p{max-width:1000px;color:#dce8ee}
+nav{position:sticky;top:0;background:white;border-bottom:1px solid #dce3ea;padding:12px 5vw;display:flex;gap:14px;flex-wrap:wrap}
+nav a{color:#145f82;text-decoration:none;padding:5px 12px;border-radius:7px;background:#eaf3f8}
+main{max-width:1080px;margin:28px auto;padding:0 20px}section{scroll-margin-top:90px;background:white;padding:26px 34px;margin:22px 0;border:1px solid #dde5ec;border-radius:12px}
+h2,h3,h4,h5{line-height:1.5;color:#163f59}h2{font-size:25px}h3{border-bottom:1px solid #e4eaf0;padding-bottom:8px}
+pre{background:#122b3b;color:#e6f3fb;padding:16px;overflow:auto;border-radius:7px;font-size:14px;line-height:1.65}
+code{font-family:ui-monospace,monospace}p code,td code{background:#eef3f7;padding:2px 4px}
+table{border-collapse:collapse;width:100%;font-size:15px}th,td{border:1px solid #dce4ec;padding:10px;text-align:left}th{background:#edf4f8}
+a{color:#126d9a}.item{margin:6px 0}.callout{border-left:4px solid #d39a32;background:#fff8e9;padding:12px 16px}
+@media(max-width:650px){section{padding:18px}header h1{font-size:24px}}
+</style><header><h1>任务三 · 角点坐标交付说明</h1>
+<p>雷达看环境 → FAST-LIO估位姿 → 按机械关系计算角点 → 视觉订阅X / Y / yaw。</p>
+<p>视觉组可独立启动和使用。首次部署完成后，日常使用一键入口；主机实测运行待恢复供电后确认。</p></header>
+<nav><a href="#quick">先读</a><a href="#deploy">部署启动</a><a href="#math">坐标原理</a><a href="#api">视觉接收</a><a href="#limits">测试范围</a></nav><main><div class="callout">指定车架角点的地面投影对O，初始方向对齐场地轴，再建立起点。输出为角点，Z未验收；精度状态如实保留。</div><section id="quick"><h2>任务三：视觉组独立使用</h2>
+<p>先用浏览器打开 docs/00_使用说明.html。</p>
+<p>首次安装由部署者完成一次；以后视觉组可自行启动主机、建立原点、接收坐标，不需要原开发者在场。 已编译主机更新后，在应用菜单搜索“任务三角点坐标”。终端替代入口：</p>
+<pre><code>bash bin/task3 run</code></pre>
+<p>它按需启动雷达与定位、打开原点/坐标UI；已有发布者会复用，不重复启动。 把正确角点投影对正式O、初始图示轴对齐场地轴后点击“建立起点并启动”，保持车静止约2秒。 有效坐标出现后即可移车。结束时先让视觉停用坐标，再关闭窗口，等退出后断电。 本窗口只停止自己启动的进程。断电/源定位重初始化后必须在正式O及规定朝向重新建立起点。</p>
+<p>源码随包提供，右键解压即可查看；视觉接收示例tools/vision_subscriber.py。 目标主机已编译旧算法，r3增加一键启动；新入口的实车运行仍待恢复供电后确认。 ROS、SDK2与系统依赖不在包内。算法/机械参数未变，Z延期，物理精度标志仍false。 GitHub旧版本不会自动具备新入口，需使用本包更新。</p></section><section id="deploy"><h2>主机部署与启动</h2>
+<p>主机指持续运行驱动、定位、角点计算的电脑。视觉可以同机订阅，也可以另一台电脑通过ROS网络接收。 基线为Ubuntu 24.04 / ROS 2 Jazzy。目标volleyball主机此前完整编译成功；r3新增一键入口，待恢复供电后验证实车运行。不要跨电脑复制install目录。</p>
+<h3>1. 解压与环境报告</h3>
+<p>在目标电脑解压交付tar.gz，进入解压产生的task3_corner_vision_20261112_r1目录。</p>
+<pre><code>bash bin/task3 check --out host_environment.json
+python3 tools/verify_release.py</code></pre>
+<p>第二条只核对交付源码清单。环境报告和校验成功都不代表硬件定位/精度已经验证。 若目标主机ROS/Ubuntu版本不同，先把报告交给维护者，不直接更改车体机械参数解决系统兼容问题。</p>
+<h3>2. 软件依赖与两种部署路径</h3>
+<p>基线需要ROS 2 Jazzy、colcon、系统Python的numpy/PyYAML/tkinter；上游还需要PCL、Eigen、 ROS的pcl_ros/pcl_conversions、Livox-SDK2共享库与头文件。主机已具备时不用重复安装。 依赖检查/安装按主机管理员的ROS环境进行，包不会在启动时自动sudo或安装系统软件。</p>
+<h4>路径A：主机已有正常的雷达栈</h4>
+<pre><code>cp config/deploy.env.example config/deploy.env</code></pre>
+<p>编辑config/deploy.env，取消TASK3_BASE_SETUP那一行的注释，填写目标主机真实路径，示意：</p>
+<pre><code>TASK1_ROS_SETUP=/opt/ros/jazzy/setup.bash
+TASK3_BASE_SETUP=/实际雷达工作空间/install/setup.bash
+ROS_DOMAIN_ID=0</code></pre>
+<p>这是目标机路径，不能填开发者电脑的历史路径。然后：</p>
+<pre><code>bash bin/task3 build-app</code></pre>
+<h4>路径B：需要部署包内驱动与FAST-LIO源码</h4>
+<p>vendor中包含从现场实际栈冻结的livox_ros_driver2与FAST_LIO源码及上游许可证。 先准备与ROS匹配的编译依赖；Livox-SDK2源码不在本包内，可按驱动README所链接的 <a href="https://github.com/Livox-SDK/Livox-SDK2">官方SDK2说明</a>安装。驱动需要 /usr/local/lib/liblivox_lidar_sdk_shared.so及livox_lidar_api.h等头文件。</p>
+<p>安装好依赖后，从交付目录执行：</p>
+<pre><code>bash bin/task3 build-stack</code></pre>
+<p>它在本目录upstream_ws构建上游，再构建应用，不覆盖目标机已有工作空间。 source路径运行时自动选择本目录upstream_ws/install/setup.bash；如果deploy.env设置了其他上游，则显式配置优先。 旧版本完整驱动/FAST-LIO与应用构建已获目标机成功输出；新增一键入口仍需目标机实际运行确认。</p>
+<h3>3. 雷达网络</h3>
+<p>当前车载MID-360为192.168.1.131；驱动JSON接收地址为主机192.168.1.5。 把连接雷达的目标机有线网口配置为192.168.1.5/24，无需默认网关；网卡名由目标机决定。 若主机地址需要改变，须同步改config/car_mid360_131.json的host_net_info各接收地址，不能只改环境变量。 视觉在另一台电脑时使用自己的唯一IP，不能也配置为192.168.1.5。该网段最好无其他主机占用同地址。</p>
+<h3>4. 首次添加入口与日常一键启动</h3>
+<p>主机编译完成后执行一次，添加应用菜单入口：</p>
+<pre><code>bash bin/task3 install-launcher</code></pre>
+<p>以后视觉组可以自己操作主机，在应用菜单搜索“任务三角点坐标”；不要求原开发者每次启动。 终端替代入口：</p>
+<pre><code>bash bin/task3 run</code></pre>
+<p>程序检测已有发布者，按需启动驱动、等待真实新鲜点云和IMU、按需启动FAST-LIO、等待camera_init→body定位。 定位就绪后，把正确车架角点投影对正式O、初始图示轴对齐场地轴，点击“建立起点并启动”，保持静止约2秒。 等待有效坐标和起点编号，再允许移车。已有有效接口时UI自动显示，不重复建立。 结束前视觉停用坐标，再关闭窗口或点击“停止整套程序并退出”。它先停自己启动的角点接口，再停自己启动的定位/驱动。 其他入口启动的进程保留；若要彻底断电，仍需相应操作者结束这些外部进程。 输入中断会停止本窗口启动的坐标接口，恢复后在正式O和初始朝向重新建立起点，不自动沿用旧原点。 启动故障不自动sudo、不修改网络/机械参数，不反复启动失败进程；查看日志后排查并重新开窗口。</p>
+<p>无图形桌面时，旧的lidar/fastlio/start分开启动入口仍保留，日常桌面用户不必使用它们。 当前不是任意位置上电就能恢复场地坐标的固定地图重定位系统。</p>
+<h3>5. 视觉接收</h3>
+<p>同机另开终端，进入交付目录：</p>
+<pre><code>bash bin/task3 receive</code></pre>
+<p>可加--seconds 10 --report receiver_report.json记录示例接收情况，报告路径必须不存在。 坐标会在尚无视觉业务程序时正常发布；接收示例只是另一个订阅者，不会拿走别人的消息。</p>
+<p>跨机：接收电脑要有相容ROS 2环境，ROS_DOMAIN_ID一致，DDS网络允许发现/通信，时钟同步， ROS_LOCALHOST_ONLY等配置不能限制到本机。网络隔离/多网卡时要按现场DDS实现配置。 接收端必须执行自己的超时检查；本机验证不能替代跨机验证。</p>
+<h3>6. 演示和停止</h3>
+<p>无雷达时可运行：</p>
+<pre><code>bash bin/task3 demo</code></pre>
+<p>合成演示仅在域93，UI明确标“离线演示”，不修改实车起点、不启动驱动或FAST-LIO。 它用于熟悉接收协议，不能测物理精度。无桌面可加--no-gui --seconds 8。</p>
+<p>一键模式停止：关闭窗口并等待其自建进程结束后断电。旧分开启动模式：先停UI，再FAST-LIO终端Ctrl+C，最后驱动终端Ctrl+C。 UI不会停止其他终端启动的雷达/定位。换起点会改变reference_id，视觉清空旧轨迹/累计偏移。</p>
+<h3>常见问题</h3>
+<table>
+<tr><th>现象</th><th>处理</th></tr>
+<tr><td>No module named rclpy或找不到ROS</td><td>运行check，核对ROS安装及deploy.env；使用系统Python</td></tr>
+<tr><td>找不到fast_lio/livox_ros_driver2</td><td>配置已有上游路径或按路径B构建</td></tr>
+<tr><td>UI不能打开</td><td>主机可能无桌面/python3-tk，先使用start终端入口</td></tr>
+<tr><td>起点无新鲜稳定窗口</td><td>检查源定位时效/链路及车是否静止，不修改时间戳冒充恢复</td></tr>
+<tr><td>valid=false</td><td>按reason排查，弃用旧坐标，不仅看进程是否活着</td></tr>
+<tr><td>physical_accuracy_verified=false</td><td>如实保留的精度状态，不是没有坐标；用户已选择先工程试用</td></tr>
+<tr><td>转向出现几十厘米偏移</td><td>优先核对是否同一指定车架角点、安装方向和机械链，不能把它归零掩盖</td></tr>
+</table></section><section id="math"><h2>角点怎样从雷达定位算出来</h2>
+<h3>数据路线</h3>
+<pre><code>MID-360点云+内置IMU → 驱动 → FAST-LIO → /Odometry
+    → 角点刚体换算 → 固定初始角点坐标系 → 有界平滑/时效检查 → /vision/state</code></pre>
+<p>ROS话题是程序之间的数据通道；FAST-LIO输出不是约定角点坐标，需要任务三程序继续换算。 FAST-LIO一边用IMU预测短时间运动，一边用点云与局部地图的几何关系纠正，输出位置和完整姿态。 本车/Odometry为camera_init→body，body是IMU状态原点，不能直接当雷达半球中心或车心。</p>
+<h3>为什么转弯必须旋转机械偏移</h3>
+<p>车架角点与IMU之间的距离固定，但相对地面的方向随车转动。计算是：</p>
+<pre><code>世界中的角点位置 = 世界中的body位置 + 当前body旋转矩阵 × body到角点的固定向量
+p_corner = p_body + R_body × r_body_corner</code></pre>
+<p>完整程序先组合source→body→雷达→图示轴表达的角点，使用三维旋转/平移。 X/Y输出延期高度验证，不等于内部删掉Z；车有倾斜时竖直杆臂也可能影响水平位置。</p>
+<p>当前配置（m）：</p>
+<table>
+<tr><th>项目</th><th>值</th></tr>
+<tr><td>IMU/body→雷达内部平移</td><td>(-0.011,-0.02329,+0.04412)</td></tr>
+<tr><td>雷达→指定角点，以图示轴表达</td><td>(+0.175,+0.340,-0.3745)</td></tr>
+<tr><td>lidar_to_diagram_rpy</td><td>(0,0,+π/2)，按代码R_L_D方向组合</td></tr>
+<tr><td>组合body→角点平移</td><td>(-0.351,+0.15171,-0.33038)</td></tr>
+</table>
+<p>安装方向约定：雷达+X朝图示-Y；图示轴在操作者俯视、面朝背离出线侧时，左为+X、后为+Y。 不能把图示向量直接当IMU向量，也不能把CAD负坐标取绝对值。机械没有拆改时沿用配置。</p>
+<p><strong>目标点是指定的车架金属角点，不能临时改用另一角、轮胎接地点或万向轮转轴。</strong> 选错参考点时，初始归零可能掩盖差异，转弯后会出现大偏移；遇到这种现象先认清实体点。</p>
+<p>下图是现有MID-360侧机械标注参考：选点在底盘金属车架，标注dX175、dY340、dZ374.5mm。 截图标注的距离大小与程序带符号向量需结合上述轴约定理解，不以轮胎接地点代替。</p>
+<p><img alt="MID-360到约定车架角点的CAD参考" src="corner_cad_reference.png" style="max-width:100%;height:auto"></p>
+<h3>初始角点原点与场地轴</h3>
+<p>建立起点时，程序取连续约2秒低变化样本，位置中位数、四元数平均，求初始角点位置与初始图示+X方向。 把初始角点XY设为0，图示+X水平投影设为固定世界+X，初始yaw设为0。</p>
+<pre><code>输出角点 = 固定初始轴旋转 ×（当前角点世界位置 − 初始角点世界位置）</code></pre>
+<p>原点和轴之后固定，不能随车转动。正式场地轴已规定时，必须先把车体图示轴实际对齐场地轴再建立起点。 yaw表示车体图示朝向相对初始方向的转角，不是速度方向；从上方看逆时针为正，按atan2输出，可能在±π处换符号。</p>
+<p>绕车心转：偏离车心的角点会真实移动。绕目标角点转且投影固定：理想XY保持0。 程序不会根据“正在转弯”把XY强制锁0，更不会在返回时自动归零。</p>
+<h3>平滑在做什么</h3>
+<p>车载自适应滤波min_cutoff=0.5Hz、beta=80、导数截止1Hz。慢时减小抖动，快时提高跟随速度。 每个采样时刻，平滑后XY与未经该层平滑的XY距离最多3mm；不是每帧只允许走3mm，也不是误差保证3mm。 源采样时间、姿态、内部Z不变，原始角点raw_odom保留；它不能消除长期厘米级偏差。</p>
+<h3>视觉需要车心时</h3>
+<p>当前与雷达侧约定交付角点，视觉自行换算。若r_C_H是“角点→车心”在车体图示轴中的真实向量， 水平简化条件下有：</p>
+<pre><code>x_center = x_corner + cos(yaw)*r_x - sin(yaw)*r_y
+y_center = y_corner + sin(yaw)*r_x + cos(yaw)*r_y</code></pre>
+<p>本包未确认该角点→车心向量，不拿雷达→角点尺寸代替它，不凭转动轨迹拟合后当机械真值。 要求完整倾斜姿态时，使用/vision/odom的姿态与一致的三维杆臂，且仍遵守有效性与Z边界。</p>
+<h3>维护者改哪里</h3>
+<p class="item">• 机械/安装参数：config/car_task3_local.yaml，改后建立新起点并独立验证，保留旧版本。</p>
+<p class="item">• 上游FAST-LIO参数：config/car_fastlio.yaml，当前map/surf0.15m、iter3；修改须重启上游并新建起点。</p>
+<p class="item">• 刚体计算：src/task1_fusion/task1_fusion/corner.py、task3_config.py。</p>
+<p class="item">• 平滑/初始化：task3_quality.py、tools/task3_set_start.py。</p>
+<p class="item">• 接口与失效：vision.py、vision_node.py；接收示例tools/vision_subscriber.py。</p>
+<p>看算法说明可以理解这些关系；视觉集成只需按接口约定订阅，不需要自行重写FAST-LIO。</p></section><section id="api"><h2>视觉接收接口</h2>
+<p>主通道/vision/state，ROS 2类型std_msgs/msg/String，msg.data是一段JSON。 另有/vision/pose、/vision/odom供需要标准消息的程序使用；它们没有持续的失效心跳， 所以建议以/vision/state为可用性入口，不能只订阅pose并一直复用最后结果。</p>
+<h3>正常JSON示意（示意值，不是现场实测）</h3>
+<pre><code>{
+  &quot;schema_version&quot;: 1,
+  &quot;valid&quot;: true,
+  &quot;reason&quot;: &quot;tracking_unverified_extrinsics&quot;,
+  &quot;reference_point&quot;: &quot;corner&quot;,
+  &quot;position_unit&quot;: &quot;m&quot;,
+  &quot;yaw_unit&quot;: &quot;rad&quot;,
+  &quot;reference_id&quot;: &quot;task3_start_示意编号&quot;,
+  &quot;data_source&quot;: &quot;live&quot;,
+  &quot;output_components&quot;: [&quot;x&quot;, &quot;y&quot;, &quot;yaw&quot;],
+  &quot;z_valid&quot;: false,
+  &quot;physical_accuracy_verified&quot;: false,
+  &quot;data&quot;: {
+    &quot;stamp_ns&quot;: 1794473000000000000,
+    &quot;frame_id&quot;: &quot;task3_start&quot;,
+    &quot;x&quot;: 0.1,
+    &quot;y&quot;: -0.2,
+    &quot;z&quot;: -0.33,
+    &quot;yaw&quot;: 1.5707963267948966
+  }
+}</code></pre>
+<p>z是内部兼容字段，不是已验证的地面高度。接口rad，UI显示度；+π/2等于逆时针90°。</p>
+<h3>接收规则</h3>
+<p>1. 检查schema_version=1、reference_point=corner、单位m/rad，实车使用data_source=live。 2. valid=true且data存在才读取；否则清除旧有效位置，按reason处理。 3. 检查data.stamp_ns的新鲜度：默认允许源年龄不超过0.5s、未来容差0.05s；接收心跳超过0.5s也弃用。 4. 保留原采样时间，不把旧坐标重新标为当前时间。跨机必须同步时钟。 5. 相同reference_id/frame_id/stamp_ns的重复心跳不是一份新的定位观测；用时间戳区分新采样。 6. reference_id或frame_id改变，清除旧场次轨迹/累计偏移，按新原点接收。 7. yaw在±π处可能换符号，角差使用环绕处理；有连续转角需求时在接收侧展开。</p>
+<p>valid说明当前可用，不代表精度已验收。当前允许名义机械参数的工程试用，physical_accuracy_verified如实false。 不要为了显示绿色而改true。超时会发valid=false、data=null；停止发布程序后，接收端自己的超时检查仍需工作。</p>
+<h3>示例代码怎么用</h3>
+<pre><code>bash bin/task3 receive</code></pre>
+<p>对应tools/vision_subscriber.py。它每秒打印最近接收的X/Y/yaw，持续检查有效性/时间、单位和起点变化， 不会把示例打印频率当定位频率。把相同检查逻辑接入视觉业务节点，在注释处增加视觉自己的角点→车心/相机换算。</p>
+<p>它会显示physical_accuracy_verified=False，这是当前记录边界，不是没有输出。 如只需临时看消息，可在已source ROS的终端执行ros2 topic echo /vision/state std_msgs/msg/String --once， 该命令不代替业务程序的超时处理。</p>
+<h3>跨机如何分工</h3>
+<p>主机负责驱动、FAST-LIO、角点、接口持续发布；首次部署完成后视觉组可自行操作主机的一键入口。视觉电脑只运行订阅业务，不要启动第二套角点发布者。 两端ROS_DOMAIN_ID相同，ROS网络互通、时钟同步；网段和DDS配置由双方电脑实际环境决定。 先接ROS示例，再接视觉业务。真实跨机/视觉业务接入尚未执行，交付包的本机软件检查不代替该步骤。 如果视觉不用ROS，先确认目标协议（例如TCP或共享进程API），再开发适配，当前包没有冒称已支持全部方式。</p></section><section id="limits"><h2>版本、证据与目前交付范围</h2>
+<p>2026-11-14 r3，工程试用源码包；新增视觉组独立使用的一键启动、停止和主机更新/菜单入口，定位算法与机械参数未变。用户认为现有精度暂时足够，选择推进视觉交付，不再补返回残余测量。 这是用户对当前用途的选择，不把未测返回当成通过，也不把physical_accuracy_verified改true。</p>
+<h3>当前采用的配置</h3>
+<p class="item">• FAST-LIO：map/surf0.15m、max_iteration3。</p>
+<p class="item">• 机械：雷达→角点图示(+175,+340,-374.5)mm，安装轴和IMU偏移按已确认配置。</p>
+<p class="item">• 平滑：0.5Hz/beta80、导数1Hz、每采样XY改动上限3mm。</p>
+<p class="item">• 输出：初始角点原点、固定初始图示轴，X/Y/yaw；Z有效高度延期。</p>
+<p class="item">• 0.10m地图在旧包退步，因此没有用于该版本。</p>
+<h3>真实数据能说明什么</h3>
+<p>1. 2026-11-12完整旧平移表，用户向组长确认A=-X0.5m、C=-Y0.5m后，    A二维参照差4.43mm、C11.00mm。只改评价参照，没翻转/缩放定位；摆放和标记误差仍包含其中。 2. 重新辨认角点后，16:44:26截图显示X=1.4mm、Y=11.5mm、yaw90.62°，    用户说明绕建立原点的同一角点转，位置单时刻残余约11.58mm。没有完整旋转轨迹真值或独立真实转角。 3. 早先约472mm转向异常的实体角点身份存疑，不能拿它强行校准杆臂，也不能把新旧不同起点合成一条验收轨迹。</p>
+<p>这些数值不是“全场保证±1cm”、不是整个转弯最大误差，更不是11.58mm纯算法误差。 定位、安装、初始方向、摆放共同影响。当前用户选择先以该精度工程试用。</p>
+<h3>交付内容与验证层级</h3>
+<p class="item">• 冻结本应用源码、车载配置、现场FAST-LIO/驱动源码、接收示例、UI、离线说明与环境检查工具。</p>
+<p class="item">• 包不携带历史起点、原始录包、地图或用户账号。构建目录不能跨机器复用，目标机按源代码构建。</p>
+<p class="item">• 构建/解压校验/合成演示/本机接收是软件验证。真实目标主机安装、跨机DDS、视觉业务程序待环境明确后执行。</p>
+<p class="item">• 目标Ubuntu24.04/Jazzy主机已报告旧栈完整编译成功；r3一键入口尚未在目标机实车运行，不宣称已完成该主机运行验收。</p>
+<p class="item">• 每次上电/FAST-LIO重初始化须按约定在正式O及初始方向初始化；当前版本不保证任意位置上电后自动恢复场地坐标。</p>
+<p>MANIFEST.json记载本包每个文件的SHA256及本机来源；build_information.json记载包版本与验证基线。 交付后任何改动应生成新版本和新校验值，不把修改后的文件继续当作原r1。</p>
+<p>上游许可证原文随vendor保留：FAST_LIO/LICENSE、livox_ros_driver2/LICENSE.txt及其第三方目录。 本包不是把上游统一改成MIT；具体文件按各自许可证。</p></section></main></html>

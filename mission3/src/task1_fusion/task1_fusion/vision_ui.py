@@ -25,7 +25,7 @@ REASONS = {
 
 class VisionWindow:
     def __init__(self, root, corner_config, fusion_config, relative_start_script=None,
-                 monitor_only=False):
+                 monitor_only=False, operator_mode=False):
         import tkinter as tk
         from tkinter import ttk, filedialog, messagebox
         self.root, self.tk, self.messagebox = root, tk, messagebox
@@ -57,7 +57,8 @@ class VisionWindow:
         ttk.Label(panel, textvariable=self.values, font=('', 18)).pack(anchor='w', pady=8)
         ttk.Label(panel, textvariable=self.details, wraplength=760).pack(anchor='w', pady=(0, 14))
         form = ttk.Frame(panel)
-        form.pack(fill='x')
+        if not operator_mode:
+            form.pack(fill='x')
         form.columnconfigure(1, weight=1)
         fields = [('机械参数配置' if relative_start_script else '角点配置', self.corner_config)]
         if not relative_start_script and not monitor_only:

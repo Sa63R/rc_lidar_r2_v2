@@ -1,47 +1,51 @@
-# Mission 3：主机部署与视觉角点坐标
+# 任务三：视觉组独立使用
 
-目标：由雷达侧操作者在目标主机部署，持续向视觉发布约定角点的X/Y/yaw；视觉组接收坐标并使用UI。
-当前程序已完成开发电脑上的软件验证，目标主机环境待报告；现有精度按用户选择先工程试用。
+当前为2026-11-14 r3。首次部署完成后，视觉组可自行启动主机、建立原点和使用坐标，不需要原开发者每次在场。
 
-## 两方各自做什么
+## 主机已经克隆并编译过旧版
 
-- 雷达侧（本项目用户）：在主机拉取代码、准备环境、启动驱动/FAST-LIO/角点接口、摆正实体角点和初始方向建立起点。
-- 视觉侧：按接口订阅坐标，处理valid、采样时间、reference_id；需要车心时自行换算。可使用已有UI查看/操作允许的起点流程。
-- UI能显示数据，不等于它单独完成雷达定位。主机进程持续运行才能持续给视觉坐标。
-
-## 你在目标主机先执行
+在原主机逐条执行：
 
 ```bash
-git clone --depth 1 --branch mission3 https://github.com/Sa63R/rc_lidar_r2_v2.git rc_mission3
-cd rc_mission3/mission3
-bash bin/task3 check --out host_environment.json
+cd ~/rc_mission3
 ```
-
-把环境报告给维护者，决定采用已有雷达栈接入或构建包内上游；环境未知时不直接搬开发机install目录。
-主机已经clone时使用git pull更新；push是把本地改动上传到GitHub，不是下载到主机。
-
-## 环境配置后使用
 
 ```bash
-bash bin/task3 build-app
+git pull --ff-only origin mission3
 ```
 
-主机已有健康驱动和FAST-LIO则保留；否则分别开终端运行bash bin/task3 lidar、bash bin/task3 fastlio。
-另开终端运行bash bin/task3 ui，正确车架角点投影对O、初始轴对齐场地轴后建立起点。
-无桌面可以运行bash bin/task3 start；视觉接收示例bash bin/task3 receive。
+```bash
+cd mission3
+```
 
-## 说明入口
+```bash
+bash bin/task3 install-launcher
+```
 
-- README_先读.md：安装包入口和环境边界。
-- docs/00_使用说明.html：浏览器离线阅读，包含CAD角点参考图和全部说明。
-- docs/01_主机部署与启动.md：依赖、已有上游/包内上游两条路径、启动/停止。
-- docs/02_角点计算与坐标约定.md：IMU/body到角点刚体关系、固定初始轴、yaw、平滑。
-- docs/03_视觉接收接口.md：/vision/state的JSON、米/弧度、失效和跨机要求。
-- docs/04_版本与测试结论.md：真实截图/位移参照与软件验证边界，Z延期、精度标志仍false。
+核心算法和机械参数未变，沿用已编译结果；本次新增一键启动、UI选项与说明，无需重编译驱动/FAST-LIO。
+若git提示本地改动冲突，保留改动并处理，不使用reset --hard或强推。
+已经用交付文件夹的更新主机.sh更新成功时，不用重复更新运行程序。
 
-ROS/SDK2和系统依赖按目标环境提供，当前本机基线Ubuntu24.04/ROS2 Jazzy。
-任务一真实码盘、任务二场地ASPA和视觉业务先接入均不是启动这个雷达侧接口的前置条件。
-不再要求补返回残余试验才能开始工程试用；未测不记通过。
+## 日常使用
 
-本目录有COLCON_IGNORE以免父雷达工作空间自动扫描到内嵌vendor重复包；bin/task3使用显式源码路径独立构建。
-当前仓库分支基于已有Ubuntu24.04/Jazzy分支，原主分支不改。
+主机应用菜单搜索“任务三角点坐标”，或在本目录执行：
+
+```bash
+ROS_DOMAIN_ID=0 bash bin/task3 run
+```
+
+保持车静止，等待“定位已就绪”。正确车架角点投影对正式O，初始图示轴对齐场地轴，再点“建立起点并启动”。
+有效坐标和起点编号出现后再移车。结束时先让视觉停用坐标，再关闭窗口并等待自建进程退出。
+断电/定位重启或输入中断后，需要按正式O与初始方向重新建立起点，不会自动恢复场地坐标。
+
+## 说明与接口
+
+浏览器打开docs/00_使用说明.html。接收示例tools/vision_subscriber.py；主通道/vision/state，读取data.x/y（米）和data.yaw（弧度）。
+UI用度。超时或无效时停用旧值，起点改变后清除旧轨迹。跨机接收需ROS网络互通和同步时钟。
+
+全新主机先看docs/01_主机部署与启动.md，准备ROS/SDK2依赖并build-stack，不跨电脑复制install目录。
+仓库根目录的task3_corner_vision_20261114_r3.tar.gz与交付文件夹的源码包一致，可用于文件更新。
+主机下载更新用clone/pull；push是上传到GitHub。
+
+55项相关软件测试、新目录应用构建和隔离ROS合成UI流程通过；目标主机新入口实际运行仍待恢复供电后确认。
+输出指定角点X/Y/yaw，Z延期，physical_accuracy_verified如实false。软件验证不代表新实车精度。

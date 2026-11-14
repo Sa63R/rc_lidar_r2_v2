@@ -1,10 +1,7 @@
-# 任务三入口
+# 从这里进入任务三
 
-进入[mission3目录](mission3/README.md)。由雷达侧操作者在目标主机部署，视觉组负责接收和使用。
-
-```bash
-cd mission3
-bash bin/task3 check --out host_environment.json
-```
-
-UI、坐标计算、部署与接收说明均在mission3中；当前是源码工程试用交付，目标主机实际部署待环境报告。
+当前mission3分支已同步2026-11-14 r3一键启动版本。说明在mission3/README.md。
+已有主机git pull更新本分支后，在mission3/执行bash bin/task3 install-launcher。
+以后主机应用菜单打开“任务三角点坐标”，或执行bash bin/task3 run。
+主机获取更新用pull，push是向GitHub上传，不用于下载安装到主机。
+正式原点和朝向仍需摆正后在UI建立，不支持任意位置上电自动恢复场地坐标。
