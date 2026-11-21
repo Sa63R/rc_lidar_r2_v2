@@ -1,62 +1,11 @@
-<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>任务三｜视觉组使用说明</title>
-<style>
-body{max-width:850px;margin:32px auto;padding:0 22px 45px;font:17px/1.85 system-ui,"Noto Sans CJK SC",sans-serif;color:#20313d;background:#fafcfd}
-h1{font-size:28px}h2{font-size:21px;margin-top:28px}a{color:#12658a}strong{color:#123f59}.note{padding:14px 18px;border-left:4px solid #27728b;background:#edf6f9}.small{font-size:14px;color:#52646f}
-table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:9px 12px;border:1px solid #d8e2e8}th{background:#eef4f7}
-pre{padding:13px 16px;overflow:auto;background:#eaf0f4;border-radius:6px;font-size:14px;line-height:1.6}code{font-family:ui-monospace,monospace}
-details{margin:18px 0;border:1px solid #d8e2e8;padding:12px 16px;background:white}summary{cursor:pointer;font-weight:600}img{max-width:100%;height:auto}
-@media print{body{font-size:12pt;margin:0}pre{white-space:pre-wrap}}</style></head><body>
-<h1>视觉组：自己启动，自己用坐标</h1>
-<p class="note"><strong>这是一套能运行的程序。</strong>首次安装或更新完成后，视觉组可以自行启动主机、建立原点、查看坐标，并让视觉程序自动接收。日常使用不需要原开发者在场。</p>
-<p class="small">版本2026-11-14 r3。一键启动已做软件验证；目标主机因供电问题，真实运行仍待恢复后确认。定位算法、机械参数和原有接口不变。</p>
-<h2>第一次拿到文件夹，做什么？</h2>
-<p>源码已经随 <code>task3_corner_vision_20261114_r3.tar.gz</code> 交付，不用另下载。<strong>已安装过旧版的主机，只需更新一次：</strong></p>
-<ol>
-<li>把整个交付文件夹复制到主机上，进入该文件夹，右键空白处“在终端打开”。</li>
-<li>输入下面一条命令，完成后应用菜单会出现“任务三角点坐标”。</li>
-</ol>
-<pre><code>bash 更新主机.sh</code></pre>
-<p>默认更新位置是 <code>~/rc_mission3/mission3</code>，沿用已编译程序，保留已有机械配置和运行数据。<strong>更新脚本不会启动雷达，也不会替你设原点。</strong>若主机从没安装过，或脚本报错，按 <a href="05_完整使用说明.html#deploy">首次安装说明</a>处理，不能跳过错误直接使用。</p>
-<h2>以后每天使用，只做这五步</h2>
-<ol>
-<li><strong>供电、接线：</strong>打开主机和雷达电源，接好雷达网线，进入主机图形桌面。</li>
-<li><strong>打开程序：</strong>在应用菜单搜索并点击“任务三角点坐标”。程序会按需启动雷达和定位，已有程序不会再开一份。保持车静止，等待窗口顶部显示“定位已就绪”。</li>
-<li><strong>建立原点：</strong>把指定车架角点的垂直投影对准正式O点，车体图示＋X、＋Y对齐场地规定方向。点击“建立起点并启动”，保持不动约2秒。</li>
-<li><strong>使用坐标：</strong>等窗口出现“坐标可接收”、X/Y/yaw和起点编号，再开始移车。视觉程序可以同时自动接收。</li>
-<li><strong>结束：</strong>先让视觉程序停用坐标，再点击“停止整套程序并退出”或关闭窗口，等程序退出后再断电。其他入口启动的程序不会被这个窗口强行关闭。</li>
-</ol>
-<p><strong>正常使用中不要点“重新建立起点”。</strong>断电、定位重启或换了参考角点后，需要重新摆正车并建立起点，不能在车的任意位置按一下就当成正式原点。</p>
-<details><summary>找不到菜单入口，或想用终端启动？</summary>
-<p>进入已部署主机的程序目录，两条命令分别执行：</p>
-<pre><code>cd ~/rc_mission3/mission3</code></pre>
-<pre><code>ROS_DOMAIN_ID=0 bash bin/task3 run</code></pre>
-<p>一次启动即可，不需要分别开驱动、FAST-LIO和UI三个终端。没有主机图形桌面时，请使用远程桌面进入该主机再操作。</p></details>
-<h2>这三个数怎么理解？</h2>
-<table><tr><th>输出</th><th>含义</th></tr>
-<tr><td>X、Y</td><td>指定<strong>车架金属角点</strong>在固定场地坐标轴下的位置，单位米。例如X=0.50，表示位于原点＋X方向0.50米。</td></tr>
-<tr><td>yaw</td><td>车体相对初始朝向的转角，俯视逆时针为正。<strong>UI显示度，程序接口用弧度。</strong>1.5708弧度约为90°。</td></tr></table>
-<p>输出的是约定角点，视觉若需要车心，再用真实角点→车心偏移换算。Z暂不使用。</p>
-<h2>怎样让视觉程序自动接收？</h2>
-<p>程序持续向 ROS 2 话题 <code>/vision/state</code> 发送坐标。不需要抄UI数字，也不需要视觉重新实现定位算法。</p>
-<p><strong>先在主机测试接收：</strong>另开终端，进入 <code>~/rc_mission3/mission3</code>，执行：</p>
-<pre><code>ROS_DOMAIN_ID=0 bash bin/task3 receive</code></pre>
-<p>看到持续打印的X/Y/yaw后，参考 <code>tools/vision_subscriber.py</code> 接入视觉业务。只有消息有效且未过期才使用；超过0.5秒没有新坐标就停用旧值；起点编号改变后清除旧轨迹或偏移。</p>
-<details><summary>视觉程序在另一台电脑上，或者要查看源码？</summary>
-<p>两台电脑需ROS 2通信互通、使用同一ROS域（当前为0）并同步时钟。视觉电脑无需启动第二套雷达定位。</p>
-<p>右键源码压缩包→“提取到此处”，打开解压的 <code>task3_corner_vision_20261114_r3</code> 目录。接收示例在 <code>tools/vision_subscriber.py</code>；角点计算在 <code>src/task1_fusion/task1_fusion/corner.py</code>。阅读源码无需ROS；运行接收示例需要ROS环境。</p>
-<p>在视觉电脑已配置ROS环境后，进入解压目录执行：</p><pre><code>ROS_DOMAIN_ID=0 /usr/bin/python3 tools/vision_subscriber.py</code></pre>
-<p>具体消息字段和时效检查见 <a href="03_视觉接收接口.md">视觉接收接口</a>；如果视觉不用ROS，需先确定通信方式，再做对应适配，当前并未提供TCP/串口坐标接口。</p></details>
-<details><summary>没有数值、超时、或者程序退出，怎么办？</summary>
-<p>先暂停使用坐标。看窗口顶部提示；检查供电和网线，必要时点“查看运行日志”。不要反复建立原点来掩盖输入故障。</p>
-<p>关闭本窗口，排除问题后重新打开。若提示重复发布程序，先关闭多开的一份。输入中断时，本窗口启动的角点接口会停用；恢复后按正式O点和初始朝向重新建立起点。</p>
-<p><code>physical_accuracy_verified=False</code> 表示尚未完成完整物理精度验收，不是“没有坐标”；坐标能否使用看有效性和时效。当前按既有精度先工程试用，不保证全场±1厘米。</p></details>
-<details><summary>想知道：原点、方向、角点和算法是怎么设置的？</summary>
-<p>初始角点设为X/Y=0、初始yaw=0。图示轴对齐场地轴后建立起点，之后原点和轴固定，不跟车转。俯视雷达、面朝背离出线侧时，左为车体图示＋X，后方为＋Y；雷达自身＋X朝车体图示−Y。</p>
-<p>使用下图指定的车架角点，不能换成另一角或轮胎接地点。雷达→角点沿图示轴的偏移为（＋175、＋340、−374.5）毫米。</p>
-<img src="corner_cad_reference.png" alt="MID-360到指定车架金属角点的CAD标注参考">
-<p>雷达和IMU先估计位置、朝向，再根据固定安装距离和当前朝向算出角点，换到初始场地轴下。转弯时固定偏移也随车转，不能只给雷达坐标加一个恒定X/Y。内部保留三维安装关系，Z不作为有效高度交付。</p>
-<p>平滑每个采样最多改动3毫米，不代表定位误差保证3毫米。详细公式和参数见 <a href="02_角点计算与坐标约定.md">角点计算与坐标约定</a>。</p></details>
-<p class="small"><a href="05_完整使用说明.html">安装与维护完整说明</a> · <a href="04_版本与测试结论.md">测试范围与版本说明</a></p>
-</body></html>
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>任务三固定原点坐标使用说明</title><style>body{max-width:850px;margin:35px auto;padding:0 22px;font:18px/1.8 system-ui;color:#20313d}pre{background:#edf3f6;padding:14px;overflow:auto}h1{font-size:29px}h2{font-size:22px}.note{background:#edf6f9;padding:15px;border-left:4px solid #28748b}a{color:#136480}</style>
+<h1>视觉组：固定原点角点坐标</h1><p class="note">更新2026-11-21 r4。主机更新准备完成后，打开程序会自动定位；正式O保持不变，不需要手点地图或建立起点。</p>
+<h2>日常使用</h2><ol><li>主机和雷达通电、接好网线，车保持静止。</li><li>菜单搜索“任务三角点坐标”并打开；或在程序目录执行下面命令。</li><li>等待自动地图定位通过、窗口显示有效X/Y/yaw，再移车使用。</li><li>结束前让视觉停用坐标，点击“停止整套程序并退出”，等退出后断电。</li></ol>
+<pre>ROS_DOMAIN_ID=0 bash bin/task3 run</pre><p>重启后保留正式O。车可从O以外启动，启动点不会自动清零。源定位中断时停用坐标，关闭程序后重新启动，无需回O。</p>
+<h2>视觉接收</h2><p>订阅<code>/vision/state</code>。使用<code>data.x</code>、<code>data.y</code>、<code>data.yaw</code>；X/Y单位米，接口yaw为弧度，窗口为度，逆时针为正。参考点是约定车架角点，Z延期。</p>
+<p><code>valid=false</code>或超过0.5秒没有新鲜定位时停用旧坐标。<code>physical_accuracy_verified=false</code>是精度尚未正式验收，不等同接口断开。</p>
+<p>终端查看接收：</p><pre>bash bin/task3 receive</pre>
+<h2>首次更新由部署者完成一次</h2><p>源码、地图、固定配置和新增组件需要一起更新，并执行prepare-field、build-map、build-app、install-launcher。之后视觉组只需日常启动。具体命令由聊天逐条提供。</p>
+<p>当前本机自动定位和首次绑定已接通；另一台主机新版本及异位冷启动尚待确认，不宣称全场精度。</p>
+<p>按需查看：<a href="05_完整使用说明.html">完整维护说明</a>。</p></html>

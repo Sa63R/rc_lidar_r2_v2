@@ -43,10 +43,11 @@ def update(archive, target, shortcut=True):
         raise ValueError('这是一台主机的更新入口；目标目录尚未编译。请先按安装维护说明部署：'+str(target))
     files, manifest = read_release(archive)
     info = json.loads(files['build_information.json'][0])
+    needs_rebuild = info.get('update_requires_rebuild') is True
     compatible = info.get('compatible_host_files')
-    if not compatible:
+    if not compatible and not needs_rebuild:
         raise ValueError('此版本未声明可免编译更新，不能使用本更新入口')
-    for name, expected in compatible.items():
+    for name, expected in (compatible or {}).items():
         if not (target/name).is_file() or sha((target/name).read_bytes()) != expected:
             raise ValueError('主机算法源码与免编译更新基线不同：'+name+'；请联系维护者')
     previous = json.loads((target/'MANIFEST.json').read_text())
@@ -86,7 +87,8 @@ def update(archive, target, shortcut=True):
         data = Path(os.environ.get('XDG_DATA_HOME', str(Path.home()/'.local/share')))
         module.install(target, data/'applications')
     return {'release': manifest['release'], 'target': str(target), 'preserved_configs': preserved,
-            'needs_rebuild': False, 'hardware_started': False}
+            'needs_rebuild': needs_rebuild, 'needs_prepare_field': needs_rebuild,
+            'hardware_started': False}
 
 
 def main():
@@ -99,7 +101,10 @@ def main():
     except (OSError, ValueError, KeyError, tarfile.TarError) as exc:
         parser.exit(2, f'更新未完成：{exc}\n请保留错误信息；不要重新建立原点掩盖故障。\n')
     print(json.dumps(result, ensure_ascii=False, indent=2))
-    print('更新完成。在主机应用菜单搜索“任务三角点坐标”；也可在目标目录执行：bash bin/task3 run')
+    if result['needs_rebuild']:
+        print('源码更新完成。先在目标目录依次运行prepare-field、build-map、build-app，再使用run或菜单启动。')
+    else:
+        print('更新完成。在主机应用菜单搜索“任务三角点坐标”；也可在目标目录执行：bash bin/task3 run')
 
 
 if __name__ == '__main__':

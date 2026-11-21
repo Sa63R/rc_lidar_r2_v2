@@ -1,12 +1,16 @@
 build/
 install/
 upstream_ws/
+map_ws/
+.cache/
 .logs/
 results/
 __pycache__/
 *.pyc
 config/deploy.env
 config/car_task3_start.yaml
+config/car_task3_field.yaml
 host_environment*.json
 *.mcap
 *.db3
+maps/*.pcd

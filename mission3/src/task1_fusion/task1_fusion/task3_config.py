@@ -108,6 +108,8 @@ def relative_start_config(base_config, source_xyz, source_quaternion):
     Z stays in the input world's height convention. The new frame remains fixed
     after this initialization; recalculating it on every sample would erase motion.
     """
+    if 'task3_fixed_map' in base_config:
+        raise ValueError('fixed-map configuration must not be re-zeroed; use the fixed-map entry')
     p, projector = prepare(base_config['task3_corner']['ros__parameters'])
     source = xyz_rpy(source_xyz, [0., 0., 0.])
     q = np.asarray(source_quaternion, dtype=float)

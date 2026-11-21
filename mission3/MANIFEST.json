@@ -1,20 +1,20 @@
 {
-  "release": "task3_corner_vision_20261114_r3",
+  "release": "task3_corner_vision_20261121_r4",
   "files": [
     {
       "path": "README_先读.md",
-      "size": 1217,
-      "sha256": "2f5472f3c08291b379ddba0efaf8827191e4c8f2c88ceb65fd90da1876177277"
+      "size": 1175,
+      "sha256": "2508627d2343aeeb436642756cce759b2a4a8e96677aa8a42a6c9b956742994e"
     },
     {
       "path": "bin/task3",
-      "size": 5730,
-      "sha256": "c9ce7755acd8215b7309ac2eba1b873d28310503429e61dc91bed9f294ba852d"
+      "size": 7545,
+      "sha256": "6377f1329d234e3d67e4345ac78562a122c0bb4b043225becd66ed440fe8eaa6"
     },
     {
       "path": "build_information.json",
-      "size": 3712,
-      "sha256": "4d2ed95f1ef07afd7729a4f4543d7b200f083abb88b921870c3e4b80ca864987"
+      "size": 879,
+      "sha256": "158c1825e5c3a3de6cfee826f65ecc7528b5cfe1d65630a931768850efdb524f"
     },
     {
       "path": "config/car_fastlio.yaml",
@@ -38,38 +38,58 @@
     },
     {
       "path": "docs/00_使用说明.html",
-      "size": 8166,
-      "sha256": "0c2e27651578e9e3214b1c829d5d36ce48d45420a0d018abd42af3d04731c37b"
+      "size": 2249,
+      "sha256": "7afb802837eba4a20bd34863132d19e6930f0c5c70dc93357b6b0032da5a4a71"
     },
     {
       "path": "docs/01_主机部署与启动.md",
-      "size": 6495,
-      "sha256": "c50bbee3a86d960c675e0b2b9a56db48f0555e1f3d1824bb5e4e9a4a0f2d32cd"
+      "size": 1827,
+      "sha256": "b2e5e12de3f4a96b448ab5c2eee9a7d296e7c0f74bb17a3fe0cdc02d8749d0c3"
     },
     {
       "path": "docs/02_角点计算与坐标约定.md",
-      "size": 4637,
-      "sha256": "6413507f735cb3238087abe49c0690c504de814b58263385f665fb69ff01a739"
+      "size": 4481,
+      "sha256": "1336707b0cbcc124a2ef0daf0fffa646c2c03db2505e37acb334824ed1c608b5"
     },
     {
       "path": "docs/03_视觉接收接口.md",
-      "size": 3278,
-      "sha256": "02ac109f1eaf6770dd3f1a08a2622c1805ec4274b2dfa33dbaf9604f88e4c57d"
+      "size": 3290,
+      "sha256": "311179eed043cfc1a0392ae9452aa3fc0b118ad6858b2214eb152430ab128f4f"
     },
     {
       "path": "docs/04_版本与测试结论.md",
-      "size": 2797,
-      "sha256": "e53c3bcb8d1bddff96d28847d099cd6efbbbb9c02d8572b15e74762e80dfb2f1"
+      "size": 3393,
+      "sha256": "ec07aca1b9278d5b2e39bcc5371ad2a44e7ec7b371c4b8e296aaa15a29071f47"
     },
     {
       "path": "docs/05_完整使用说明.html",
-      "size": 22319,
-      "sha256": "3d4a3fe1b5d1bb236f200d5db6a43de7c4cd5f00bccd5c57e1d4f1374de7e47c"
+      "size": 17626,
+      "sha256": "d3d73695630b00d4f0c21c532ca379e8475c95c96bc910b8183b7758eff38ecd"
+    },
+    {
+      "path": "docs/06_固定地图原点模式.md",
+      "size": 985,
+      "sha256": "a85405a00e1be9a4b1348df60ff7b77ddb2bf5893673e4290369f5e224122c26"
     },
     {
       "path": "docs/corner_cad_reference.png",
       "size": 378964,
       "sha256": "0778b0cfc3cc0074ad66144693308502649bd18f8d09b1a5b85f301f1f425a0e"
+    },
+    {
+      "path": "field_reference/map_reference.json",
+      "size": 7430,
+      "sha256": "632ec9359c984709e42887ff070d1b05cb62b4b166c6435594a20e3494919cc9"
+    },
+    {
+      "path": "field_reference/task3_corner.yaml",
+      "size": 1609,
+      "sha256": "e6140f54cc6af7e7a282a021fe7aaccb95df8094e36834b58a4b85c9cfe95d6e"
+    },
+    {
+      "path": "maps/field_map.pcd.xz",
+      "size": 8167044,
+      "sha256": "314f62f56aae1613b43dcaf4c095c813313a4349c45f995028115b4b9f5106a5"
     },
     {
       "path": "scripts/car_task3_ui.sh",
@@ -80,6 +100,11 @@
       "path": "scripts/start_car_lidar.sh",
       "size": 827,
       "sha256": "167961c51224fc6eb44be4e25ace916e2da24311ff06cffd65bdc4763a237959"
+    },
+    {
+      "path": "scripts/start_car_task3_map_localizer.sh",
+      "size": 1086,
+      "sha256": "110d138bb27d8577e133e29f61d2d44c439df476a71f8020cae31feb3cc38f74"
     },
     {
       "path": "scripts/start_car_task3_relative.sh",
@@ -192,6 +217,11 @@
       "sha256": "2540e8e3695a6905b2e5d85652e8ed88507b25fe5cbf678c0aa5cc0bc11eeb79"
     },
     {
+      "path": "src/task1_fusion/task1_fusion/global_relocalization.py",
+      "size": 3056,
+      "sha256": "f114dc951575341a0fe1f2d1754fc5265ff86269713bda5bb20b349852766429"
+    },
+    {
       "path": "src/task1_fusion/task1_fusion/logger_node.py",
       "size": 3134,
       "sha256": "b96e0e2973396e3355c3a488b9474e6a96a1380def02ea2a674f5c065108e242"
@@ -208,8 +238,13 @@
     },
     {
       "path": "src/task1_fusion/task1_fusion/task3_config.py",
-      "size": 9154,
-      "sha256": "6be2ce59bba57b6e7fdeba452060236b5d03b167234276c9956bef22d4baf25b"
+      "size": 9294,
+      "sha256": "01e842f5c6e7bb4f9fc6ba4334bd511f152bf920a72150847a103dd411c98dcd"
+    },
+    {
+      "path": "src/task1_fusion/task1_fusion/task3_fixed_map.py",
+      "size": 7371,
+      "sha256": "36f1fa68039fa899b13b56d856d98ea797e1544d6bbc739acf3b479db0924815"
     },
     {
       "path": "src/task1_fusion/task1_fusion/task3_quality.py",
@@ -228,18 +263,33 @@
     },
     {
       "path": "src/task1_fusion/task1_fusion/vision_ui.py",
-      "size": 14947,
-      "sha256": "31be2fab83bcd375a9ee21c49b56b2802dc4fe7de5176d6324953c5c469e9246"
+      "size": 16337,
+      "sha256": "675c5ee0a45c70b6813dc258e0235075b1a7ecd85c8faf0968da3caca728f974"
+    },
+    {
+      "path": "tools/build_task3_global.py",
+      "size": 973,
+      "sha256": "295114ce694157c29be2f564348863cb75bf6bf9f93f117c6670892c4b63416e"
+    },
+    {
+      "path": "tools/global_relocalization/search.cpp",
+      "size": 8479,
+      "sha256": "8b24e044c382b77409e46c1af9a5a467ed3661711343ea32c17ee989afbeafdd"
     },
     {
       "path": "tools/install_task3_shortcut.py",
-      "size": 1463,
-      "sha256": "1ff89787857540810363b2aab0c3227874e93f9888112a488c356d3fd4dd0a2a"
+      "size": 1466,
+      "sha256": "94514076710c10083f407c60ac4f680bb5796f6e8137955af151adb6de5548f5"
     },
     {
       "path": "tools/install_update.py",
-      "size": 4976,
-      "sha256": "a52b4bfd0608ea135aa072e75a88d44a69b32c35640b5092d22bae6435e061f9"
+      "size": 5313,
+      "sha256": "1339e56fe282649149e262c62092ff66902546fa5fa3baac5c89094878094ac8"
+    },
+    {
+      "path": "tools/prepare_task3_field.py",
+      "size": 4523,
+      "sha256": "ea69dfa008acccfb318e46d81bdda5debd7fbec2ab78a721bbdecc00cb7e253e"
     },
     {
       "path": "tools/probe_host.py",
@@ -247,14 +297,29 @@
       "sha256": "4c8e0d623a295128f147b48332e3011c23f3ea14d03e8c03498105c5cf088c7b"
     },
     {
+      "path": "tools/task3_auto_relocalize.py",
+      "size": 13364,
+      "sha256": "f19254846d4619225287c44cf762d30ecc6075a3fb5f8ba5d39592d0a0aa3815"
+    },
+    {
+      "path": "tools/task3_fixed_map.py",
+      "size": 11681,
+      "sha256": "0d9f81a6f02009985f7e168d42bfcac05a343be9cd7b1f77eee9e63ee13be2b5"
+    },
+    {
+      "path": "tools/task3_map_runtime.py",
+      "size": 6854,
+      "sha256": "3f84c837d17221cd7c46218ccb0db52a5278f427815a342217deac9bb8af8da2"
+    },
+    {
       "path": "tools/task3_operator.py",
-      "size": 6608,
-      "sha256": "da3d15a39e32e1f41b4b8c7525c16cd8141070e9a3f20ab82990f98f949f0d12"
+      "size": 9965,
+      "sha256": "99f4b0dabe108027ec355d51cb65e08582b71b62ffd3be023292d0ef4097abc5"
     },
     {
       "path": "tools/task3_runtime.py",
-      "size": 5313,
-      "sha256": "07c7c2d927c1756fb90bb8126cafb2163aeef97dfb9bade7298300334c7b9ab7"
+      "size": 6991,
+      "sha256": "27b425655bc45a686942545e36d96562a934edb459ae1b381c75af66fb881a5e"
     },
     {
       "path": "tools/task3_set_start.py",
@@ -490,6 +555,41 @@
       "path": "vendor/FAST_LIO/src/preprocess.h",
       "size": 4628,
       "sha256": "ccb4f18adf86cadff22b4b74a677edf1eb7b88511863e82ec4c4b015900fb157"
+    },
+    {
+      "path": "vendor/lidar_map_localization/CMakeLists.txt",
+      "size": 1449,
+      "sha256": "cd44cb9d4f750f9c4bb2e7c911d9fc6827776ee0689ab42548fb3e1cfabca391"
+    },
+    {
+      "path": "vendor/lidar_map_localization/config/map_localizer.yaml",
+      "size": 1953,
+      "sha256": "dad65571acfb010cdbdd2384313f208888fbf2cee2263a0cb38b140392973ef5"
+    },
+    {
+      "path": "vendor/lidar_map_localization/launch/map_localizer.launch.py",
+      "size": 8781,
+      "sha256": "d6b8798b218c3c2e001c158843fe560a6be900166cae2966f3b12bf8aad71e78"
+    },
+    {
+      "path": "vendor/lidar_map_localization/package.xml",
+      "size": 621,
+      "sha256": "23754959f55aecd78a55dd733fa5be0879ae58a40ef530844b60e8ed60ebf082"
+    },
+    {
+      "path": "vendor/lidar_map_localization/src/map_localizer.cpp",
+      "size": 40978,
+      "sha256": "49d8daf745c1e256d3317c2877309c037297b7ac1341ded53b556d7ddeea20d9"
+    },
+    {
+      "path": "vendor/lidar_map_localization/src/pcd_prepare_local_map.cpp",
+      "size": 12140,
+      "sha256": "9eae72dc8e0de555f68347ccee5e6d2b7b8847ce7fd69fc40796ae6f73695f89"
+    },
+    {
+      "path": "vendor/lidar_map_localization/src/pcd_quality_report.cpp",
+      "size": 6570,
+      "sha256": "6afbddde7ec0baf366db39b180e475ff41cba148422f5ef191fd34e30763e7ac"
     },
     {
       "path": "vendor/livox_ros_driver2/.gitignore",
@@ -1004,8 +1104,8 @@
     {
       "path": "更新主机.sh",
       "size": 294,
-      "sha256": "61e10372dea68fdccc187237bf5b2e675069c4c71a954e7f487ffd607a5c392f"
+      "sha256": "d81523037640619855bd7edb5cfe7e228ae560ff54850dd7c128bccf346c158b"
     }
   ],
-  "scope": "Frozen app/config/UI/docs and selected field upstream source; no historical origins/raw data."
+  "scope": "Frozen app/config/UI/docs/upstream, optionally one bound formal map; no raw bags or temporary startup origins."
 }

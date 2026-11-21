@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """One operator window owns startup; it never silently creates a field origin."""
 from datetime import datetime
+import argparse
 import fcntl
 import math
+import json
 import os
 from pathlib import Path
 import signal
@@ -12,10 +14,22 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT/'src/task1_fusion'))
-from task3_runtime import OwnedProcesses, Startup
+from task3_runtime import OwnedProcesses, Startup, MapSession, raw_source_ids
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--local-start', action='store_true', help='legacy commissioning mode; resets startup XY')
+    parser.add_argument('--field-config', type=Path, default=ROOT/'config/car_task3_field.yaml')
+    args = parser.parse_args()
+    field = not args.local_start
+    field_p = None
+    if field:
+        from task1_fusion.task3_config import load_config
+        from task1_fusion.task3_fixed_map import validate
+        if not args.field_config.is_file():
+            raise RuntimeError('固定原点配置尚未准备，请先运行 bash bin/task3 prepare-field')
+        field_p, _ = validate(load_config(args.field_config))
     import tkinter as tk
     from tkinter import ttk, messagebox
     import rclpy
@@ -42,6 +56,7 @@ def main():
     log_dir = ROOT/'.logs'/('operator_'+datetime.now().strftime('%Y%m%d_%H%M%S')+'_'+str(os.getpid()))
     processes = OwnedProcesses(ROOT, log_dir)
     startup = Startup(processes)
+    map_session = MapSession(field_p['expected_map_sha256']) if field else None
     rclpy.init(args=[])
 
     class OperatorWindow(VisionWindow):
@@ -55,18 +70,32 @@ def main():
             ttk.Button(bar, text='查看运行日志', command=lambda: subprocess.Popen(
                 ['xdg-open', str(log_dir)])).pack(side='left', padx=8)
             ttk.Button(bar, text='停止整套程序并退出', command=self.close).pack(side='right')
-            super().__init__(root, str(ROOT/'config/car_task3_local.yaml'),
+            super().__init__(root, str(args.field_config) if field else str(ROOT/'config/car_task3_local.yaml'),
                              str(ROOT/'src/task1_fusion/config/fusion.yaml'),
-                             str(ROOT/'scripts/start_car_task3_relative.sh'), operator_mode=True)
+                             None if field else str(ROOT/'scripts/start_car_task3_relative.sh'), operator_mode=True,
+                             fixed_map_script=str(ROOT/'tools/task3_fixed_map.py') if field else None)
             root.title('任务三 · 视觉组日常使用')
             root.geometry('880x700')
             self.start_button.configure(state='disabled')
+            self.map_started = self.field_started_once = False
+            self.map_ready = False
+            self.source_ids = None
+            if field:
+                from std_msgs.msg import String
+                self.node.create_subscription(String, '/task3/map_startup/state', self.map_status, 10)
             for kind, topic, msg_type in [('lidar', '/livox/lidar', CustomMsg),
                                           ('imu', '/livox/imu', Imu),
                                           ('odom', '/Odometry', Odometry)]:
                 self.node.create_subscription(msg_type, topic,
                     lambda msg, kind=kind: self.observe(kind, msg), qos_profile_sensor_data)
             root.after(100, self.connection_tick)
+
+        def map_status(self, msg):
+            try:
+                state = json.loads(msg.data)
+            except (TypeError, ValueError):
+                state = {}
+            map_session.observe(state, self.node.get_clock().now().nanoseconds)
 
         def observe(self, kind, msg):
             pose = msg.pose.pose if kind == 'odom' else None
@@ -99,16 +128,42 @@ def main():
                 # Stop this window's interface instead of reusing its old origin.
                 self.restart_requested = False
                 self.stop()
-                self.append_log('输入中断，已停止本窗口的坐标接口。恢复后回到正式O并摆正朝向，重新建立起点。\n')
-            self.connection.set(startup.message)
+                self.append_log('输入中断，已停止坐标接口。关闭并重新启动程序即可自动定位，固定O不变。\n' if field else
+                                '输入中断，已停止本窗口的坐标接口。恢复后回到正式O并摆正朝向，重新建立起点。\n')
+            if field and startup.ready:
+                ids = raw_source_ids(self.node)
+                if self.source_ids is None:
+                    self.source_ids = ids
+                elif ids != self.source_ids:
+                    startup.fail('定位源会话已改变，请关闭并重新启动程序；固定原点不变，无需回O。')
+                    if self.process is not None:
+                        self.stop()
+                if self.node.count_publishers('/task3/map_startup/state') > 1:
+                    startup.fail('存在多份自动地图入口，请关闭重复程序。')
+                if not self.map_started and startup.ready:
+                    if not self.node.count_publishers('/task3/map_startup/state'):
+                        processes.start('map')
+                    self.map_started = True
+                self.map_ready = startup.ready and map_session.ready(ids)
+                self.connection.set('固定地图定位已就绪，坐标基准保持不变。' if self.map_ready else
+                                    '正在旧地图中自动定位，请保持车静止；首次启动可能需要更长时间。')
+                if self.map_ready and not self.field_started_once:
+                    self.field_started_once = True
+                    if not self.node.count_publishers('/vision/state'):
+                        self.start()
+                if self.process is not None and map_session.initialized and not map_session.live(ids):
+                    self.stop()
+            else:
+                self.map_ready = False
+                self.connection.set(startup.message)
             if self.process is None:
-                self.start_button.configure(state='normal' if startup.ready else 'disabled')
+                self.start_button.configure(state='normal' if (self.map_ready if field else startup.ready) else 'disabled')
             if self.reset_button is not None:
                 self.reset_button.configure(state='normal' if startup.ready and self.process else 'disabled')
             root.after(200, self.connection_tick)
 
         def start(self):
-            if not startup.ready:
+            if not startup.ready or (field and not self.map_ready):
                 messagebox.showinfo('定位尚未就绪', startup.message, parent=root)
                 return
             super().start()

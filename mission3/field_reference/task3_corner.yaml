@@ -1,0 +1,65 @@
+task3_corner:
+  ros__parameters:
+    input_topic: /map_lidar/odom
+    input_parent_frame: map
+    input_child_frame: body
+    output_frame: task3_field
+    output_child_frame: task3_corner
+    output_prefix: /task3/corner
+    source_to_body_xyz:
+    - 0.0
+    - 0.0
+    - 0.0
+    source_to_body_rpy:
+    - 0.0
+    - 0.0
+    - 0.0
+    body_to_lidar_xyz:
+    - -0.011
+    - -0.02329
+    - 0.04412
+    body_to_lidar_rpy:
+    - 0.0
+    - 0.0
+    - 0.0
+    lidar_to_diagram_rpy:
+    - 0.0
+    - 0.0
+    - 1.5707963267948966
+    lidar_to_corner_diagram_xyz:
+    - 0.175
+    - 0.34
+    - -0.3745
+    output_from_input_xyz:
+    - 1.6687558489808443
+    - 5.334313730345837
+    - 0.0
+    output_from_input_rpy:
+    - 0.0
+    - 0.0
+    - -3.139338789057613
+    input_timeout_sec: 0.5
+    future_tolerance_sec: 0.05
+    calibration_confirmed: false
+    publish_tf: false
+    xy_smoothing_enabled: true
+    xy_smoothing_min_cutoff_hz: 0.5
+    xy_smoothing_beta: 80.0
+    xy_smoothing_derivative_cutoff_hz: 1.0
+    xy_smoothing_max_correction_m: 0.003
+    map_file: __PREPARE_FIELD_MAP__
+    expected_map_sha256: b92b6df2d1447cd2b4c81c34df2f3ba257e9cd72050d9dc561563ad500e62d29
+task3_vision:
+  ros__parameters:
+    allow_unverified_extrinsics: true
+    input_timeout_sec: 0.5
+    future_tolerance_sec: 0.05
+    diagnostics_topic: /task3/diagnostics
+    reference_id: task3_field_ebf9a987a46494ed80640aca
+task3_fixed_map:
+  schema_version: 1
+  localizer_node: /map_localizer
+  quality_topic: /map_lidar/quality
+  origin_definition: same rigid corner on chosen formal O; diagram axes aligned with
+    field
+  z_valid: false

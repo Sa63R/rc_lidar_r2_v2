@@ -14,7 +14,7 @@ def install(root, applications):
         path = path.replace(char, '\\'+char)
     target = applications/'task3-corner.desktop'
     target.write_text('[Desktop Entry]\nType=Application\nName=任务三角点坐标\n'
-                      'Comment=启动雷达定位，在窗口建立原点并向视觉提供坐标\n'
+                      'Comment=自动在旧地图中定位，输出相对固定原点的角点坐标\n'
                       f'Exec=/bin/bash "{path}" run\n'
                       'Terminal=true\nIcon=applications-science\nCategories=Education;Science;\n')
     target.chmod(0o755)

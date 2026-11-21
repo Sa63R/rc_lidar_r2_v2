@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Portable release entry; never auto-starts, kills or reuses a saved origin.
+# Portable release entry; default run uses a persistent bound map origin.
 set -euo pipefail
 TASK3_RELEASE_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 TASK3_COMMAND="${1:-help}"
@@ -10,9 +10,14 @@ if [[ "$TASK3_COMMAND" == help || "$TASK3_COMMAND" == --help ]]; then
   bash bin/task3 check          生成主机环境报告（不连接雷达）
   bash bin/task3 build-app      编译角点/UI程序；已有上游时用此项
   bash bin/task3 build-stack    从vendor编译驱动/FAST-LIO，再编译本程序；需已装SDK2
+  bash bin/task3 build-map      旧主机只编译新增地图定位组件和自动搜索工具
+  bash bin/task3 prepare-field  解压同一地图并适配本机路径，保留固定原点
   bash bin/task3 lidar          启动雷达驱动（已有健康驱动则跳过）
   bash bin/task3 fastlio        启动FAST-LIO（已有健康定位则跳过）
-  bash bin/task3 run            日常一键启动：雷达、定位、原点与坐标窗口
+  bash bin/task3 map            启动/复用地图定位并自动寻找当前位置
+  bash bin/task3 run            日常一键启动：雷达、自动地图定位、固定原点坐标窗口
+  bash bin/task3 run-local      调试旧启动清零模式；正式场地不要使用
+  bash bin/task3 fixed-map ...  固定地图原点：bind首次绑定；run/ui日常加载，不清零
   bash bin/task3 install-launcher 添加应用菜单启动入口（首次部署做一次）
   bash bin/task3 ui             打开现有坐标UI，人工在正确角点/朝向建立起点
   bash bin/task3 start          无桌面时在终端建立起点并运行接口
@@ -31,6 +36,9 @@ if [[ "$TASK3_COMMAND" == manual ]]; then
 fi
 if [[ "$TASK3_COMMAND" == install-launcher ]]; then
   exec /usr/bin/python3 "$TASK3_RELEASE_ROOT/tools/install_task3_shortcut.py" "$@"
+fi
+if [[ "$TASK3_COMMAND" == prepare-field ]]; then
+  exec /usr/bin/python3 "$TASK3_RELEASE_ROOT/tools/prepare_task3_field.py" "$@"
 fi
 if [[ -f "$TASK3_RELEASE_ROOT/config/deploy.env" ]]; then
   source "$TASK3_RELEASE_ROOT/config/deploy.env"
@@ -62,6 +70,9 @@ elif [[ -f "$TASK3_RELEASE_ROOT/upstream_ws/install/setup.bash" ]]; then
   TASK3_BASE_SETUP="$TASK3_RELEASE_ROOT/upstream_ws/install/setup.bash"
   source "$TASK3_BASE_SETUP"
 fi
+if [[ -f "$TASK3_RELEASE_ROOT/map_ws/install/setup.bash" ]]; then
+  source "$TASK3_RELEASE_ROOT/map_ws/install/setup.bash"
+fi
 set -u
 export TASK1_BASE_SETUP="${TASK3_BASE_SETUP:-$TASK1_ROS_SETUP}"
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
@@ -73,10 +84,19 @@ build_app() {
     --symlink-install
 }
 case "$TASK3_COMMAND" in
+  fixed-map)
+    exec /usr/bin/python3 "$TASK3_RELEASE_ROOT/tools/task3_fixed_map.py" "$@" ;;
   build-app) build_app; exit ;;
+  build-map)
+    colcon --log-base "$TASK3_RELEASE_ROOT/.logs/map" build \
+      --base-paths "$TASK3_RELEASE_ROOT/vendor/lidar_map_localization" \
+      --packages-select lidar_map_localization \
+      --build-base "$TASK3_RELEASE_ROOT/map_ws/build" --install-base "$TASK3_RELEASE_ROOT/map_ws/install" \
+      --executor sequential --cmake-args -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release
+    exec /usr/bin/python3 "$TASK3_RELEASE_ROOT/tools/build_task3_global.py" ;;
   build-stack)
     colcon --log-base "$TASK3_RELEASE_ROOT/.logs/upstream" build \
-      --base-paths "$TASK3_RELEASE_ROOT/vendor" --packages-select livox_ros_driver2 fast_lio \
+      --base-paths "$TASK3_RELEASE_ROOT/vendor" --packages-select livox_ros_driver2 fast_lio lidar_map_localization \
       --build-base "$TASK3_RELEASE_ROOT/upstream_ws/build" \
       --install-base "$TASK3_RELEASE_ROOT/upstream_ws/install" --executor sequential \
       --cmake-args -DROS_EDITION=ROS2 -DBUILD_TESTING=OFF -DCMAKE_BUILD_TYPE=Release \
@@ -85,7 +105,11 @@ case "$TASK3_COMMAND" in
     source "$TASK3_RELEASE_ROOT/upstream_ws/install/setup.bash"
     set -u
     build_app
+    /usr/bin/python3 "$TASK3_RELEASE_ROOT/tools/build_task3_global.py"
     exit ;;
+  map)
+    TASK3_MAP_PATH="$(/usr/bin/python3 "$TASK3_RELEASE_ROOT/tools/prepare_task3_field.py" --map-path-only)"
+    exec bash "$TASK3_RELEASE_ROOT/scripts/start_car_task3_map_localizer.sh" "$TASK3_MAP_PATH" "$@" ;;
   receive)
     exec /usr/bin/python3 "$TASK3_RELEASE_ROOT/tools/vision_subscriber.py" "$@" ;;
   lidar)
@@ -103,7 +127,7 @@ case "$TASK3_COMMAND" in
     exec ros2 launch fast_lio mapping.launch.py \
       "config_path:=$TASK3_RELEASE_ROOT/config" config_file:=car_fastlio.yaml rviz:=false \
       "map_file_path:=$TASK3_RELEASE_ROOT/results/car_fastlio_debug.pcd" "$@" ;;
-  ui|start|demo|run)
+  ui|start|demo|run|run-local)
     if [[ ! -f "$TASK3_RELEASE_ROOT/install/setup.bash" ]]; then
       echo '先运行bash bin/task3 build-app。' >&2
       exit 2
@@ -112,10 +136,12 @@ case "$TASK3_COMMAND" in
     source "$TASK3_RELEASE_ROOT/install/setup.bash"
     set -u
     case "$TASK3_COMMAND" in
-      ui) exec bash "$TASK3_RELEASE_ROOT/scripts/car_task3_ui.sh" "$@" ;;
-      start) exec bash "$TASK3_RELEASE_ROOT/scripts/start_car_task3_relative.sh" "$@" ;;
+      ui) exec /usr/bin/python3 "$TASK3_RELEASE_ROOT/tools/task3_operator.py" "$@" ;;
+      start) exec /usr/bin/python3 "$TASK3_RELEASE_ROOT/tools/task3_fixed_map.py" run \
+        --config "$TASK3_RELEASE_ROOT/config/car_task3_field.yaml" "$@" ;;
       demo) exec bash "$TASK3_RELEASE_ROOT/scripts/task3_demo.sh" "$@" ;;
       run) exec /usr/bin/python3 "$TASK3_RELEASE_ROOT/tools/task3_operator.py" "$@" ;;
+      run-local) exec /usr/bin/python3 "$TASK3_RELEASE_ROOT/tools/task3_operator.py" --local-start "$@" ;;
     esac ;;
   *) printf '未知命令：%s；运行bash bin/task3 help。\n' "$TASK3_COMMAND" >&2; exit 2 ;;
 esac

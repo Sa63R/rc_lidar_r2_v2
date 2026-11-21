@@ -12,11 +12,11 @@ class OwnedProcesses:
         self.root, self.log_dir, self.spawn = Path(root), Path(log_dir), spawn
         self.children = {}
 
-    def start(self, name):
+    def start(self, name, command=None):
         self.log_dir.mkdir(parents=True, exist_ok=True)
         stream = (self.log_dir/(name+'.log')).open('ab')
         try:
-            child = self.spawn(['bash', str(self.root/'bin/task3'), name],
+            child = self.spawn(command or ['bash', str(self.root/'bin/task3'), name],
                                stdin=subprocess.DEVNULL, stdout=stream,
                                stderr=subprocess.STDOUT, start_new_session=True)
         finally:
@@ -117,3 +117,45 @@ class Startup:
                           and all(counts.get(k) == 1 for k in ('lidar', 'imu', 'odom')))
             self.message = ('定位已就绪：摆正角点和初始朝向，点击“建立起点并启动”。'
                             if self.ready else '输入暂时中断，暂停使用坐标；等待恢复或查看日志。')
+
+
+def raw_source_ids(node):
+    """Identify the actual LIO publishers, not just their reusable frame names."""
+    result = {}
+    for topic in ('/Odometry', '/cloud_registered'):
+        pubs = node.get_publishers_info_by_topic(topic)
+        if len(pubs) != 1:
+            return None
+        result[topic] = list(pubs[0].endpoint_gid)
+    return result
+
+
+class MapSession:
+    """Fresh startup status for THIS map and THIS LIO session (no ROS imports)."""
+    def __init__(self, expected_map_sha256, now=time.monotonic):
+        self.expected_map_sha256, self.now = expected_map_sha256, now
+        self.until = -math.inf
+        self.sources = None
+        self.initialized = self.tracking = False
+
+    def observe(self, state, ros_now_ns):
+        try:
+            age = (ros_now_ns-int(state['stamp_ns']))*1e-9
+            valid = (state['schema_version'] == 1 and state['map_sha256'] == self.expected_map_sha256
+                     and -.05 <= age <= .5 and isinstance(state['source_ids'], dict))
+        except (KeyError, ValueError, TypeError):
+            valid = False
+        if not valid:
+            self.until, self.initialized, self.tracking = -math.inf, False, False
+            return
+        self.until = self.now()+.5-max(age, 0.)
+        self.sources = state['source_ids']
+        self.initialized = state.get('initialized') is True
+        self.tracking = state.get('tracking') is True
+
+    def live(self, sources):
+        return (sources is not None and self.now() <= self.until
+                and self.sources == sources and self.initialized)
+
+    def ready(self, sources):
+        return self.live(sources) and self.tracking

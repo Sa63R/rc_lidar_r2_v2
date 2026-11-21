@@ -1,0 +1,54 @@
+map_localizer:
+  ros__parameters:
+    map_path: maps/mid360_map.pcd
+    scan_topic: /cloud_registered
+    odom_topic: /Odometry
+    initialpose_topic: /initialpose
+    output_odom_topic: /map_lidar/odom
+    output_pose_topic: /map_lidar/pose
+    output_map_topic: /localization/map
+    output_quality_topic: /map_lidar/quality
+    map_frame: map
+    odom_frame: camera_init
+    body_frame: body
+    publish_tf: true
+    # This localizer is not a global relocalizer. If the robot is not started
+    # close to the original map origin, provide an initial map->camera_init
+    # guess with RC_RELOCALIZATION_INITIAL_GUESS=1 or /initialpose.
+    auto_initialize_identity: false
+    initial_guess_enabled: false
+    initial_guess_x: 0.0
+    initial_guess_y: 0.0
+    initial_guess_z: 0.0
+    initial_guess_roll: 0.0
+    initial_guess_pitch: 0.0
+    initial_guess_yaw: 0.0
+    registration_method: ndt
+    localize_period_sec: 0.1
+    map_leaf_size: 0.10
+    scan_leaf_size: 0.10
+    min_scan_points: 150
+    fitness_threshold: 1.5
+    ndt_resolution: 0.5
+    ndt_step_size: 0.05
+    ndt_transformation_epsilon: 0.001
+    ndt_max_iterations: 60
+    icp_max_correspondence_distance: 0.6
+    icp_transformation_epsilon: 0.0005
+    icp_euclidean_fitness_epsilon: 0.001
+    icp_max_iterations: 80
+    quality_overlap_enabled: false
+    quality_overlap_distance: 0.20
+    quality_overlap_period_sec: 1.0
+    quality_overlap_max_points: 1000
+    # Lightweight timestamp guard only: warn loudly if the latest scan and
+    # latest FAST-LIO odom no longer describe the same sensor frame.
+    timestamp_mismatch_warn_sec: 0.03
+    timestamp_mismatch_log_period_sec: 2.0
+    # Keep only the latest scan input for real-time control. Odom is buffered
+    # briefly so each scan can be matched to the nearest FAST-LIO pose stamp.
+    input_queue_depth: 1
+    executor_threads: 3
+    odom_buffer_duration_sec: 2.0
+    max_scan_odom_delta_sec: 0.05
+    max_scan_age_sec: 0.5

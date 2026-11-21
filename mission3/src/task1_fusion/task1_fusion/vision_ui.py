@@ -4,6 +4,7 @@ import json
 import math
 from pathlib import Path
 import signal
+import sys
 import subprocess
 import tempfile
 import time
@@ -25,7 +26,7 @@ REASONS = {
 
 class VisionWindow:
     def __init__(self, root, corner_config, fusion_config, relative_start_script=None,
-                 monitor_only=False, operator_mode=False):
+                 monitor_only=False, operator_mode=False, fixed_map_script=None):
         import tkinter as tk
         from tkinter import ttk, filedialog, messagebox
         self.root, self.tk, self.messagebox = root, tk, messagebox
@@ -38,11 +39,21 @@ class VisionWindow:
         self.closing = False
         self.node_destroyed = False
         self.relative_start_script = relative_start_script
+        self.fixed_map_script = fixed_map_script
+        if fixed_map_script and relative_start_script:
+            raise ValueError('fixed-map mode and startup-zeroing mode are mutually exclusive')
+        self.fixed_reference_id = None
+        if fixed_map_script:
+            from .task3_config import load_config
+            from .task3_fixed_map import validate
+            fixed_config = load_config(corner_config)
+            validate(fixed_config)
+            self.fixed_reference_id = fixed_config['task3_vision']['ros__parameters']['reference_id']
         self.monitor_only = monitor_only
         self.restart_requested = False
         self.corner_config = tk.StringVar(value=corner_config)
         self.fusion_config = tk.StringVar(value=fusion_config)
-        self.input_mode = tk.StringVar(value='lidar' if relative_start_script else 'fused')
+        self.input_mode = tk.StringVar(value='lidar' if relative_start_script or fixed_map_script else 'fused')
         self.start_fusion = tk.BooleanVar(value=False)
         self.status = tk.StringVar(value='未连接视觉接口')
         self.values = tk.StringVar(value='X: — m     Y: — m     yaw: — °')
@@ -61,7 +72,7 @@ class VisionWindow:
             form.pack(fill='x')
         form.columnconfigure(1, weight=1)
         fields = [('机械参数配置' if relative_start_script else '角点配置', self.corner_config)]
-        if not relative_start_script and not monitor_only:
+        if not relative_start_script and not fixed_map_script and not monitor_only:
             fields.append(('任务一配置', self.fusion_config))
         for row, (label, variable) in enumerate(fields if not monitor_only else []):
             ttk.Label(form, text=label).grid(row=row, column=0, sticky='w', padx=(0, 8), pady=4)
@@ -72,11 +83,11 @@ class VisionWindow:
                     variable.set(path)
             ttk.Button(form, text='选择', command=browse).grid(row=row, column=2, padx=(8, 0))
         modes = ttk.Frame(panel)
-        if not relative_start_script and not monitor_only:
+        if not relative_start_script and not fixed_map_script and not monitor_only:
             modes.pack(fill='x', pady=8)
         ttk.Radiobutton(modes, text='任务一融合结果', value='fused', variable=self.input_mode).pack(side='left')
         ttk.Radiobutton(modes, text='雷达定位结果', value='lidar', variable=self.input_mode).pack(side='left', padx=12)
-        if not relative_start_script and not monitor_only:
+        if not relative_start_script and not fixed_map_script and not monitor_only:
             ttk.Checkbutton(panel, text='同时启动任务一融合（原雷达链路和码盘输入须已运行）',
                             variable=self.start_fusion).pack(anchor='w')
         buttons = ttk.Frame(panel)
@@ -85,6 +96,9 @@ class VisionWindow:
                                       text='建立起点并启动' if relative_start_script else '启动接口',
                                       command=self.start)
         self.start_button.pack(side='left')
+        if fixed_map_script:
+            self.start_button.configure(text='启动固定地图接口')
+            ttk.Label(panel, text='固定正式原点；先完成旧地图定位。启动时不清零，Z延期。').pack(anchor='w')
         self.stop_button = ttk.Button(buttons, text='停止本窗口启动的接口', command=self.stop, state='disabled')
         self.stop_button.pack(side='left', padx=8)
         self.reset_button = None
@@ -108,6 +122,10 @@ class VisionWindow:
                 raise ValueError('vision state must be an object')
             if state.get('schema_version') != 1 or state.get('reference_point') != 'corner':
                 raise ValueError('unexpected vision interface')
+            if self.fixed_reference_id and state.get('reference_id') != self.fixed_reference_id:
+                self.status.set('坐标基准不匹配：请停止旧接口，再启动固定地图接口')
+                self.values.set('X: — m     Y: — m     yaw: — °')
+                return
             self.last_receipt = time.monotonic()
             self.status.set(REASONS.get(state['reason'], state['reason']))
             if state.get('data_source') == 'synthetic_stationary':
@@ -120,7 +138,7 @@ class VisionWindow:
                 self.values.set(f'X: {x:.4f} m     Y: {y:.4f} m     yaw: {math.degrees(yaw):.2f} °')
                 self.details.set(f'参考点：约定角点    坐标系：{data["frame_id"]}    '
                                  f'数据年龄：{state["source_age_sec"]:.3f} s\n'
-                                 f'起点编号：{state.get("reference_id", "未提供")}    Z不作为有效高度')
+                                 f'坐标基准编号：{state.get("reference_id", "未提供")}    Z不作为有效高度')
             else:
                 self.values.set('X: — m     Y: — m     yaw: — °')
                 self.details.set('参考点：约定角点；当前没有可供视觉使用的有效坐标')
@@ -146,13 +164,15 @@ class VisionWindow:
             return
         corner = Path(self.corner_config.get()).expanduser().resolve()
         fusion = Path(self.fusion_config.get()).expanduser().resolve()
-        if not corner.is_file() or (not self.relative_start_script and not fusion.is_file()):
+        if not corner.is_file() or (not self.relative_start_script and not self.fixed_map_script and not fusion.is_file()):
             self.messagebox.showerror('配置不存在', '请选择已存在的角点配置和任务一配置文件。')
             return
         if self.start_fusion.get() and self.input_mode.get() != 'fused':
             self.messagebox.showerror('输入选择', '同时启动任务一时，请选择“任务一融合结果”。')
             return
-        if self.relative_start_script:
+        if self.fixed_map_script:
+            command = [sys.executable, self.fixed_map_script, 'run', '--config', str(corner)]
+        elif self.relative_start_script:
             command = ['bash', self.relative_start_script, '--base-config', str(corner)]
         elif self.start_fusion.get():
             command = ['ros2', 'launch', 'task1_fusion', 'task1.launch.py',
